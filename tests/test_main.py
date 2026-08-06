@@ -1,30 +1,15 @@
-import jupiter_data_transform.main as main_module
+from pathlib import Path
+
+from jupiter_data_transform.main import build_parser, load_mints
 
 
-def test_configure_event_loop_policy_uses_selector_on_windows(monkeypatch) -> None:
-    policy = object()
-    selected: list[object] = []
-
-    monkeypatch.setattr(main_module.sys, "platform", "win32")
-    monkeypatch.setattr(
-        main_module.asyncio,
-        "WindowsSelectorEventLoopPolicy",
-        lambda: policy,
-        raising=False,
-    )
-    monkeypatch.setattr(main_module.asyncio, "set_event_loop_policy", selected.append)
-
-    main_module.configure_event_loop_policy()
-
-    assert selected == [policy]
+def test_cli_names_schema_initialization_explicitly() -> None:
+    args = build_parser().parse_args(["init-schema"])
+    assert args.command == "init-schema"
 
 
-def test_configure_event_loop_policy_is_noop_outside_windows(monkeypatch) -> None:
-    selected: list[object] = []
+def test_load_mints_removes_blanks_comments_and_duplicates(tmp_path: Path) -> None:
+    mints_file = tmp_path / "mints.txt"
+    mints_file.write_text("# comment\nmint-b\n\nmint-a\n", encoding="utf-8")
 
-    monkeypatch.setattr(main_module.sys, "platform", "linux")
-    monkeypatch.setattr(main_module.asyncio, "set_event_loop_policy", selected.append)
-
-    main_module.configure_event_loop_policy()
-
-    assert selected == []
+    assert load_mints(["mint-a"], mints_file) == ["mint-a", "mint-b"]
