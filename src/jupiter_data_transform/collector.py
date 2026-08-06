@@ -1,47 +1,46 @@
 from __future__ import annotations
 
-import asyncio
 import logging
+import time
 from collections.abc import Sequence
-from typing import Protocol
 
-from .models import FetchedToken
+from .jupiter import JupiterClient
+from .repository import JupiterRepository, StoreSummary
 
 LOGGER = logging.getLogger(__name__)
 
 
-class TokenClient(Protocol):
-    async def fetch_tokens(self, mints: Sequence[str]) -> list[FetchedToken]: ...
+def collect_once(
+    client: JupiterClient,
+    repository: JupiterRepository,
+    mints: Sequence[str],
+) -> StoreSummary:
+    fetched_tokens = client.fetch_tokens(mints)
+    summary = repository.store_many(fetched_tokens)
+    LOGGER.info(
+        "collection_completed requested=%d received=%d inserted=%d repeated=%d",
+        len(set(mints)),
+        len(fetched_tokens),
+        summary.inserted,
+        summary.repeated,
+    )
+    return summary
 
 
-class TokenRepository(Protocol):
-    async def store(self, fetched: FetchedToken) -> int: ...
+def run(
+    client: JupiterClient,
+    repository: JupiterRepository,
+    mints: Sequence[str],
+    interval_seconds: float,
+) -> None:
+    if interval_seconds <= 0:
+        raise ValueError("interval_seconds must be greater than zero")
 
-
-class Collector:
-    def __init__(self, client: TokenClient, repository: TokenRepository) -> None:
-        self._client = client
-        self._repository = repository
-
-    async def collect_once(self, mints: Sequence[str]) -> int:
-        fetched_tokens = await self._client.fetch_tokens(mints)
-        for fetched in fetched_tokens:
-            await self._repository.store(fetched)
-
-        LOGGER.info(
-            "collection_completed requested=%d received=%d",
-            len(set(mints)),
-            len(fetched_tokens),
-        )
-        return len(fetched_tokens)
-
-    async def run(self, mints: Sequence[str], interval_seconds: float) -> None:
-        while True:
-            started = asyncio.get_running_loop().time()
-            try:
-                await self.collect_once(mints)
-            except Exception:
-                LOGGER.exception("collection_failed")
-
-            elapsed = asyncio.get_running_loop().time() - started
-            await asyncio.sleep(max(0.0, interval_seconds - elapsed))
+    while True:
+        started = time.monotonic()
+        try:
+            collect_once(client, repository, mints)
+        except Exception:
+            LOGGER.exception("collection_failed")
+        elapsed = time.monotonic() - started
+        time.sleep(max(0.0, interval_seconds - elapsed))
