@@ -1,21 +1,20 @@
 # jupiter-data-transform
 
-Minimaler Python-Collector für Jupiter Tokens V2. Das erste Release speichert jeden empfangenen
-API-Zustand unverändert und erzeugt daraus einen typisierten Snapshot in PostgreSQL.
-
-## Grenze der ersten Version
+Minimaler Python-Collector für Jupiter Tokens V2. Version 0 speichert ausschließlich
+unterschiedliche, vollständige Jupiter-Zustände in PostgreSQL.
 
 ```text
-Jupiter API -> Raw JSONB -> typisierter Snapshot -> PostgreSQL
+Jupiter API -> kanonischer Payload-Hash -> jupiter_observations
 ```
 
-Noch nicht enthalten: Timeframes, Indikatoren, Meteora, Signale, automatische Trades oder Rust.
+Nicht enthalten sind Normalisierung, Timeframes, Indikatoren, Meteora, Signale,
+TimescaleDB oder Rust.
 
 ## Voraussetzungen
 
 - Python 3.11
 - PostgreSQL
-- Jupiter API Key
+- ein Jupiter API Key
 
 ## Installation unter Windows
 
@@ -27,19 +26,16 @@ python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
 ```
 
-Trage anschließend in `.env` den lokalen Datenbankzugang und mindestens einen Jupiter API Key ein.
-Mehrere Keys werden kommasepariert angegeben. `.env` wird nicht committed.
+Trage den lokalen Datenbankzugang und einen API Key in `.env` ein. Die Datei wird
+nicht committed.
 
-## Datenbank anlegen
+## Datenbank und Schema
 
-```sql
-CREATE DATABASE jupiter_data_transform;
-```
-
-Danach:
+Die PostgreSQL-Datenbank muss bereits existieren. Der folgende Befehl erstellt nur
+die Tabelle dieses Projekts:
 
 ```powershell
-jupiter-data-transform init-db
+jupiter-data-transform init-schema
 ```
 
 ## Einen Token einmal abrufen
@@ -52,12 +48,8 @@ jupiter-data-transform collect `
 
 ## Mehrere Tokens regelmäßig abrufen
 
-`mints.txt`:
-
-```text
-JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN
-So11111111111111111111111111111111111111112
-```
+`mints.txt` enthält eine Mint-Adresse pro Zeile. Leerzeilen, Kommentare und doppelte
+Einträge werden ignoriert.
 
 ```powershell
 jupiter-data-transform collect --mints-file mints.txt --interval 60
@@ -65,12 +57,22 @@ jupiter-data-transform collect --mints-file mints.txt --interval 60
 
 Abbruch mit `Ctrl+C`.
 
-## Tabellen
+## Persistenz
 
-- `jupiter_raw_updates`: kompletter Payload, Request- und Empfangszeitpunkt;
-- `jupiter_snapshots`: typisierte Zustandswerte und der zuletzt gemeldete `stats5m`-Stand.
+`jupiter_observations` enthält:
 
-Die Zeitsemantik und Projektgrenze sind in [docs/architecture.md](docs/architecture.md) dokumentiert.
+- `mint`: Token-Identität;
+- `payload_hash`: SHA-256 über kanonisches JSON;
+- `first_seen_at` und `last_seen_at`: lokaler Beobachtungszeitraum;
+- `source_updated_at`: unverändertes optionales Jupiter-`updatedAt`;
+- `seen_count`: Anzahl identischer empfangener Payloads;
+- `payload`: vollständige Jupiter-Antwort als JSONB.
+
+`PRIMARY KEY (mint, payload_hash)` verhindert doppelte Zustände. Ein wiederholter
+identischer Payload aktualisiert nur `last_seen_at` und `seen_count`.
+
+Die Begründung jeder persistierten Information steht in
+[docs/architecture.md](docs/architecture.md).
 
 ## Tests
 
