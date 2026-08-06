@@ -19,18 +19,29 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class StoreSummary:
-    inserted: int
-    repeated: int
+    observations: int
+    new_payloads: int
 
 
-def canonical_payload_hash(payload: dict[str, Any]) -> str:
+def canonical_json_hash(value: Any) -> str:
     canonical = json.dumps(
-        payload,
+        value,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+        allow_nan=False,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def raw_payload_hash(payload: dict[str, Any]) -> str:
+    return canonical_json_hash(payload)
+
+
+def content_payload_hash(payload: dict[str, Any]) -> str:
+    content = dict(payload)
+    content.pop("updatedAt", None)
+    return canonical_json_hash(content)
 
 
 def source_updated_at(payload: dict[str, Any]) -> datetime | None:
@@ -69,53 +80,54 @@ class JupiterRepository:
                 connection.execute(statement)
 
     def store_many(self, fetched_tokens: Sequence[FetchedToken]) -> StoreSummary:
-        inserted = 0
-        repeated = 0
+        observations = 0
+        new_payloads = 0
 
         with psycopg.connect(self._database_url) as connection:
             for fetched in fetched_tokens:
                 payload = fetched.payload
                 mint = payload["id"]
-                payload_hash = canonical_payload_hash(payload)
-                cursor = connection.execute(
+                raw_hash = raw_payload_hash(payload)
+                content_hash = content_payload_hash(payload)
+
+                payload_cursor = connection.execute(
                     """
-                    INSERT INTO jupiter_observations (
+                    INSERT INTO jupiter_payloads (
                         mint,
-                        payload_hash,
-                        first_seen_at,
-                        last_seen_at,
+                        raw_hash,
+                        content_hash,
                         source_updated_at,
-                        seen_count,
                         payload
                     )
-                    VALUES (%s, %s, %s, %s, %s, 1, %s)
-                    ON CONFLICT (mint, payload_hash) DO UPDATE SET
-                        first_seen_at = LEAST(
-                            jupiter_observations.first_seen_at,
-                            EXCLUDED.first_seen_at
-                        ),
-                        last_seen_at = GREATEST(
-                            jupiter_observations.last_seen_at,
-                            EXCLUDED.last_seen_at
-                        ),
-                        seen_count = jupiter_observations.seen_count + 1
-                    RETURNING seen_count
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (mint, raw_hash) DO NOTHING
+                    RETURNING raw_hash
                     """,
                     (
                         mint,
-                        payload_hash,
-                        fetched.received_at,
-                        fetched.received_at,
+                        raw_hash,
+                        content_hash,
                         source_updated_at(payload),
                         Jsonb(payload),
                     ),
                 )
-                row = cursor.fetchone()
-                if row is None:
-                    raise RuntimeError("observation upsert returned no seen_count")
-                if row[0] == 1:
-                    inserted += 1
-                else:
-                    repeated += 1
+                if payload_cursor.fetchone() is not None:
+                    new_payloads += 1
 
-        return StoreSummary(inserted=inserted, repeated=repeated)
+                connection.execute(
+                    """
+                    INSERT INTO jupiter_observations (
+                        mint,
+                        observed_at,
+                        raw_hash
+                    )
+                    VALUES (%s, %s, %s)
+                    """,
+                    (mint, fetched.received_at, raw_hash),
+                )
+                observations += 1
+
+        return StoreSummary(
+            observations=observations,
+            new_payloads=new_payloads,
+        )
