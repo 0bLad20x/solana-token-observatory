@@ -18,11 +18,11 @@ def collect_once(
     fetched_tokens = client.fetch_tokens(mints)
     summary = repository.store_many(fetched_tokens)
     LOGGER.info(
-        "collection_completed requested=%d received=%d inserted=%d repeated=%d",
+        "collection_completed requested=%d received=%d observations=%d new_payloads=%d",
         len(set(mints)),
         len(fetched_tokens),
-        summary.inserted,
-        summary.repeated,
+        summary.observations,
+        summary.new_payloads,
     )
     return summary
 
