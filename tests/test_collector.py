@@ -22,7 +22,10 @@ class FakeRepository:
 
     def store_many(self, fetched_tokens: list[FetchedToken]) -> StoreSummary:
         self.rows.extend(fetched_tokens)
-        return StoreSummary(inserted=len(fetched_tokens), repeated=0)
+        return StoreSummary(
+            observations=len(fetched_tokens),
+            new_payloads=len(fetched_tokens),
+        )
 
 
 def test_collect_once_persists_every_returned_token() -> None:
@@ -30,5 +33,5 @@ def test_collect_once_persists_every_returned_token() -> None:
 
     summary = collect_once(FakeClient(), repository, ["mint-a", "mint-b"])
 
-    assert summary == StoreSummary(inserted=2, repeated=0)
+    assert summary == StoreSummary(observations=2, new_payloads=2)
     assert [row.payload["id"] for row in repository.rows] == ["mint-a", "mint-b"]
