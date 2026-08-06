@@ -3,12 +3,19 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sys
 from pathlib import Path
 
 from .collector import Collector
 from .config import Settings
 from .jupiter import JupiterClient
 from .repository import JupiterRepository
+
+
+def configure_event_loop_policy() -> None:
+    """Select the Windows event loop supported by Psycopg async connections."""
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +71,7 @@ async def run_command(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    configure_event_loop_policy()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
