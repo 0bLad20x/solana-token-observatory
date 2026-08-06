@@ -6,52 +6,117 @@ Version 0 performs one operation:
 
 ```text
 Jupiter Tokens V2 response
-    -> canonical JSON hash
-    -> deduplicated raw observation
-    -> PostgreSQL
+    -> complete raw payload identity
+    -> content identity without updatedAt
+    -> deduplicated payload storage
+    -> ordered local observation log
 ```
 
 There is no typed snapshot, timeframe, indicator or source combination yet.
 
-## Observation identity
+## Two different facts
 
-A stored state is identified by:
+The collector must preserve two independent facts:
+
+1. which complete payload Jupiter returned;
+2. when that payload was observed locally.
+
+A payload and an observation therefore have different identities.
+
+### Payload identity
+
+A stored payload is identified by:
 
 ```text
-(mint, payload_hash)
+(mint, raw_hash)
 ```
 
-The hash is SHA-256 over JSON serialized with sorted object keys and fixed separators.
-Object key order therefore does not create a new state, while every value change does.
+`raw_hash` is SHA-256 over the complete JSON object, serialized with sorted object
+keys and fixed separators. JSON object key order therefore does not create a new
+payload, while every returned value change does.
+
+### Observation identity
+
+Every successfully returned token object creates one row in
+`jupiter_observations`. Its generated `id` preserves insertion order and its
+`observed_at` records the local response time.
+
+Identical payloads are not collapsed into `first_seen_at`, `last_seen_at` and a total
+counter. This preserves sequences such as:
+
+```text
+A -> A -> B -> A
+```
+
+while the JSONB representation of A is stored only once.
+
+## Testing Jupiter updatedAt
 
 Jupiter's official Tokens V2 OpenAPI schema describes `updatedAt` only as
 "Last data update timestamp". It does not specify that the value is unique, monotonic,
-or changed for every field mutation. Therefore:
+or changed for every mutation.
 
-- `payload_hash` decides content equality;
-- `source_updated_at` preserves Jupiter's timestamp as source metadata;
-- `first_seen_at` and `last_seen_at` describe local observation time.
+The collector therefore records three separate signals:
+
+| Signal | Meaning |
+|---|---|
+| `observed_at` | When this collector received the token object. |
+| `source_updated_at` | Jupiter's optional top-level `updatedAt` value. |
+| `raw_hash` | Identity of the complete returned payload, including `updatedAt`. |
+| `content_hash` | Identity of the complete returned payload after removing only top-level `updatedAt`. |
+
+The comparison matrix is:
+
+| `source_updated_at` | `content_hash` | Interpretation |
+|---|---|---|
+| same | same | Jupiter returned the same non-timestamp content. |
+| changed | changed | Jupiter timestamp and content changed together. |
+| same | changed | `updatedAt` is insufficient as the sole state-change signal. |
+| changed | same | `updatedAt` changed without another returned field changing. |
+
+This is an empirical test contract, not an assumption that either outcome is already
+proven.
 
 Official source:
 [Tokens V2 OpenAPI schema](https://github.com/jup-ag/docs/blob/main/openapi-spec/tokens/v2/tokens.yaml)
 
 ## Persisted fields and present value
 
+### `jupiter_payloads`
+
 | Field | Why it exists |
 |---|---|
-| `mint` | Identifies the token whose state was returned. |
-| `payload_hash` | Detects exact semantic payload repetition independently of `updatedAt`. |
-| `first_seen_at` | Records when this exact state was first received. |
-| `last_seen_at` | Records how long Jupiter continued returning this exact state. |
-| `source_updated_at` | Preserves Jupiter's optional source timestamp without treating it as identity. |
-| `seen_count` | Measures repeated delivery without duplicating the JSONB payload. |
-| `payload` | Retains the complete source response for later, evidence-based normalization. |
+| `mint` | Identifies the token whose payload was returned. |
+| `raw_hash` | Deduplicates the complete source payload without trusting `updatedAt`. |
+| `content_hash` | Measures content changes independently of `updatedAt`. |
+| `source_updated_at` | Preserves Jupiter's timestamp as source metadata. |
+| `payload` | Retains the complete source response for later evidence-based normalization. |
+
+### `jupiter_observations`
+
+| Field | Why it exists |
+|---|---|
+| `id` | Preserves the local order of successful returned observations. |
+| `mint` | Supports token-local chronological queries and the payload foreign key. |
+| `observed_at` | Records when the collector received this exact response. |
+| `raw_hash` | Links the observation to the complete deduplicated payload. |
+
+## Scope of an observation
+
+An observation currently means one valid token object returned by a successful Tokens
+V2 response. The current baseline does not persist:
+
+- failed HTTP attempts;
+- a requested mint omitted from a successful response;
+- HTTP response headers or original JSON bytes.
+
+These are explicit boundaries. A separate request-attempt entity is introduced only if
+missing-response or transport-history requirements justify it.
 
 ## Deliberately absent
 
-- `request_id`: no request entity or current query requires it;
+- `request_id`: no persisted request-attempt entity currently requires it;
 - typed snapshot columns: the normalization contract has not been established;
-- a second 1:1 table: it would duplicate identity and time fields;
 - asynchronous execution: current work is one HTTP request followed by one transaction;
 - automatic schema creation during collection: schema changes are an explicit command;
 - TimescaleDB: no measured volume or timeframe workload currently requires it;
@@ -59,6 +124,7 @@ Official source:
 
 ## Next decision boundary
 
-Normalization starts only after collected payloads establish which fields are stable,
-which fields are states, and which fields are rolling windows. TimescaleDB is evaluated
-only after data volume and real query patterns have been measured.
+Collect enough ordered observations to compare `source_updated_at` with `content_hash`.
+Only that evidence can determine whether `updatedAt` is a sufficient long-term change
+signal or whether content hashing must remain part of the production contract.
+Normalization and TimescaleDB remain later, independent decisions.
