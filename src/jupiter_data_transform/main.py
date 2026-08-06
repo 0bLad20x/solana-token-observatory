@@ -14,9 +14,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jupiter-data-transform")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("init-schema", help="Create the PostgreSQL table")
+    subparsers.add_parser("init-schema", help="Create the PostgreSQL tables")
 
-    collect = subparsers.add_parser("collect", help="Collect Jupiter token states")
+    collect = subparsers.add_parser("collect", help="Collect Jupiter token observations")
     collect.add_argument("--mint", action="append", default=[], help="Mint address; repeatable")
     collect.add_argument("--mints-file", type=Path, help="Text file with one mint per line")
     collect.add_argument("--once", action="store_true", help="Run one collection cycle and exit")
