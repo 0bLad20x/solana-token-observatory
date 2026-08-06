@@ -1,46 +1,40 @@
 from __future__ import annotations
 
-from functools import cached_property
+import os
+from dataclasses import dataclass
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
 
-class Settings(BaseSettings):
-    """Runtime configuration loaded from environment variables or a local .env file."""
+def _required(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise ValueError(f"{name} must not be empty")
+    return value
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
 
-    database_url: str = Field(alias="DATABASE_URL")
-    jupiter_api_keys_raw: str = Field(alias="JUPITER_API_KEYS")
-    jupiter_base_url: str = Field(default="https://api.jup.ag", alias="JUPITER_BASE_URL")
-    jupiter_request_timeout_seconds: float = Field(
-        default=20.0,
-        gt=0,
-        alias="JUPITER_REQUEST_TIMEOUT_SECONDS",
-    )
-    collect_interval_seconds: float = Field(
-        default=60.0,
-        gt=0,
-        alias="COLLECT_INTERVAL_SECONDS",
-    )
+def _positive_float(name: str, default: str) -> float:
+    value = float(os.getenv(name, default))
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
 
-    @field_validator("database_url", "jupiter_api_keys_raw")
+
+@dataclass(frozen=True, slots=True)
+class Settings:
+    database_url: str
+    jupiter_api_key: str
+    jupiter_base_url: str
+    request_timeout_seconds: float
+    collect_interval_seconds: float
+
     @classmethod
-    def reject_blank_values(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("must not be empty")
-        return value
-
-    @cached_property
-    def jupiter_api_keys(self) -> tuple[str, ...]:
-        keys = tuple(key.strip() for key in self.jupiter_api_keys_raw.split(",") if key.strip())
-        if not keys:
-            raise ValueError("JUPITER_API_KEYS must contain at least one API key")
-        return keys
+    def from_env(cls) -> Settings:
+        load_dotenv()
+        return cls(
+            database_url=_required("DATABASE_URL"),
+            jupiter_api_key=_required("JUPITER_API_KEY"),
+            jupiter_base_url=os.getenv("JUPITER_BASE_URL", "https://api.jup.ag").rstrip("/"),
+            request_timeout_seconds=_positive_float("JUPITER_REQUEST_TIMEOUT_SECONDS", "20"),
+            collect_interval_seconds=_positive_float("COLLECT_INTERVAL_SECONDS", "60"),
+        )
