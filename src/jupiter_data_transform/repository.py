@@ -2,125 +2,121 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from importlib.resources import files
+from typing import Any
 
+import psycopg
 from psycopg.types.json import Jsonb
-from psycopg_pool import AsyncConnectionPool
 
-from .models import FetchedToken, TokenSnapshot
+from .jupiter import FetchedToken
+
+LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class StoreSummary:
+    inserted: int
+    repeated: int
+
+
+def canonical_payload_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def source_updated_at(payload: dict[str, Any]) -> datetime | None:
+    value = payload.get("updatedAt")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        LOGGER.warning("invalid_updated_at_type mint=%s", payload.get("id"))
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        LOGGER.warning("invalid_updated_at_value mint=%s value=%r", payload.get("id"), value)
+        return None
+
+    if parsed.tzinfo is None:
+        LOGGER.warning("naive_updated_at_value mint=%s value=%r", payload.get("id"), value)
+        return None
+    return parsed
 
 
 class JupiterRepository:
     def __init__(self, database_url: str) -> None:
-        self._pool = AsyncConnectionPool(
-            conninfo=database_url,
-            min_size=1,
-            max_size=5,
-            open=False,
-        )
+        self._database_url = database_url
 
-    async def __aenter__(self) -> JupiterRepository:
-        await self.open()
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        await self.close()
-
-    async def open(self) -> None:
-        await self._pool.open()
-        await self._pool.wait()
-
-    async def close(self) -> None:
-        await self._pool.close()
-
-    async def initialize_schema(self) -> None:
+    def initialize_schema(self) -> None:
         schema_path = files("jupiter_data_transform").joinpath("sql/001_initial.sql")
-        schema_sql = schema_path.read_text(encoding="utf-8")
-        statements = [statement.strip() for statement in schema_sql.split(";") if statement.strip()]
-        async with self._pool.connection() as connection:
+        statements = [
+            statement.strip()
+            for statement in schema_path.read_text(encoding="utf-8").split(";")
+            if statement.strip()
+        ]
+        with psycopg.connect(self._database_url) as connection:
             for statement in statements:
-                await connection.execute(statement)
+                connection.execute(statement)
 
-    async def store(self, fetched: FetchedToken) -> int:
-        snapshot = TokenSnapshot.from_fetched(fetched)
-        canonical_payload = json.dumps(
-            fetched.payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        payload_hash = hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+    def store_many(self, fetched_tokens: Sequence[FetchedToken]) -> StoreSummary:
+        inserted = 0
+        repeated = 0
 
-        async with self._pool.connection() as connection:
-            async with connection.transaction():
-                cursor = await connection.execute(
-                    """
-                    INSERT INTO jupiter_raw_updates (
-                        request_id, mint, source_updated_at, received_at, payload_hash, payload
+        with psycopg.connect(self._database_url) as connection:
+            with connection.transaction():
+                for fetched in fetched_tokens:
+                    payload = fetched.payload
+                    mint = payload["id"]
+                    payload_hash = canonical_payload_hash(payload)
+                    cursor = connection.execute(
+                        """
+                        INSERT INTO jupiter_observations (
+                            mint,
+                            payload_hash,
+                            first_seen_at,
+                            last_seen_at,
+                            source_updated_at,
+                            seen_count,
+                            payload
+                        )
+                        VALUES (%s, %s, %s, %s, %s, 1, %s)
+                        ON CONFLICT (mint, payload_hash) DO UPDATE SET
+                            first_seen_at = LEAST(
+                                jupiter_observations.first_seen_at,
+                                EXCLUDED.first_seen_at
+                            ),
+                            last_seen_at = GREATEST(
+                                jupiter_observations.last_seen_at,
+                                EXCLUDED.last_seen_at
+                            ),
+                            seen_count = jupiter_observations.seen_count + 1
+                        RETURNING seen_count
+                        """,
+                        (
+                            mint,
+                            payload_hash,
+                            fetched.received_at,
+                            fetched.received_at,
+                            source_updated_at(payload),
+                            Jsonb(payload),
+                        ),
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (
-                        fetched.request_id,
-                        snapshot.mint,
-                        snapshot.source_updated_at,
-                        snapshot.observed_at,
-                        payload_hash,
-                        Jsonb(fetched.payload),
-                    ),
-                )
-                raw_row = await cursor.fetchone()
-                if raw_row is None:
-                    raise RuntimeError("raw Jupiter insert returned no id")
-                raw_update_id = int(raw_row[0])
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("observation upsert returned no seen_count")
+                    if row[0] == 1:
+                        inserted += 1
+                    else:
+                        repeated += 1
 
-                await connection.execute(
-                    """
-                    INSERT INTO jupiter_snapshots (
-                        raw_update_id, request_id, mint, observed_at, source_updated_at,
-                        name, symbol, decimals, token_program, price_block_id,
-                        usd_price, market_cap, fdv, liquidity, holder_count,
-                        circ_supply, total_supply, organic_score, is_verified,
-                        buy_volume_5m, sell_volume_5m, num_buys_5m, num_sells_5m,
-                        num_traders_5m, holder_change_5m
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s,
-                        %s, %s, %s, %s,
-                        %s, %s
-                    )
-                    """,
-                    (
-                        raw_update_id,
-                        snapshot.request_id,
-                        snapshot.mint,
-                        snapshot.observed_at,
-                        snapshot.source_updated_at,
-                        snapshot.name,
-                        snapshot.symbol,
-                        snapshot.decimals,
-                        snapshot.token_program,
-                        snapshot.price_block_id,
-                        snapshot.usd_price,
-                        snapshot.market_cap,
-                        snapshot.fdv,
-                        snapshot.liquidity,
-                        snapshot.holder_count,
-                        snapshot.circ_supply,
-                        snapshot.total_supply,
-                        snapshot.organic_score,
-                        snapshot.is_verified,
-                        snapshot.buy_volume_5m,
-                        snapshot.sell_volume_5m,
-                        snapshot.num_buys_5m,
-                        snapshot.num_sells_5m,
-                        snapshot.num_traders_5m,
-                        snapshot.holder_change_5m,
-                    ),
-                )
-
-        return raw_update_id
+        return StoreSummary(inserted=inserted, repeated=repeated)
