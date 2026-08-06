@@ -73,50 +73,49 @@ class JupiterRepository:
         repeated = 0
 
         with psycopg.connect(self._database_url) as connection:
-            with connection.transaction():
-                for fetched in fetched_tokens:
-                    payload = fetched.payload
-                    mint = payload["id"]
-                    payload_hash = canonical_payload_hash(payload)
-                    cursor = connection.execute(
-                        """
-                        INSERT INTO jupiter_observations (
-                            mint,
-                            payload_hash,
-                            first_seen_at,
-                            last_seen_at,
-                            source_updated_at,
-                            seen_count,
-                            payload
-                        )
-                        VALUES (%s, %s, %s, %s, %s, 1, %s)
-                        ON CONFLICT (mint, payload_hash) DO UPDATE SET
-                            first_seen_at = LEAST(
-                                jupiter_observations.first_seen_at,
-                                EXCLUDED.first_seen_at
-                            ),
-                            last_seen_at = GREATEST(
-                                jupiter_observations.last_seen_at,
-                                EXCLUDED.last_seen_at
-                            ),
-                            seen_count = jupiter_observations.seen_count + 1
-                        RETURNING seen_count
-                        """,
-                        (
-                            mint,
-                            payload_hash,
-                            fetched.received_at,
-                            fetched.received_at,
-                            source_updated_at(payload),
-                            Jsonb(payload),
-                        ),
+            for fetched in fetched_tokens:
+                payload = fetched.payload
+                mint = payload["id"]
+                payload_hash = canonical_payload_hash(payload)
+                cursor = connection.execute(
+                    """
+                    INSERT INTO jupiter_observations (
+                        mint,
+                        payload_hash,
+                        first_seen_at,
+                        last_seen_at,
+                        source_updated_at,
+                        seen_count,
+                        payload
                     )
-                    row = cursor.fetchone()
-                    if row is None:
-                        raise RuntimeError("observation upsert returned no seen_count")
-                    if row[0] == 1:
-                        inserted += 1
-                    else:
-                        repeated += 1
+                    VALUES (%s, %s, %s, %s, %s, 1, %s)
+                    ON CONFLICT (mint, payload_hash) DO UPDATE SET
+                        first_seen_at = LEAST(
+                            jupiter_observations.first_seen_at,
+                            EXCLUDED.first_seen_at
+                        ),
+                        last_seen_at = GREATEST(
+                            jupiter_observations.last_seen_at,
+                            EXCLUDED.last_seen_at
+                        ),
+                        seen_count = jupiter_observations.seen_count + 1
+                    RETURNING seen_count
+                    """,
+                    (
+                        mint,
+                        payload_hash,
+                        fetched.received_at,
+                        fetched.received_at,
+                        source_updated_at(payload),
+                        Jsonb(payload),
+                    ),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError("observation upsert returned no seen_count")
+                if row[0] == 1:
+                    inserted += 1
+                else:
+                    repeated += 1
 
         return StoreSummary(inserted=inserted, repeated=repeated)
