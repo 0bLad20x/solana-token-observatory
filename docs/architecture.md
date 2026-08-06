@@ -56,7 +56,7 @@ Jupiter's official Tokens V2 OpenAPI schema describes `updatedAt` only as
 "Last data update timestamp". It does not specify that the value is unique, monotonic,
 or changed for every mutation.
 
-The collector therefore records three separate signals:
+The collector therefore records four separate signals:
 
 | Signal | Meaning |
 |---|---|
