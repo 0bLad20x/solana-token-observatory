@@ -1,48 +1,65 @@
 # jupiter-data-transform
 
-Kleine Python-Anwendung zum automatischen Entdecken von Solana-Mints und zum regelmäßigen Abrufen ihrer Jupiter-Tokens-V2-Daten.
+Automatische Discovery von Solana-Mints und regelmäßige Erfassung ihrer Jupiter-Tokens-V2-Zustände in PostgreSQL.
 
 ## Datenfluss
 
-```text
-PumpPortal subscribeNewToken ─┐
-Jupiter /tokens/v2/recent ────┤
-Meteora DAMM v2 ──────────────┼─> mints
-Meteora DLMM ─────────────────┘
-                                  ↓
-                         aktive Priority-1-Mints
-                                  ↓
-                       Batches mit maximal 100 Mints
-                                  ↓
-                        Jupiter /tokens/v2/search
-                                  ↓
-                         updatedAt verändert?
-                           │             │
-                          nein           ja
-                           │             │
-                     kein Snapshot   mint_snapshots
+```mermaid
+flowchart LR
+    subgraph Discovery
+        P[PumpPortal<br/>subscribeNewToken]
+        JR[Jupiter<br/>/tokens/v2/recent]
+        MD[Meteora<br/>DAMM v2]
+        ML[Meteora<br/>DLMM]
+    end
+
+    P --> M[(mints)]
+    JR --> M
+    MD --> M
+    ML --> M
+
+    M --> C[aktive Priority-1-Mints]
+    C --> B[Batching<br/>max. 100 Mints]
+    B --> JS[Jupiter<br/>/tokens/v2/search]
+    JS --> U{updatedAt<br/>geändert?}
+    U -- nein --> X[kein neuer Snapshot]
+    U -- ja --> S[(mint_snapshots)]
 ```
 
-Discovery liefert ausschließlich Mint-Adressen. Tokeninformationen kommen anschließend von Jupiter Search.
+Discovery-Quellen liefern ausschließlich Mint-Adressen. Die eigentlichen Tokeninformationen kommen anschließend von Jupiter Search.
 
 ## Struktur
 
 ```text
-src/
-├── main.py
-├── config.py
-├── discovery.py
-├── refresh.py
-├── repository.py
-├── sampling_rate.py
-└── schema.sql
+jupiter-data-transform/
+├── src/
+│   ├── main.py
+│   ├── config.py
+│   ├── discovery.py
+│   ├── refresh.py
+│   ├── repository.py
+│   ├── sampling_rate.py
+│   └── schema.sql
+├── docs/
+│   └── architecture.md
+├── AGENTS.md
+├── README.md
+├── requirements.txt
+├── pyproject.toml
+├── .env.example
+└── .gitignore
 ```
 
-Keine weiteren Python-Unterordner und kein doppeltes `src/jupiter_data_transform`-Package.
+Die Python-Struktur bleibt bewusst flach. Neue Unterordner werden nur eingeführt, wenn eine tatsächliche fachliche Grenze sie rechtfertigt.
+
+## Voraussetzungen
+
+- Python 3.14
+- PostgreSQL
+- Jupiter API Keys
+- PumpPortal API Key
 
 ## Installation
-
-Python 3.14 verwenden.
 
 ```powershell
 py -3.14 -m venv .venv
@@ -52,6 +69,8 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
+Danach die lokalen Zugangsdaten in `.env` eintragen. `.env` wird nicht committed.
+
 ## Start
 
 ```powershell
@@ -59,14 +78,40 @@ python src/main.py init-schema
 python src/main.py run
 ```
 
+## Komponenten
+
+| Komponente | Aufgabe |
+|---|---|
+| PumpPortal | neue Token-Mints per WebSocket entdecken |
+| Jupiter Recent | neue Mints über `/tokens/v2/recent` entdecken |
+| Meteora DAMM v2 | Mints aus aktuellen Pools entdecken |
+| Meteora DLMM | Mints aus DLMM-Pools entdecken |
+| Jupiter Search | bekannte aktive Mints in Batches aktualisieren |
+| Repository | Mints und veränderte Jupiter-Zustände persistieren |
+
 ## Persistenz
 
-`mints` enthält bekannte Mint-Adressen, Basisdaten sowie `priority` und `tracking_enabled`.
+### `mints`
 
-`mint_snapshots` erhält nur dann einen neuen vollständigen Jupiter-Payload, wenn sich `updatedAt` gegenüber dem zuletzt gespeicherten Zustand des Mints geändert hat. `observed_at` ist der lokale Empfangszeitpunkt.
+Zentrale Registry der bekannten Mint-Adressen. Neue Discovery-Ergebnisse werden aktuell mit `priority = 1` und `tracking_enabled = true` aufgenommen.
 
-## Noch nicht implementiert
+### `mint_snapshots`
 
-Lifecycle-Regeln, Timeframes/OHLC, TimescaleDB, automatische Verdichtung und Unit-Tests.
+Speichert einen vollständigen Jupiter-Payload nur dann neu, wenn sich `updatedAt` gegenüber dem zuletzt bekannten Zustand des Mints verändert hat.
 
-Siehe `docs/architecture.md`.
+`observed_at` hält den lokalen Empfangszeitpunkt fest.
+
+## Aktuelle Grenze
+
+Noch nicht Bestandteil des Systems sind:
+
+- Lifecycle-Regeln zur Priorisierung oder Deaktivierung;
+- Timeframes / OHLC;
+- TimescaleDB;
+- automatische Datenverdichtung;
+- weitergehende Normalisierung;
+- Unit-Tests.
+
+Die technische Architektur ist in [`docs/architecture.md`](docs/architecture.md) beschrieben.
+
+Regeln für zukünftige Änderungen stehen in [`AGENTS.md`](AGENTS.md).
