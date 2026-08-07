@@ -16,7 +16,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3,<9",
     "ruff>=0.6,<1",
 ]
 
@@ -28,9 +27,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 jupiter_data_transform = ["sql/*.sql"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
