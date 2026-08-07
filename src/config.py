@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -37,11 +38,9 @@ class Settings:
         return 60.0 / self.jupiter_calls_per_minute
 
     @classmethod
-    def from_env(cls) -> Settings:
-        load_dotenv()
-        search_keys = [
-            k.strip() for k in _required("JUPITER_SEARCH_API_KEYS").split(",") if k.strip()
-        ]
+    def from_env(cls) -> "Settings":
+        load_dotenv(dotenv_path=Path.cwd() / ".env")
+        search_keys = [k.strip() for k in _required("JUPITER_SEARCH_API_KEYS").split(",") if k.strip()]
         return cls(
             database_url=_required("DATABASE_URL"),
             jupiter_search_api_keys=search_keys,

@@ -1,36 +1,6 @@
-[build-system]
-requires = ["setuptools>=69"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "jupiter-data-transform"
-version = "0.1.0"
-description = "Minimal Jupiter token state collector with PostgreSQL persistence"
-readme = "README.md"
-requires-python = ">=3.11,<3.12"
-dependencies = [
-    "httpx>=0.27,<1",
-    "psycopg[binary]>=3.2,<4",
-    "python-dotenv>=1.0,<2",
-]
-
-[project.optional-dependencies]
-dev = [
-    "ruff>=0.6,<1",
-]
-
-[project.scripts]
-jupiter-data-transform = "jupiter_data_transform.main:main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-jupiter_data_transform = ["sql/*.sql"]
-
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
