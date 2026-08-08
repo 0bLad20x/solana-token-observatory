@@ -2,18 +2,19 @@
 
 ## Zweck
 
-Dieses Dokument definiert die verbindliche Arbeitsweise für Änderungen an `jupiter-data-transform`.
+Dieses Dokument definiert nur die verbindlichen Regeln für Änderungen an `jupiter-data-transform`. Projektbeschreibung, Bedienung und Architektur werden nicht hier dupliziert.
 
-## Einstieg
+## Verbindlicher Einstieg
 
 Vor jeder Änderung:
 
-1. `README.md` lesen.
-2. `docs/architecture.md` lesen.
+1. [`README.md`](README.md) lesen.
+2. [`docs/architecture.md`](docs/architecture.md) lesen.
 3. Die direkt betroffenen Dateien vollständig lesen.
-4. Den aktuellen Datenfluss verstehen, bevor Code verändert wird.
+4. Bei Diagnose-/Policy-Arbeit zusätzlich [`docs/DIAGNOSTIC_PHASES.md`](docs/DIAGNOSTIC_PHASES.md) lesen.
+5. Bei GMGN-Arbeit zusätzlich [`docs/GMGN_FIELDS_REFERENCE.md`](docs/GMGN_FIELDS_REFERENCE.md) lesen.
 
-Keine Annahmen über Verhalten treffen, das nicht im Code oder in der Dokumentation belegt ist.
+Keine Annahmen über Verhalten treffen, das nicht im Code, in persistierten Datenverträgen oder in diesen Authorities belegt ist.
 
 ## First Principles
 
@@ -21,122 +22,84 @@ Keine Annahmen über Verhalten treffen, das nicht im Code oder in der Dokumentat
 
 Vermeiden:
 
-- Quick Fixes;
-- zusätzliche Abstraktionen ohne konkrete Notwendigkeit;
-- neue Unterordner für wenige kleine Dateien;
+- Quick Fixes und versteckte Fallbacks;
+- zusätzliche Abstraktionen ohne konkrete Verantwortung;
 - parallele Implementierungen derselben Verantwortung;
-- versteckte Fallbacks;
-- unnötige Dependencies.
+- Kopien bestehender Dokumentations-Authorities;
+- unnötige Dependencies oder dauerhafte Zwischenartefakte;
+- implizite Änderungen von Daten- oder Policy-Semantik.
 
-Bevor neue Struktur eingeführt wird, prüfen, ob die bestehende flache Struktur ausreicht.
+Die bestehende Struktur wird erweitert, wenn eine neue fachliche Grenze existiert — nicht vorsorglich.
 
-## Aktuelle Architekturgrenzen
+## Harte Systemgrenzen
 
-```text
-main.py
-    Prozessstart und Zusammenführung
+Diese Invarianten gelten, solange sie nicht ausdrücklich als Architekturänderung beschlossen werden:
 
-config.py
-    Environment-Konfiguration
+- Discovery entdeckt Mint-Adressen; sie bewertet keine Lifecycle-Entscheidungen.
+- Jupiter Search ist die operative Quelle der gespeicherten Token-Snapshots.
+- PostgreSQL-Zugriffe des Python-Collectors gehören in `repository.py`.
+- Ein erfolgreicher Poll ist nicht dasselbe wie ein neuer Snapshot.
+- `missing` oder `unknown` ist niemals automatisch numerische Null.
+- GMGN ist zusätzliche Evidenz und darf fehlende Jupiter-Daten nicht stillschweigend ersetzen.
+- Das Diagnose-Framework bleibt read-only gegenüber operativer Priority und `tracking_enabled`.
+- `p2`, `p3` und `retire` bleiben Shadow-Actions, bis eine Produktionsänderung ausdrücklich beauftragt und durch Outcomes abgesichert ist.
+- Diagnosephasen behalten ihre eigenen Populationen und Nenner; Cross-Phase-Vergleiche folgen `docs/DIAGNOSTIC_PHASES.md`.
 
-discovery.py
-    ausschließlich Mint-Adressen entdecken
+## Daten und Persistenz
 
-refresh.py
-    bekannte Mints über Jupiter Search aktualisieren
+Persistente Schemaänderungen erfolgen explizit in `src/schema.sql`.
 
-repository.py
-    PostgreSQL lesen und schreiben
+Keine versteckte Schema-Migration im normalen Lauf einführen.
 
-schema.sql
-    persistentes Datenmodell
-```
-
-Diese Verantwortlichkeiten nicht ohne klaren architektonischen Grund vermischen.
-
-- Discovery bewertet keine Tokens und speichert keine Marktlogik.
-- Jupiter Search ist die Quelle für die gespeicherten Token-Snapshots.
-- PostgreSQL-Zugriffe gehören in `repository.py`.
-- Prozess-Orchestrierung gehört in `main.py`.
-- Konfiguration gehört in `config.py`.
-
-## Struktur
-
-Die Anwendung ist bewusst kein verschachteltes Python-Package.
-
-Neue Module nur dann anlegen, wenn dadurch eine echte Verantwortung getrennt wird. Neue Verzeichnisse nur dann anlegen, wenn mehrere zusammengehörige Module eine stabile eigene Domäne bilden.
-
-## Dependencies
-
-Es gibt genau eine Dependency-Datei:
-
-```text
-requirements.txt
-```
-
-Neue Pakete nur hinzufügen, wenn die Standardbibliothek oder bestehende Dependencies die Aufgabe nicht sinnvoll lösen.
-
-`pyproject.toml` dient derzeit ausschließlich der Tool-Konfiguration.
-
-## Datenbank
-
-Schemaänderungen müssen explizit in `src/schema.sql` erfolgen.
-
-Keine automatische oder versteckte Schema-Migration beim normalen Lauf einführen.
-
-Persistierte Felder brauchen einen konkreten aktuellen Zweck.
+Runtime- und Diagnose-Artefakte sind keine zweite Source of Truth für Code oder Methodik. Die fachliche Authority bleibt im Code beziehungsweise in den dafür benannten Dokumenten.
 
 ## Fehlerbehandlung
 
-Fehler dürfen sichtbar sein.
+Fehler müssen sichtbar bleiben.
 
-Keine stillen `except`-Blöcke und keine Fallbacks, die Datenverlust oder fehlerhafte Zustände verdecken.
+Keine stillen `except`-Blöcke und keine Fallbacks, die Datenverlust, fehlgeschlagene Polls oder unbekannte Zustände als valide Daten erscheinen lassen.
 
-Lang laufende Discovery- oder Refresh-Loops dürfen einzelne externe Fehler überleben, müssen diese aber eindeutig loggen.
+Lang laufende Loops dürfen einzelne externe Fehler überleben, müssen sie aber eindeutig loggen.
 
 ## Scope
 
-Nur die angeforderte Änderung durchführen.
+Nur Änderungen durchführen, die für die angeforderte Aufgabe oder zur Vermeidung eines dadurch entstehenden inkonsistenten Zustands notwendig sind.
 
-Keine nebenläufigen Refactorings, neuen Features oder Architekturänderungen ohne Notwendigkeit.
+Keine beiläufigen Features oder Refactorings.
 
 ## Validierung
 
-Das Projekt verwendet derzeit keine Unit-Tests.
-
-Nicht eigenständig eine Test-Infrastruktur einführen.
-
-Mindestens:
+Mindestens die zur Änderung passenden Checks ausführen. Für allgemeine Python-Änderungen:
 
 ```powershell
 python -m compileall -q src
-python src/main.py --help
+python -m unittest discover -s tests -v
 ```
 
-Für Änderungen an externen Integrationen zusätzlich den betroffenen realen Ablauf manuell prüfen.
+Für CLI- oder Entry-Point-Änderungen zusätzlich den betroffenen `--help`-Aufruf prüfen.
+
+Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf validieren.
 
 ## Dokumentation
 
-Wenn sich Datenfluss, Struktur, Startbefehl, Konfiguration oder Persistenz ändern, müssen `README.md` und gegebenenfalls `docs/architecture.md` im selben Arbeitsschritt angepasst werden.
+Dauerhafte Dokumentation hat genau eine Authority pro Frage:
 
-Dokumentation beschreibt den tatsächlich implementierten Zustand, keine geplante Architektur.
+- `README.md`: Zweck, Einstieg und Bedienung.
+- `docs/architecture.md`: Komponenten, Datenfluss und Systemgrenzen.
+- `docs/DIAGNOSTIC_PHASES.md`: Diagnosemethodik und zulässige Schlussfolgerungen.
+- `docs/GMGN_FIELDS_REFERENCE.md`: GMGN-Felder und deren Semantik.
+- `AGENTS.md`: Änderungsregeln.
+
+Änderungshistorie gehört in Git. Refactoring-Notizen werden nach Abschluss entfernt. Generierte Artefakte werden nicht als Dokumentationskopie verwendet.
+
+Wenn sich Datenfluss, Bedienung, Persistenz oder Methodik ändern, muss im selben Arbeitsschritt die zuständige Authority angepasst werden.
 
 ## Git
 
-Keine Secrets committen.
-
-Insbesondere niemals:
-
-```text
-.env
-.venv/
-__pycache__/
-```
+Keine Secrets committen. Insbesondere niemals `.env`, virtuelle Environments oder lokale Runtime-Daten.
 
 GitHub-Änderungen nur durchführen, wenn sie ausdrücklich angefordert wurden.
 
 ## Kommunikation
 
-Erklärungen kurz und konkret halten.
-
-Technische Begriffe, Dateinamen, Commands und Code-Bezeichner bleiben in ihrer Originalsprache.
+Erklärungen kurz und konkret halten. Technische Begriffe, Dateinamen, Commands und Code-Bezeichner bleiben in ihrer Originalsprache.
