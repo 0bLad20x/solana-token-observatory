@@ -40,7 +40,11 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv(dotenv_path=Path.cwd() / ".env")
-        search_keys = [k.strip() for k in _required("JUPITER_SEARCH_API_KEYS").split(",") if k.strip()]
+        search_keys = [
+            key.strip()
+            for key in _required("JUPITER_SEARCH_API_KEYS").splitlines()
+            if key.strip()
+        ]
         return cls(
             database_url=_required("DATABASE_URL"),
             jupiter_search_api_keys=search_keys,

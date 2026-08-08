@@ -14,11 +14,13 @@ CREATE TABLE IF NOT EXISTS mints (
     mint_authority_disabled BOOLEAN,
     freeze_authority_disabled BOOLEAN,
     tracking_enabled BOOLEAN NOT NULL DEFAULT true,
-    priority INTEGER NOT NULL DEFAULT 1
+    priority INTEGER NOT NULL DEFAULT 1,
+    last_polled_at TIMESTAMPTZ,
+    unchanged_since TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS ix_mints_priority_tracking
-    ON mints (priority)
+CREATE INDEX IF NOT EXISTS ix_mints_priority_tracking_mint
+    ON mints (priority, mint)
     WHERE tracking_enabled = true;
 
 CREATE TABLE IF NOT EXISTS mint_snapshots (
