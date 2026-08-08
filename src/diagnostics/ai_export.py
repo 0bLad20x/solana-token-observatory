@@ -582,7 +582,7 @@ def _phase_contract(number: int, key: str, question: str, denominator: str) -> d
         "key": key,
         "question": question,
         "primary_denominator": denominator,
-        "methodology": f"analysis/DIAGNOSTIC_PHASES.md#{anchors[number]}",
+        "methodology": f"docs/DIAGNOSTIC_PHASES.md#{anchors[number]}",
     }
 
 
@@ -637,7 +637,7 @@ def build_ai_analysis_bundle(
         "policy_state": f"data/{POLICY_STATE_PATH.name}",
         "decision_events": f"data/{DECISION_EVENTS_PATH.name}",
         "region_transitions": f"data/{REGION_TRANSITIONS_PATH.name}",
-        "methodology": "analysis/DIAGNOSTIC_PHASES.md",
+        "methodology": "docs/DIAGNOSTIC_PHASES.md",
     }
     manifests = {
         name: _artifact_manifest(
@@ -681,7 +681,7 @@ def build_ai_analysis_bundle(
             "creates_lifecycle_table": False,
             "contains_full_per_mint_histories": False,
         },
-        "methodology_document": "analysis/DIAGNOSTIC_PHASES.md",
+        "methodology_document": "docs/DIAGNOSTIC_PHASES.md",
         "interpretation_contract": {
             "missing_is_zero": False,
             "unknown_is_inactive": False,
