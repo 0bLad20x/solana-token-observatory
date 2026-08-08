@@ -13,6 +13,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 ANALYSIS_DIR = PROJECT_ROOT / "analysis"
+DOCS_DIR = PROJECT_ROOT / "docs"
 
 OUTPUT_PATH = DATA_DIR / "investigation_report.json"
 POLICY_RULES_PATH = DATA_DIR / "policy_rules.json"
@@ -33,10 +34,9 @@ REGION_POPULATION_RUNS_PATH = DATA_DIR / "region_population_runs.jsonl"
 REGION_FLOW_PATH = DATA_DIR / "region_flow.json"
 COHORT_OUTCOMES_PATH = DATA_DIR / "cohort_outcomes.json"
 
-# Human-readable methodology and one bounded, machine-readable export.  The
-# export is intentionally overwritten instead of archived on every monitor
-# cycle so Git repositories do not grow with redundant snapshots.
-PHASE_GUIDE_PATH = ANALYSIS_DIR / "DIAGNOSTIC_PHASES.md"
+# The methodology has one canonical human-readable authority under docs/.
+# analysis/ is reserved for generated machine-readable output.
+PHASE_GUIDE_PATH = DOCS_DIR / "DIAGNOSTIC_PHASES.md"
 AI_ANALYSIS_BUNDLE_PATH = ANALYSIS_DIR / "diagnostics_ai_bundle.json"
 
 # How much history the derived artifacts look back on.
