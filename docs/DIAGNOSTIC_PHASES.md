@@ -391,7 +391,7 @@ gezählt und aus der aktuellen Entscheidung ausgeschlossen.
 
 ## 4. Reihenfolge für eine KI-Auswertung
 
-1. `meta`, `source_manifest` und `quality_gates` prüfen.
+1. `schema_version`, `methodology_version`, `exported_at`, `source_manifest` und `quality_gates` prüfen.
 2. Collector Health und Technical Validation prüfen.
 3. Phase 6 lesen: Welche Regel matcht, ist in Probation oder Applied?
 4. Phase 7 lesen: Welche aktiven Regeln besitzen matured Outcomes und wie hoch
