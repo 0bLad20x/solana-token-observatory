@@ -12,6 +12,7 @@ SAMPLE_LIMIT = 5
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
+ANALYSIS_DIR = PROJECT_ROOT / "analysis"
 
 OUTPUT_PATH = DATA_DIR / "investigation_report.json"
 POLICY_RULES_PATH = DATA_DIR / "policy_rules.json"
@@ -31,6 +32,12 @@ REGION_TRANSITIONS_PATH = DATA_DIR / "region_transition_events.jsonl"
 REGION_POPULATION_RUNS_PATH = DATA_DIR / "region_population_runs.jsonl"
 REGION_FLOW_PATH = DATA_DIR / "region_flow.json"
 COHORT_OUTCOMES_PATH = DATA_DIR / "cohort_outcomes.json"
+
+# Human-readable methodology and one bounded, machine-readable export.  The
+# export is intentionally overwritten instead of archived on every monitor
+# cycle so Git repositories do not grow with redundant snapshots.
+PHASE_GUIDE_PATH = ANALYSIS_DIR / "DIAGNOSTIC_PHASES.md"
+AI_ANALYSIS_BUNDLE_PATH = ANALYSIS_DIR / "diagnostics_ai_bundle.json"
 
 # How much history the derived artifacts look back on.
 REGION_FLOW_WINDOW_HOURS = 24
@@ -63,11 +70,178 @@ AGE_DISTRIBUTION_BUCKETS = [
 JOINT_DENSITY_X_BINS = 24
 JOINT_DENSITY_Y_BINS = 20
 
-DEFAULT_MONITOR_INTERVAL_SECONDS = 300
+DEFAULT_MONITOR_INTERVAL_SECONDS = 60
 MONITOR_CONTINUITY_FACTOR = 2.5
 
 
-DEFAULT_POLICY_CONFIG: dict[str, Any] = {'schema_version': 1, 'collector_health': {'recent_poll_window_seconds': 300, 'min_recent_poll_fraction': 0.95, 'max_p95_poll_age_seconds': 300, 'min_snapshot_coverage_fraction': 0.95}, 'outcome_horizons_minutes': [30, 60, 360, 1440], 'rules': [{'id': 'terminal_liquidity_collapse_strict', 'version': 1, 'enabled': True, 'type': 'terminal_liquidity_collapse', 'persistence_minutes': 15, 'min_consecutive_matches': 3, 'thresholds': {'min_age_minutes': 30, 'min_peak_liquidity': 10000, 'max_current_liquidity': 1.0, 'min_liquidity_drop_pct': 99.9, 'max_current_mcap_or_null': 1000, 'min_unchanged_minutes': 10}}, {'id': 'terminal_liquidity_collapse_mcap_missing', 'version': 1, 'enabled': True, 'type': 'terminal_liquidity_collapse_mcap_missing', 'persistence_minutes': 15, 'min_consecutive_matches': 3, 'thresholds': {'min_age_minutes': 30, 'min_peak_liquidity': 1000, 'max_current_liquidity': 1.0, 'min_liquidity_drop_pct': 99.9, 'min_unchanged_minutes': 15}}, {'id': 'terminal_market_collapse_strict', 'version': 1, 'enabled': True, 'type': 'terminal_market_collapse', 'persistence_minutes': 15, 'min_consecutive_matches': 3, 'thresholds': {'min_age_minutes': 30, 'min_peak_mcap': 40000, 'max_current_mcap': 100, 'min_mcap_drop_pct': 99.5, 'max_current_liquidity': 1000, 'min_unchanged_minutes': 10}}, {'id': 'abandoned_micro_holders_2', 'version': 1, 'enabled': True, 'type': 'abandoned_micro_token', 'persistence_minutes': 30, 'min_consecutive_matches': 4, 'thresholds': {'min_age_minutes': 60, 'max_holders': 2, 'max_current_liquidity': 100, 'max_current_mcap_or_null': 5000, 'min_unchanged_minutes': 30, 'require_zero_stats1h_activity': True}}, {'id': 'abandoned_micro_holders_5', 'version': 1, 'enabled': True, 'type': 'abandoned_micro_token', 'persistence_minutes': 30, 'min_consecutive_matches': 4, 'thresholds': {'min_age_minutes': 60, 'max_holders': 5, 'max_current_liquidity': 100, 'max_current_mcap_or_null': 5000, 'min_unchanged_minutes': 30, 'require_zero_stats1h_activity': True}}, {'id': 'legacy_rust_v6_low_liq_exact', 'version': 1, 'enabled': True, 'type': 'legacy_low_liquidity', 'source_rule': 'LOW_LIQ', 'decision_mode': 'immediate', 'persistence_minutes': 0, 'min_consecutive_matches': 1, 'thresholds': {'min_age_minutes': 60, 'max_current_liquidity': 2000, 'strict_min_age': True}}, {'id': 'legacy_rust_v6_pre_migration_stale_exact', 'version': 1, 'enabled': True, 'type': 'legacy_pre_migration_stale', 'source_rule': 'PRE_MIGRATION_STALE', 'decision_mode': 'immediate', 'persistence_minutes': 0, 'min_consecutive_matches': 1, 'thresholds': {'min_age_minutes': 1440, 'max_peak_mcap': 5000, 'strict_min_age': True}}], 'protected_mints': ['So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', 'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB'], 'legacy_rust_v6': {'directly_translated': ['LOW_LIQ', 'PRE_MIGRATION_STALE'], 'not_translated': {'ZOMBIE_SHIELD': 'requires fees and fee_signal_age', 'ZOMBIE': 'requires fees and fee_signal_age', 'FAILED': 'requires fees and old mint_to_pool has_pool semantics', 'DUST': 'requires old mint_to_pool has_pool semantics', 'BOT': 'requires fees', 'EARLY_INACTIVE': 'requires fees and old mint_to_pool has_pool semantics', 'NO_POOL_STALE': 'requires old mint_to_pool has_pool semantics', 'PRE_MIGRATION_INACTIVE': 'requires fees and old mint_to_pool has_pool semantics', 'GRADUATED_STALE': 'requires fees'}}}
+DEFAULT_POLICY_CONFIG: dict[str, Any] = {
+    "schema_version": 2,
+    "collector_health": {
+        "recent_poll_window_seconds": 300,
+        "min_recent_poll_fraction": 0.95,
+        "max_p95_poll_age_seconds": 300,
+        "min_snapshot_coverage_fraction": 0.95,
+    },
+    "priority_cadences_seconds": {"p1": 60, "p2": 300, "p3": 3600},
+    "outcome_horizons_minutes": [5, 15, 30, 60, 360, 1440],
+    "outcome_thresholds": {
+        "weak_escape_mcap": 10_000,
+        "relevant_escape_mcap": 50_000,
+        "success_mcap": 200_000,
+        "min_recovery_liquidity": 1_000,
+    },
+    "rules": [
+        {
+            "id": "liquidity_removed_hard",
+            "version": 1,
+            "enabled": True,
+            "type": "terminal_liquidity_collapse",
+            "action": "retire",
+            "confirmation": "immediate",
+            "persistence_minutes": 0,
+            "min_poll_confirmations": 1,
+            "thresholds": {
+                "min_age_minutes": 0,
+                "min_peak_liquidity": 5_000,
+                "max_current_liquidity": 1.0,
+                "min_liquidity_drop_pct": 99.99,
+                "max_current_mcap_or_null": 1_000,
+                "max_poll_age_seconds": 300,
+            },
+        },
+        {
+            "id": "failed_at_birth_floor",
+            "version": 1,
+            "enabled": True,
+            "type": "failed_at_birth",
+            "action": "retire",
+            "confirmation": "poll_confirmed",
+            "persistence_minutes": 0,
+            "min_poll_confirmations": 1,
+            "thresholds": {
+                "min_age_minutes": 0.5,
+                "max_age_minutes": 10,
+                "max_current_mcap": 2_500,
+                "max_current_liquidity": 5_000,
+                "max_peak_mcap": 5_000,
+                "max_holders": 3,
+                "max_poll_age_seconds": 180,
+            },
+        },
+        {
+            "id": "early_floor_uncertain_p2",
+            "version": 1,
+            "enabled": True,
+            "type": "floor_low_signal",
+            "action": "p2",
+            "confirmation": "immediate",
+            "persistence_minutes": 0,
+            "min_poll_confirmations": 1,
+            "thresholds": {
+                "min_age_minutes": 1,
+                "max_age_minutes": 30,
+                "min_current_mcap": 1_500,
+                "max_current_mcap": 5_000,
+                "max_current_liquidity": 10_000,
+                "max_holders": 20,
+                "max_stats5m_buys": 2,
+                "max_stats5m_buy_volume": 100,
+                "max_poll_age_seconds": 300,
+            },
+        },
+        {
+            "id": "pre_migration_return_to_floor",
+            "version": 1,
+            "enabled": True,
+            "type": "pre_migration_floor_return",
+            "action": "retire",
+            "confirmation": "poll_confirmed",
+            "persistence_minutes": 1,
+            "min_poll_confirmations": 2,
+            "thresholds": {
+                "min_age_minutes": 5,
+                "min_peak_mcap": 10_000,
+                "max_current_mcap": 3_000,
+                "max_current_liquidity": 5_000,
+                "min_mcap_drop_pct": 75,
+                "max_holder_retention_pct": 30,
+                "max_holders_without_retention": 5,
+                "max_stats5m_buys": 2,
+                "max_stats5m_buy_volume": 100,
+                "max_poll_age_seconds": 300,
+            },
+        },
+        {
+            "id": "micro_pool_exhausted",
+            "version": 1,
+            "enabled": True,
+            "type": "micro_pool_exhausted",
+            "action": "retire",
+            "confirmation": "poll_confirmed",
+            "persistence_minutes": 2,
+            "min_poll_confirmations": 2,
+            "thresholds": {
+                "min_age_minutes": 5,
+                "max_current_mcap": 5_000,
+                "max_current_liquidity": 100,
+                "max_holders": 5,
+                "max_stats5m_buys": 0,
+                "max_stats5m_buy_volume": 0,
+                "max_poll_age_seconds": 300,
+            },
+        },
+        {
+            "id": "graveyard_low_signal_p3",
+            "version": 1,
+            "enabled": True,
+            "type": "graveyard_stalled",
+            "action": "p3",
+            "confirmation": "poll_confirmed",
+            "persistence_minutes": 2,
+            "min_poll_confirmations": 2,
+            "thresholds": {
+                "min_age_minutes": 15,
+                "min_current_mcap": 2_000,
+                "max_current_mcap": 5_000,
+                "min_current_liquidity": 2_000,
+                "max_current_liquidity": 10_000,
+                "max_holders": 10,
+                "max_stats5m_buys": 0,
+                "max_stats5m_buy_volume": 0,
+                "min_unchanged_minutes": 5,
+                "max_poll_age_seconds": 300,
+            },
+        },
+        {
+            "id": "graveyard_confirmed_retire",
+            "version": 1,
+            "enabled": True,
+            "type": "graveyard_stalled",
+            "action": "retire",
+            "confirmation": "poll_confirmed",
+            "persistence_minutes": 2,
+            "min_poll_confirmations": 2,
+            "thresholds": {
+                "min_age_minutes": 25,
+                "min_current_mcap": 2_000,
+                "max_current_mcap": 5_000,
+                "min_current_liquidity": 2_000,
+                "max_current_liquidity": 10_000,
+                "max_holders": 10,
+                "max_stats5m_buys": 0,
+                "max_stats5m_buy_volume": 0,
+                "min_unchanged_minutes": 10,
+                "max_poll_age_seconds": 300,
+            },
+        },
+    ],
+    "protected_mints": [
+        "So11111111111111111111111111111111111111112",
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
+    ],
+}
 
 # Alle Bedingungen arbeiten nach dem einmaligen Aufbau von diag_latest nur noch
 # auf typisierten Spalten einer kleinen TEMP TABLE. Keine dieser Definitionen

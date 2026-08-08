@@ -51,6 +51,7 @@ VIEWS = [
     ("cohorts", "3", "Cohorts", "What happens after a token enters a state"),
     ("activity", "4", "Activity", "Accelerating, stable, decaying or dormant"),
     ("origin", "5", "Launchpads", "Does origin change the outcome"),
+    ("filter", "6", "Filter evidence", "Who can be demoted or retired, and why"),
     ("policy", "7", "Policy lab", "Which rule would remove load safely"),
 ]
 
@@ -1496,6 +1497,7 @@ def view_policy(data: dict, filters: dict):
     report = data.get("report") or {}
     rows = filtered_rows(snapshot, filters, ignore={"policy"})
     retire_rows = [row for row in rows if row[IDX["policy_status"]] == "would_retire"]
+    demote_rows = [row for row in rows if row[IDX["policy_status"]] == "would_demote"]
     probation_rows = [row for row in rows if row[IDX["policy_status"]] == "probation"]
     visible = total_of(rows) or 1
     retire = total_of(retire_rows)
@@ -1504,12 +1506,20 @@ def view_policy(data: dict, filters: dict):
     overlay = ((report.get("population_distribution") or {}).get("policy_overlay") or {})
     rule_rows = []
     overlay_by_rule = {row["rule_id"]: row["would_retire_count"] for row in overlay.get("rules", [])}
+    state_by_rule = {
+        row.get("rule_id"): row
+        for row in ((report.get("filter_evidence") or {}).get("rules") or [])
+    }
     for rule in simulation:
+        state_row = state_by_rule.get(rule.get("rule_id")) or {}
         rule_rows.append(
             {
                 "rule": rule.get("rule_id"),
                 "matches": rule.get("current_match_count"),
-                "would_retire": overlay_by_rule.get(rule.get("rule_id"), 0),
+                "would_retire": state_row.get(
+                    "applied_count",
+                    overlay_by_rule.get(rule.get("rule_id"), 0),
+                ),
             }
         )
 
@@ -1517,8 +1527,8 @@ def view_policy(data: dict, filters: dict):
         html.Div(
             [
                 kpi("Would retire", fmt(retire), pct(retire, visible) + " of filtered", "k-amber"),
+                kpi("Would demote", fmt(total_of(demote_rows)), "P2 or P3 recommendation"),
                 kpi("Probation", fmt(total_of(probation_rows)), "waiting for persistence"),
-                kpi("Dormant among candidates", fmt(total_of([row for row in retire_rows if row[IDX['activity_bucket']] == "dormant"])), "no trades, stale"),
                 kpi(
                     "Candidates < 3h old",
                     fmt(total_of([row for row in retire_rows if row[IDX["age_bucket"]] in {"under_30m", "30_60m", "1_3h"}])),
@@ -1529,13 +1539,6 @@ def view_policy(data: dict, filters: dict):
             className="grid cols-4",
             style={"marginBottom": "14px"},
         ),
-        card(
-            "Retirement pressure across the state space",
-            graph(state_space_figure(snapshot, retire_rows, "retire", rows), height=560),
-            note="Share of each region that is currently in WOULD_RETIRE. Cells with fewer than 10 tokens stay blank — a percentage of six tokens is noise.",
-            flush=True,
-        ),
-        html.Div(style={"height": "14px"}),
         card(
             "Candidates by age",
             graph(policy_by_age_figure(snapshot, rows), height=340),
@@ -1553,7 +1556,7 @@ def view_policy(data: dict, filters: dict):
                     columns=[
                         {"name": "Rule", "id": "rule"},
                         {"name": "Matching now", "id": "matches", "type": "numeric"},
-                        {"name": "Would retire", "id": "would_retire", "type": "numeric"},
+                        {"name": "Applied", "id": "would_retire", "type": "numeric"},
                     ],
                     data=rule_rows,
                     style_as_list_view=True,
@@ -1590,15 +1593,15 @@ def view_policy(data: dict, filters: dict):
             html.Div(
                 [
                     kpi(
-                        "Unique retire union",
-                        fmt(global_outcomes.get("would_retire_unique_union")),
-                        "unique mints across all rules",
+                        "Unique action union",
+                        fmt(global_outcomes.get("applied_unique_union")),
+                        "demote or retire",
                         "k-amber",
                     ),
                     kpi(
-                        "Multi-rule overlap",
-                        fmt(global_outcomes.get("mints_matching_multiple_rules")),
-                        "same mint matched >1 rule",
+                        "Retire union",
+                        fmt(global_outcomes.get("would_retire_unique_union")),
+                        "unique retirement candidates",
                     ),
                     kpi(
                         "Healthy outcome runs",
@@ -1617,14 +1620,15 @@ def view_policy(data: dict, filters: dict):
             )
         )
 
-        horizon_labels = {30: "30m", 60: "1h", 180: "3h", 360: "6h", 1440: "24h"}
+        horizon_labels = {5: "5m", 15: "15m", 30: "30m", 60: "1h", 360: "6h", 1440: "24h"}
         outcome_rows = []
         horizons_seen = set()
         for rule in policy_outcomes["rules"]:
             row = {
                 "rule": rule.get("rule_id"),
-                "unique": rule.get("would_retire_unique_mints"),
-                "episodes": rule.get("would_retire_episodes"),
+                "action": rule.get("action"),
+                "unique": rule.get("applied_unique_mints"),
+                "episodes": rule.get("applied_episodes"),
             }
             for horizon in rule.get("horizons", []):
                 minutes = int(horizon.get("horizon_minutes") or 0)
@@ -1633,18 +1637,24 @@ def view_policy(data: dict, filters: dict):
                 rate = horizon.get("recovery_rate_pct")
                 matured_count = horizon.get("matured") or 0
                 row[label] = "—" if rate is None else f"{rate:.2f}% ({matured_count:,})"
+                relevant_rate = horizon.get("reached_50k_rate_pct")
+                row[f"{label}_50k"] = "—" if relevant_rate is None else f"{relevant_rate:.2f}%"
             outcome_rows.append(row)
 
-        ordered_horizons = [label for label in ("30m", "1h", "3h", "6h", "24h") if label in horizons_seen]
+        ordered_horizons = [label for label in ("5m", "15m", "30m", "1h", "6h", "24h") if label in horizons_seen]
         children.append(
             card(
-                "Rule outcomes — first WOULD_RETIRE per mint",
+                "Rule outcomes — first applied action per mint",
                 dash_table.DataTable(
                     columns=[
                         {"name": "Rule", "id": "rule"},
+                        {"name": "Action", "id": "action"},
                         {"name": "Unique mints", "id": "unique"},
                         {"name": "Episodes", "id": "episodes"},
-                    ] + [{"name": f"Recovered {label}", "id": label} for label in ordered_horizons],
+                    ] + [item for label in ordered_horizons for item in (
+                        {"name": f"Recovered {label}", "id": label},
+                        {"name": f">=50k {label}", "id": f"{label}_50k"},
+                    )],
                     data=outcome_rows,
                     style_as_list_view=True,
                     style_header={
@@ -1693,6 +1703,104 @@ def view_policy(data: dict, filters: dict):
                 )
             )
 
+    return children
+
+
+def view_filter_evidence(data: dict, filters: dict):
+    """Operational Phase 6: concrete allocations, rules and token evidence."""
+    from dash import dash_table, html
+
+    evidence = ((data.get("report") or {}).get("filter_evidence") or {})
+    allocation = evidence.get("allocation") or {}
+    allocation_pct = evidence.get("allocation_pct") or {}
+    cadences = evidence.get("priority_cadences_seconds") or {}
+    total = evidence.get("total_active") or sum(allocation.values())
+
+    children = [
+        filters_not_applied(),
+        html.Div(
+            [
+                kpi("P1", fmt(allocation.get("p1", 0)), f"{allocation_pct.get('p1', 0):.1f}% · every {cadences.get('p1', 60)}s"),
+                kpi("P2", fmt(allocation.get("p2", 0)), f"{allocation_pct.get('p2', 0):.1f}% · every {cadences.get('p2', 300)}s"),
+                kpi("P3", fmt(allocation.get("p3", 0)), f"{allocation_pct.get('p3', 0):.1f}% · every {cadences.get('p3', 3600)}s", "k-amber"),
+                kpi("Retired", fmt(allocation.get("retire", 0)), f"{allocation_pct.get('retire', 0):.1f}% · no individual polling", "k-rose"),
+            ],
+            className="grid cols-4",
+            style={"marginBottom": "14px"},
+        ),
+        card(
+            "What removes polling load",
+            bar_list(
+                [(row.get("rule_id", "unknown"), int(row.get("count") or 0)) for row in evidence.get("reason_counts", [])],
+                theme.ROSE,
+                limit=12,
+            ),
+            note=f"Shadow recommendations over {fmt(total)} active tokens. No database flag is changed.",
+        ),
+        html.Div(style={"height": "14px"}),
+    ]
+
+    rules = []
+    for row in evidence.get("rules", []):
+        rules.append({
+            "rule": row.get("rule_id"),
+            "action": row.get("action"),
+            "confirmation": row.get("confirmation"),
+            "matches": row.get("current_match_count"),
+            "probation": row.get("probation_count"),
+            "applied": row.get("applied_count"),
+            "polls": row.get("min_poll_confirmations"),
+            "minutes": row.get("persistence_minutes"),
+        })
+    if rules:
+        children.append(card(
+            "Rule decision matrix",
+            dash_table.DataTable(
+                columns=[
+                    {"name": "Rule", "id": "rule"}, {"name": "Action", "id": "action"},
+                    {"name": "Confirmation", "id": "confirmation"}, {"name": "Matches", "id": "matches"},
+                    {"name": "Probation", "id": "probation"}, {"name": "Applied", "id": "applied"},
+                    {"name": "Polls", "id": "polls"}, {"name": "Persist min", "id": "minutes"},
+                ],
+                data=rules,
+                style_as_list_view=True,
+                style_header={"backgroundColor": "transparent", "color": theme.MUTED, "border": "none", "borderBottom": f"1px solid {theme.LINE}"},
+                style_cell={"backgroundColor": "transparent", "color": theme.TEXT, "fontFamily": theme.FONT_MONO, "fontSize": "12px", "textAlign": "left", "padding": "8px 6px", "border": "none", "borderBottom": "1px solid rgba(36,47,65,0.5)"},
+            ),
+            note="Poll-confirmed means last_polled_at must advance for that mint; a second payload snapshot is not required.",
+        ))
+
+    samples = []
+    for row in evidence.get("candidate_samples", []):
+        ev = row.get("evidence") or {}
+        sample_rules = row.get("rules") or (
+            [row.get("rule_id")] if row.get("rule_id") else []
+        )
+        samples.append({
+            "mint": row.get("mint"), "token": row.get("symbol") or ev.get("symbol") or row.get("name") or ev.get("name"),
+            "priority": row.get("recommended_priority") or row.get("action"),
+            "rules": ", ".join(sample_rules),
+            "age_min": ev.get("age_minutes"), "mcap": ev.get("mcap"), "peak_mcap": ev.get("peak_mcap"),
+            "liquidity": ev.get("liquidity"), "holders": ev.get("holders"),
+            "5m_buys": ev.get("stats5m_num_buys"), "gmgn": "yes" if ev.get("gmgn_available") else "no",
+            "gmgn_rug": ev.get("gmgn_rug_ratio"),
+        })
+    if samples:
+        children.extend([
+            html.Div(style={"height": "14px"}),
+            card(
+                "Concrete token evidence",
+                dash_table.DataTable(
+                    columns=[{"name": key.replace("_", " ").title(), "id": key} for key in samples[0]],
+                    data=samples,
+                    page_size=15,
+                    style_table={"overflowX": "auto"},
+                    style_header={"backgroundColor": "transparent", "color": theme.MUTED, "border": "none", "borderBottom": f"1px solid {theme.LINE}"},
+                    style_cell={"backgroundColor": "transparent", "color": theme.TEXT, "fontFamily": theme.FONT_MONO, "fontSize": "11px", "textAlign": "left", "maxWidth": "240px", "overflow": "hidden", "textOverflow": "ellipsis", "padding": "7px 5px", "border": "none"},
+                ),
+                note="Compact evidence only. The diagnostics does not export full per-token histories, so 23,000 tokens do not become a multi-gigabyte JSON file.",
+            ),
+        ])
     return children
 
 
@@ -2082,6 +2190,8 @@ def create_app(snapshot_path: Path = REGION_SNAPSHOT_PATH):
             body = view_activity(artifacts, filters)
         elif view == "origin":
             body = view_origin(artifacts, filters)
+        elif view == "filter":
+            body = view_filter_evidence(artifacts, filters)
         elif view == "policy":
             body = view_policy(artifacts, filters)
         else:

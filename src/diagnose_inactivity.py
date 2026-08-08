@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 
 from config import Settings
 
+from diagnostics.ai_export import write_ai_analysis_bundle
 from diagnostics.cohorts import build_cohort_outcomes, write_cohort_outcomes
 from diagnostics.constants import (
+    AI_ANALYSIS_BUNDLE_PATH,
     DEFAULT_MONITOR_INTERVAL_SECONDS,
     POLICY_RULES_PATH,
     PROJECT_ROOT,
@@ -27,6 +29,14 @@ def parse_args() -> argparse.Namespace:
         description="Jupiter token diagnosis and longitudinal policy simulator"
     )
     parser.add_argument(
+        "--ai-export-only",
+        action="store_true",
+        help=(
+            "vorhandene Diagnose-Artefakte ohne Datenbankzugriff in eine "
+            "einzige KI-lesbare JSON exportieren"
+        ),
+    )
+    parser.add_argument(
         "--monitor",
         action="store_true",
         help=(
@@ -38,7 +48,7 @@ def parse_args() -> argparse.Namespace:
         "--interval-seconds",
         type=int,
         default=DEFAULT_MONITOR_INTERVAL_SECONDS,
-        help="monitor cadence in seconds (default: 300)",
+        help="monitor cadence in seconds (default: 60)",
     )
     parser.add_argument(
         "--update-history",
@@ -65,6 +75,20 @@ def main() -> None:
         raise SystemExit("--interval-seconds muss > 0 sein")
     if args.max_runs < 0:
         raise SystemExit("--max-runs muss >= 0 sein")
+
+    if args.ai_export_only:
+        if args.monitor or args.update_history:
+            raise SystemExit(
+                "--ai-export-only kann nicht mit --monitor oder --update-history kombiniert werden"
+            )
+        bundle = write_ai_analysis_bundle()
+        print(f"KI-Analyseexport geschrieben: {AI_ANALYSIS_BUNDLE_PATH}")
+        print(
+            f"Phasen: {len(bundle['phases'])} | "
+            f"Warnungen: {len(bundle['warnings'])} | "
+            f"Tracked: {bundle['executive_facts']['tracked_tokens']}"
+        )
+        return
 
     settings = Settings.from_env()
 
@@ -105,7 +129,9 @@ def main() -> None:
             )
 
         write_report(output)
+        write_ai_analysis_bundle()
         print_full_report(output)
+        print(f"KI-Analyseexport: {AI_ANALYSIS_BUNDLE_PATH}")
         return
 
     state = load_monitor_state()

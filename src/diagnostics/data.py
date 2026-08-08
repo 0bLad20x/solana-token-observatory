@@ -39,6 +39,7 @@ def build_latest_cache(connection) -> None:
             s.payload->'firstPool'->>'id' AS first_pool_id_text,
             s.payload->'firstPool'->>'createdAt' AS first_pool_created_at_text,
             s.payload->>'graduatedAt' AS graduated_at_text,
+            s.payload->>'updatedAt' AS updated_at_text,
 
             COALESCE(s.payload ? 'liquidity', false) AS has_liquidity,
             (s.payload->>'liquidity')::float8 AS liquidity,
@@ -52,8 +53,25 @@ def build_latest_cache(connection) -> None:
             (s.payload->>'holderCount')::int AS holders,
             s.payload->>'holderCount' AS holders_text,
 
+            (s.payload ? 'stats5m') AS has_stats5m,
+            (s.payload->'stats5m'->>'numBuys')::int AS stats5m_num_buys,
+            (s.payload->'stats5m'->>'numSells')::int AS stats5m_num_sells,
+            (s.payload->'stats5m'->>'numTraders')::int AS stats5m_num_traders,
+            (s.payload->'stats5m'->>'buyVolume')::float8 AS stats5m_buy_volume,
+            (s.payload->'stats5m'->>'sellVolume')::float8 AS stats5m_sell_volume,
+
+            (s.payload ? 'stats1h') AS has_stats1h,
             (s.payload->'stats1h'->>'numBuys')::int AS stats1h_num_buys,
             (s.payload->'stats1h'->>'numSells')::int AS stats1h_num_sells,
+            (s.payload->'stats1h'->>'numTraders')::int AS stats1h_num_traders,
+            (s.payload->'stats1h'->>'buyVolume')::float8 AS stats1h_buy_volume,
+            (s.payload->'stats1h'->>'sellVolume')::float8 AS stats1h_sell_volume,
+
+            (s.payload->'audit'->>'isSus')::boolean AS audit_is_sus,
+            (s.payload->'audit'->>'devMints')::int AS audit_dev_mints,
+            (s.payload->'audit'->>'devMigrations')::int AS audit_dev_migrations,
+            (s.payload->'audit'->>'devBalancePercentage')::float8 AS audit_dev_balance_pct,
+            (s.payload->'audit'->>'topHoldersPercentage')::float8 AS audit_top_holders_pct,
 
             COALESCE(s.payload->'stats24h' ? 'priceChange', false) AS has_stats24h_price_change,
             (s.payload->'stats24h'->>'priceChange')::float8 AS stats24h_price_change,
@@ -147,7 +165,23 @@ def build_history_cache(connection, timings: dict[str, float] | None = None) -> 
                 MAX(s.observed_at) FILTER (
                     WHERE s.payload->>'launchpad' = 'met-dbc'
                       AND s.payload->>'graduatedAt' IS NOT NULL
-                ) AS latest_met_dbc_graduated_observed_at
+                ) AS latest_met_dbc_graduated_observed_at,
+
+                COUNT(*) FILTER (
+                    WHERE s.payload ? 'stats5m'
+                ) AS stats5m_snapshot_count,
+                COUNT(*) FILTER (
+                    WHERE COALESCE((s.payload->'stats5m'->>'numBuys')::int, 0)
+                        + COALESCE((s.payload->'stats5m'->>'numSells')::int, 0) > 0
+                       OR COALESCE((s.payload->'stats5m'->>'buyVolume')::float8, 0) > 0
+                       OR COALESCE((s.payload->'stats5m'->>'sellVolume')::float8, 0) > 0
+                ) AS stats5m_active_snapshot_count,
+                MAX(s.observed_at) FILTER (
+                    WHERE COALESCE((s.payload->'stats5m'->>'numBuys')::int, 0)
+                        + COALESCE((s.payload->'stats5m'->>'numSells')::int, 0) > 0
+                       OR COALESCE((s.payload->'stats5m'->>'buyVolume')::float8, 0) > 0
+                       OR COALESCE((s.payload->'stats5m'->>'sellVolume')::float8, 0) > 0
+                ) AS last_stats5m_activity_at
             FROM mint_snapshots AS s
             GROUP BY s.mint
             """
@@ -200,6 +234,84 @@ def build_history_cache(connection, timings: dict[str, float] | None = None) -> 
     with measured(local_timings, "history_finalize_ms"):
         connection.execute("ANALYZE diag_history_features")
         connection.execute("DROP TABLE diag_history_agg")
+
+
+def build_gmgn_cache(connection) -> None:
+    """Optionaler, rein lesender GMGN-Latest-Join.
+
+    GMGN ist Referenz-Evidence und nie Voraussetzung fuer eine Entscheidung.
+    Es wird weder eine Lifecycle- noch eine abgeleitete permanente Tabelle
+    erzeugt. Fehlt die Quelltabelle, hat die TEMP TABLE einfach null Zeilen.
+    """
+    exists = connection.execute(
+        "SELECT to_regclass('gmgn_mint_observations') IS NOT NULL"
+    ).fetchone()[0]
+    if not exists:
+        connection.execute(
+            """
+            CREATE TEMP TABLE diag_gmgn_latest (
+                mint text, run_id timestamptz, source text,
+                market_cap float8, liquidity float8, volume_24h float8,
+                holder_count int, buys_24h int, sells_24h int, swaps_24h int,
+                net_buy_24h float8, rug_ratio float8, entrapment_ratio float8,
+                dev_team_hold_rate float8, creator_token_status text,
+                creator_created_count int, creator_created_open_ratio float8,
+                bot_degen_count int, bot_degen_rate float8,
+                smart_degen_count int, bundler_mhr float8,
+                bundler_trader_amount_rate float8, sniper_count int,
+                top70_sniper_hold_rate float8, fresh_wallet_rate float8,
+                suspected_insider_hold_rate float8, burn_status text,
+                is_honeypot boolean, is_wash_trading boolean,
+                progress float8, complete_timestamp float8,
+                launchpad_platform text, has_social boolean
+            ) ON COMMIT DROP
+            """
+        )
+        return
+
+    connection.execute(
+        """
+        CREATE TEMP TABLE diag_gmgn_latest ON COMMIT DROP AS
+        SELECT DISTINCT ON (g.mint)
+            g.mint,
+            g.run_id,
+            g.source,
+            g.market_cap,
+            g.liquidity,
+            g.volume_24h,
+            g.holder_count,
+            (g.raw_data->>'buys_24h')::int AS buys_24h,
+            (g.raw_data->>'sells_24h')::int AS sells_24h,
+            (g.raw_data->>'swaps_24h')::int AS swaps_24h,
+            (g.raw_data->>'net_buy_24h')::float8 AS net_buy_24h,
+            g.rug_ratio,
+            g.entrapment_ratio,
+            g.dev_team_hold_rate,
+            g.creator_token_status,
+            g.creator_created_count,
+            g.creator_created_open_ratio,
+            g.bot_degen_count,
+            g.bot_degen_rate,
+            g.smart_degen_count,
+            g.bundler_mhr,
+            g.bundler_trader_amount_rate,
+            g.sniper_count,
+            g.top70_sniper_hold_rate,
+            g.fresh_wallet_rate,
+            g.suspected_insider_hold_rate,
+            g.burn_status,
+            g.is_honeypot,
+            g.is_wash_trading,
+            (g.raw_data->>'progress')::float8 AS progress,
+            (g.raw_data->>'complete_timestamp')::float8 AS complete_timestamp,
+            g.raw_data->>'launchpad_platform' AS launchpad_platform,
+            COALESCE((g.raw_data->>'has_at_least_one_social')::boolean, false)
+                AS has_social
+        FROM gmgn_mint_observations AS g
+        ORDER BY g.mint, g.run_id DESC
+        """
+    )
+    connection.execute("ANALYZE diag_gmgn_latest")
 
 
 def get_context(connection) -> dict:
@@ -317,23 +429,74 @@ def fetch_policy_features(connection) -> list[dict]:
             l.observed_at,
             l.unchanged_since,
             l.last_polled_at,
+            l.updated_at_text,
             l.has_mcap,
             l.mcap,
             l.has_liquidity,
             l.liquidity,
             l.has_holder_count,
             l.holders,
+            l.has_stats5m,
+            l.stats5m_num_buys,
+            l.stats5m_num_sells,
+            l.stats5m_num_traders,
+            l.stats5m_buy_volume,
+            l.stats5m_sell_volume,
+            l.has_stats1h,
             l.stats1h_num_buys,
             l.stats1h_num_sells,
-            (l.payload ? 'stats1h') AS has_stats1h,
+            l.stats1h_num_traders,
+            l.stats1h_buy_volume,
+            l.stats1h_sell_volume,
+            l.audit_is_sus,
+            l.audit_dev_mints,
+            l.audit_dev_migrations,
+            l.audit_dev_balance_pct,
+            l.audit_top_holders_pct,
             h.snapshot_count,
             h.first_snapshot_at,
             h.last_snapshot_at,
             h.peak_mcap,
             h.peak_liquidity,
-            h.max_holder_value
+            h.max_holder_value,
+            h.stats5m_snapshot_count,
+            h.stats5m_active_snapshot_count,
+            h.last_stats5m_activity_at,
+            g.run_id AS gmgn_observed_at,
+            g.source AS gmgn_source,
+            g.market_cap AS gmgn_market_cap,
+            g.liquidity AS gmgn_liquidity,
+            g.volume_24h AS gmgn_volume_24h,
+            g.holder_count AS gmgn_holder_count,
+            g.buys_24h AS gmgn_buys_24h,
+            g.sells_24h AS gmgn_sells_24h,
+            g.swaps_24h AS gmgn_swaps_24h,
+            g.net_buy_24h AS gmgn_net_buy_24h,
+            g.rug_ratio AS gmgn_rug_ratio,
+            g.entrapment_ratio AS gmgn_entrapment_ratio,
+            g.dev_team_hold_rate AS gmgn_dev_team_hold_rate,
+            g.creator_token_status AS gmgn_creator_token_status,
+            g.creator_created_count AS gmgn_creator_created_count,
+            g.creator_created_open_ratio AS gmgn_creator_created_open_ratio,
+            g.bot_degen_count AS gmgn_bot_degen_count,
+            g.bot_degen_rate AS gmgn_bot_degen_rate,
+            g.smart_degen_count AS gmgn_smart_degen_count,
+            g.bundler_mhr AS gmgn_bundler_mhr,
+            g.bundler_trader_amount_rate AS gmgn_bundler_trader_amount_rate,
+            g.sniper_count AS gmgn_sniper_count,
+            g.top70_sniper_hold_rate AS gmgn_top70_sniper_hold_rate,
+            g.fresh_wallet_rate AS gmgn_fresh_wallet_rate,
+            g.suspected_insider_hold_rate AS gmgn_suspected_insider_hold_rate,
+            g.burn_status AS gmgn_burn_status,
+            g.is_honeypot AS gmgn_is_honeypot,
+            g.is_wash_trading AS gmgn_is_wash_trading,
+            g.progress AS gmgn_progress,
+            g.complete_timestamp AS gmgn_complete_timestamp,
+            g.launchpad_platform AS gmgn_launchpad_platform,
+            g.has_social AS gmgn_has_social
         FROM diag_latest AS l
         JOIN diag_history_features AS h ON h.mint = l.mint
+        LEFT JOIN diag_gmgn_latest AS g ON g.mint = l.mint
         """
     ).fetchall()
 
@@ -351,21 +514,71 @@ def fetch_policy_features(connection) -> list[dict]:
             observed_at,
             unchanged_since,
             last_polled_at,
+            updated_at_text,
             has_mcap,
             mcap,
             has_liquidity,
             liquidity,
             has_holder_count,
             holders,
+            has_stats5m,
+            stats5m_buys,
+            stats5m_sells,
+            stats5m_traders,
+            stats5m_buy_volume,
+            stats5m_sell_volume,
+            has_stats1h,
             buys,
             sells,
-            has_stats1h,
+            stats1h_traders,
+            stats1h_buy_volume,
+            stats1h_sell_volume,
+            audit_is_sus,
+            audit_dev_mints,
+            audit_dev_migrations,
+            audit_dev_balance_pct,
+            audit_top_holders_pct,
             snapshot_count,
             first_snapshot_at,
             last_snapshot_at,
             peak_mcap,
             peak_liquidity,
             peak_holders,
+            stats5m_snapshot_count,
+            stats5m_active_snapshot_count,
+            last_stats5m_activity_at,
+            gmgn_observed_at,
+            gmgn_source,
+            gmgn_market_cap,
+            gmgn_liquidity,
+            gmgn_volume_24h,
+            gmgn_holder_count,
+            gmgn_buys_24h,
+            gmgn_sells_24h,
+            gmgn_swaps_24h,
+            gmgn_net_buy_24h,
+            gmgn_rug_ratio,
+            gmgn_entrapment_ratio,
+            gmgn_dev_team_hold_rate,
+            gmgn_creator_token_status,
+            gmgn_creator_created_count,
+            gmgn_creator_created_open_ratio,
+            gmgn_bot_degen_count,
+            gmgn_bot_degen_rate,
+            gmgn_smart_degen_count,
+            gmgn_bundler_mhr,
+            gmgn_bundler_trader_amount_rate,
+            gmgn_sniper_count,
+            gmgn_top70_sniper_hold_rate,
+            gmgn_fresh_wallet_rate,
+            gmgn_suspected_insider_hold_rate,
+            gmgn_burn_status,
+            gmgn_is_honeypot,
+            gmgn_is_wash_trading,
+            gmgn_progress,
+            gmgn_complete_timestamp,
+            gmgn_launchpad_platform,
+            gmgn_has_social,
         ) = row
 
         age_anchor = created_at or first_snapshot_at
@@ -421,6 +634,24 @@ def fetch_policy_features(connection) -> list[dict]:
             else None
         )
 
+        stats5m_activity = None
+        if has_stats5m:
+            stats5m_activity = (stats5m_buys or 0) + (stats5m_sells or 0)
+        stats1h_activity = None
+        if has_stats1h:
+            stats1h_activity = (buys or 0) + (sells or 0)
+
+        minutes_since_stats5m_activity = (
+            max((now - last_stats5m_activity_at).total_seconds() / 60, 0.0)
+            if last_stats5m_activity_at is not None
+            else None
+        )
+        gmgn_age_minutes = (
+            max((now - gmgn_observed_at).total_seconds() / 60, 0.0)
+            if gmgn_observed_at is not None
+            else None
+        )
+
         features.append(
             {
                 "mint": mint,
@@ -433,6 +664,7 @@ def fetch_policy_features(connection) -> list[dict]:
                 "created_at": created_at,
                 "latest_observed_at": observed_at,
                 "last_polled_at": last_polled_at,
+                "updated_at_text": updated_at_text,
                 "age_minutes": age_minutes,
                 "unchanged_minutes": unchanged_minutes,
                 "poll_age_seconds": poll_age_seconds,
@@ -442,19 +674,75 @@ def fetch_policy_features(connection) -> list[dict]:
                 "liquidity": liquidity,
                 "has_holder_count": bool(has_holder_count),
                 "holders": holders,
+                "has_stats5m": bool(has_stats5m),
+                "stats5m_num_buys": stats5m_buys,
+                "stats5m_num_sells": stats5m_sells,
+                "stats5m_num_traders": stats5m_traders,
+                "stats5m_buy_volume": stats5m_buy_volume,
+                "stats5m_sell_volume": stats5m_sell_volume,
+                "stats5m_activity": stats5m_activity,
                 "has_stats1h": bool(has_stats1h),
                 "stats1h_num_buys": buys,
                 "stats1h_num_sells": sells,
-                "stats1h_activity": (buys or 0) + (sells or 0),
+                "stats1h_num_traders": stats1h_traders,
+                "stats1h_buy_volume": stats1h_buy_volume,
+                "stats1h_sell_volume": stats1h_sell_volume,
+                "stats1h_activity": stats1h_activity,
+                "audit_is_sus": audit_is_sus,
+                "audit_dev_mints": audit_dev_mints,
+                "audit_dev_migrations": audit_dev_migrations,
+                "audit_dev_balance_pct": audit_dev_balance_pct,
+                "audit_top_holders_pct": audit_top_holders_pct,
                 "snapshot_count": snapshot_count,
                 "first_snapshot_at": first_snapshot_at,
                 "last_snapshot_at": last_snapshot_at,
                 "peak_mcap": peak_mcap,
                 "peak_liquidity": peak_liquidity,
                 "peak_holders": peak_holders,
+                "stats5m_snapshot_count": stats5m_snapshot_count,
+                "stats5m_active_snapshot_count": stats5m_active_snapshot_count,
+                "ever_had_stats5m_activity": bool(stats5m_active_snapshot_count),
+                "last_stats5m_activity_at": last_stats5m_activity_at,
+                "minutes_since_stats5m_activity": minutes_since_stats5m_activity,
+                "activity_extinguished": bool(stats5m_active_snapshot_count)
+                and stats5m_activity in (None, 0),
                 "mcap_drop_pct": mcap_drop_pct,
                 "liquidity_drop_pct": liquidity_drop_pct,
                 "holder_retention_pct": holder_retention_pct,
+                "gmgn_available": gmgn_observed_at is not None,
+                "gmgn_observed_at": gmgn_observed_at,
+                "gmgn_age_minutes": gmgn_age_minutes,
+                "gmgn_source": gmgn_source,
+                "gmgn_market_cap": gmgn_market_cap,
+                "gmgn_liquidity": gmgn_liquidity,
+                "gmgn_volume_24h": gmgn_volume_24h,
+                "gmgn_holder_count": gmgn_holder_count,
+                "gmgn_buys_24h": gmgn_buys_24h,
+                "gmgn_sells_24h": gmgn_sells_24h,
+                "gmgn_swaps_24h": gmgn_swaps_24h,
+                "gmgn_net_buy_24h": gmgn_net_buy_24h,
+                "gmgn_rug_ratio": gmgn_rug_ratio,
+                "gmgn_entrapment_ratio": gmgn_entrapment_ratio,
+                "gmgn_dev_team_hold_rate": gmgn_dev_team_hold_rate,
+                "gmgn_creator_token_status": gmgn_creator_token_status,
+                "gmgn_creator_created_count": gmgn_creator_created_count,
+                "gmgn_creator_created_open_ratio": gmgn_creator_created_open_ratio,
+                "gmgn_bot_degen_count": gmgn_bot_degen_count,
+                "gmgn_bot_degen_rate": gmgn_bot_degen_rate,
+                "gmgn_smart_degen_count": gmgn_smart_degen_count,
+                "gmgn_bundler_mhr": gmgn_bundler_mhr,
+                "gmgn_bundler_trader_amount_rate": gmgn_bundler_trader_amount_rate,
+                "gmgn_sniper_count": gmgn_sniper_count,
+                "gmgn_top70_sniper_hold_rate": gmgn_top70_sniper_hold_rate,
+                "gmgn_fresh_wallet_rate": gmgn_fresh_wallet_rate,
+                "gmgn_suspected_insider_hold_rate": gmgn_suspected_insider_hold_rate,
+                "gmgn_burn_status": gmgn_burn_status,
+                "gmgn_is_honeypot": gmgn_is_honeypot,
+                "gmgn_is_wash_trading": gmgn_is_wash_trading,
+                "gmgn_progress": gmgn_progress,
+                "gmgn_complete_timestamp": gmgn_complete_timestamp,
+                "gmgn_launchpad_platform": gmgn_launchpad_platform,
+                "gmgn_has_social": gmgn_has_social,
             }
         )
 

@@ -36,6 +36,7 @@ from .analysis import (
 )
 from .constants import OUTPUT_PATH, POPULATION_DISTRIBUTION_SVG_PATH
 from .data import (
+    build_gmgn_cache,
     build_history_cache,
     build_latest_cache,
     collect_collector_health,
@@ -62,6 +63,9 @@ def build_report(
 
         with measured(timings, "build_history_cache_ms"):
             build_history_cache(connection, timings)
+
+        with measured(timings, "build_gmgn_cache_ms"):
+            build_gmgn_cache(connection)
 
         with measured(timings, "context_ms"):
             context = get_context(connection)
@@ -138,6 +142,29 @@ def build_report(
         },
         "population_distribution": population_distribution,
         "policy_simulation": policy_simulation,
+        "filter_evidence": {
+            "mode": "instantaneous_shadow_matches",
+            "total_active": len(policy_features),
+            "allocation": policy_simulation["instantaneous_match_allocation"],
+            "allocation_pct": {
+                key: round(value / len(policy_features) * 100, 3)
+                if policy_features else 0.0
+                for key, value in policy_simulation["instantaneous_match_allocation"].items()
+            },
+            "priority_cadences_seconds": policy_config.get(
+                "priority_cadences_seconds", {}
+            ),
+            "reason_counts": [
+                {"rule_id": row["rule_id"], "count": row["current_match_count"]}
+                for row in policy_simulation["rules"]
+            ],
+            "rules": policy_simulation["rules"],
+            "candidate_samples": [
+                sample | {"rule_id": row["rule_id"], "action": row["action"]}
+                for row in policy_simulation["rules"]
+                for sample in row.get("samples", [])
+            ][:25],
+        },
         "categories": results,
         "cross_analysis": {
             "liquidity_vs_price_crash_overlap": overlap,
@@ -236,6 +263,7 @@ def print_full_report(output: dict) -> None:
     for rule in output["policy_simulation"]["rules"]:
         print(
             f"    {rule['rule_id']:<45} "
+            f"action={rule['action']:<6} "
             f"matches={rule['current_match_count']:>6}"
         )
 

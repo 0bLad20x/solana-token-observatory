@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 
 from config import Settings
 
+from .ai_export import write_ai_analysis_bundle
 from .analysis import compact_population_run_summary
 from .cohorts import build_cohort_outcomes, write_cohort_outcomes
 from .constants import (
+    AI_ANALYSIS_BUNDLE_PATH,
     COHORT_OUTCOMES_PATH,
     DECISION_EVENTS_PATH,
     OUTPUT_PATH,
@@ -25,6 +27,7 @@ from .policy_outcomes import build_policy_outcomes, write_policy_outcomes
 from .policy import (
     advance_policy_state,
     annotate_policy_status,
+    build_filter_evidence,
     current_policy_population_overlay,
     load_policy_config,
     prospective_monitor_metrics,
@@ -81,6 +84,9 @@ def run_monitor_cycle(
             prospective_monitor_metrics(features)
         )
         annotate_policy_status(state, config, features)
+        output["filter_evidence"] = build_filter_evidence(
+            state, config, features, summaries
+        )
 
         # Events enthalten bereits run_id; der State wird atomar geschrieben.
         append_jsonl(DECISION_EVENTS_PATH, events)
@@ -106,8 +112,11 @@ def run_monitor_cycle(
                 "rule_key": row["rule_key"],
                 "rule_id": row["rule_id"],
                 "version": row["version"],
+                "action": row["action"],
+                "confirmation": row["confirmation"],
                 "current_match_count": row["current_match_count"],
                 "probation_count": None,
+                "applied_count": None,
                 "would_retire_count": None,
             }
             for row in output["policy_simulation"]["rules"]
@@ -140,7 +149,7 @@ def run_monitor_cycle(
         event_counts[name] = event_counts.get(name, 0) + 1
 
     run_record = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "timestamp": now.isoformat(),
         "interval_seconds": interval_seconds,
@@ -188,12 +197,14 @@ def run_monitor_cycle(
             "region_flow": str(REGION_FLOW_PATH),
             "cohort_outcomes": str(COHORT_OUTCOMES_PATH),
             "policy_outcomes": str(POLICY_OUTCOMES_PATH),
+            "ai_analysis_bundle": str(AI_ANALYSIS_BUNDLE_PATH),
         },
     }
 
     # Erst jetzt schreiben: investigation_report.json enthaelt damit auch
     # collector_health, decision_metrics, policy_simulation und monitor.
     write_report(output)
+    write_ai_analysis_bundle()
     return output
 
 
@@ -212,9 +223,10 @@ def print_monitor_summary(output: dict) -> None:
     for row in monitor["rule_states"]:
         print(
             f"  {row['rule_id']:<45} "
+            f"action={row.get('action', '—'):<6} "
             f"matches={row['current_match_count']:>5} "
             f"probation={str(row['probation_count']):>5} "
-            f"would_retire={str(row['would_retire_count']):>5}"
+            f"applied={str(row.get('applied_count')):>5}"
         )
     regions = monitor.get("regions") or {}
     if regions.get("skipped"):

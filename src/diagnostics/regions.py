@@ -63,6 +63,7 @@ ACTIVITY_BUCKETS = [
 POLICY_STATUSES = [
     ("none", "No policy state"),
     ("probation", "Probation"),
+    ("would_demote", "Would demote"),
     ("would_retire", "Would retire"),
 ]
 

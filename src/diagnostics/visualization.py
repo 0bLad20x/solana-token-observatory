@@ -199,7 +199,7 @@ def write_population_distribution_svg(output: dict) -> None:
             f'<text x="{margin_left}" y="{top - 32}" font-size="19" font-weight="bold">Market cap × liquidity — log-density</text>'
         )
         parts.append(
-            f'<text x="{margin_left}" y="{top - 12}" font-size="11">Each cell contains active tokens with both positive values. Darker = denser. Thick outlined cells contain current unique WOULD_RETIRE candidates.</text>'
+            f'<text x="{margin_left}" y="{top - 12}" font-size="11">Each cell contains active tokens with both positive values. Darker = denser. Operational filter evidence is reported separately in Phase 6.</text>'
         )
 
         retire_cells = {
@@ -259,21 +259,20 @@ def write_population_distribution_svg(output: dict) -> None:
         y = top + 46
         overlay = distribution.get("policy_overlay", {})
         if overlay:
+            allocation = overlay.get("priority_allocation", {})
+            allocation_pct = overlay.get("priority_allocation_pct", {})
             lines = [
-                f'WOULD_RETIRE unique: {overlay.get("would_retire_unique", 0):,} ({overlay.get("would_retire_pct_all", 0):.1f}%)',
-                f'PROBATION unique: {overlay.get("probation_unique", 0):,} ({overlay.get("probation_pct_all", 0):.1f}%)',
-                f'WOULD_RETIRE with mcap+liq: {overlay.get("would_retire_with_joint_values", 0):,}',
+                f'P1: {allocation.get("p1", 0):,} ({allocation_pct.get("p1", 0):.1f}%)',
+                f'P2: {allocation.get("p2", 0):,} ({allocation_pct.get("p2", 0):.1f}%)',
+                f'P3: {allocation.get("p3", 0):,} ({allocation_pct.get("p3", 0):.1f}%)',
+                f'RETIRED: {allocation.get("retire", 0):,} ({allocation_pct.get("retire", 0):.1f}%)',
+                f'PROBATION: {overlay.get("probation_unique", 0):,}',
             ]
             for line in lines:
                 parts.append(f'<text x="{side_x + 14}" y="{y}" font-size="12">{html.escape(line)}</text>')
                 y += 19
             y += 7
-            parts.append(f'<text x="{side_x + 14}" y="{y}" font-size="12" font-weight="bold">By rule</text>')
-            y += 18
-            for row in overlay.get("rules", [])[:7]:
-                label = f'{row["rule_id"]}: {row["would_retire_count"]:,}'
-                parts.append(f'<text x="{side_x + 14}" y="{y}" font-size="10">{html.escape(label)}</text>')
-                y += 15
+            parts.append(f'<text x="{side_x + 14}" y="{y}" font-size="10">Rule-level evidence: dashboard Phase 6</text>')
         else:
             parts.append(f'<text x="{side_x + 14}" y="{y}" font-size="12">No monitor state overlay in one-shot mode.</text>')
             y += 24
