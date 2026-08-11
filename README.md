@@ -136,7 +136,23 @@ Der Verifier vergleicht die aktuelle Implementierung gegen die eingefrorene v0.1
 
 Read-only Consumer dürfen operative Daten lesen und eigene Projektionen erzeugen. Sie dürfen jedoch weder `tracking_enabled`, Priority noch Lifecycle-State verändern.
 
-Ein lokales Frontend wird aktuell separat in Draft PR #5 entwickelt. Es ist bewusst additiv und read-only und gehört erst nach einem späteren Merge zum implementierten `main`.
+Das lokale Observatory läuft als separater read-only Prozess:
+
+```powershell
+python src/frontend.py
+```
+
+Für die tokenbezogene Webrecherche werden serverseitig konfiguriert:
+
+```text
+MISTRAL_API_KEY=...
+MISTRAL_MODEL=mistral-small-latest
+MISTRAL_WEB_SEARCH_MODE=web_search
+```
+
+`MISTRAL_WEB_SEARCH_MODE` akzeptiert ausschließlich `web_search` oder
+`web_search_premium`. Externe Rechercheergebnisse werden nicht persistiert und besitzen
+keine operative Mutation-Authority.
 
 OHLC/Time-Buckets und Snapshot-Retention sind derzeit bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
