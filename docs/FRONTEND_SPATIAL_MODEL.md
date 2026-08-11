@@ -6,11 +6,9 @@
 **Parent authority:** `docs/FRONTEND_OBSERVATORY.md`  
 **Current branch:** `agent/generic-bubble-physics-v3`
 
-This document defines the next spatial model after V2.
-
 V2 solved one narrow problem: ordinary live deltas no longer reheat and repack the whole Universe. It intentionally did **not** define the final physics of a Bubble Map.
 
-V3 now defines that physics together with the first real `ViewSpec` contract.
+V3 defines that reusable physics together with the first real `ViewSpec` contract.
 
 ## 1. First principle
 
@@ -30,7 +28,7 @@ visual semantics
 generic spatial model
 ```
 
-Examples of valid grouping rules:
+Valid grouping rules may later include:
 
 ```text
 group = launchpad
@@ -38,14 +36,14 @@ group = market-cap bucket
 group = age bucket
 group = lifecycle state
 group = deterministic cohort
-group = later temporary LLM cohort
+group = temporary LLM cohort
 ```
 
-The renderer must not contain a separate physics implementation for each grouping mode.
+The renderer must not contain separate physics implementations for these grouping modes.
 
 ## 2. Why V2 stops where it does
 
-Two extremes have already been observed.
+Two undesirable extremes have already been observed.
 
 ### Global force field
 
@@ -71,7 +69,7 @@ no local physical response
 
 Result: the scene becomes rigid, vacancies remain open and bubbles no longer feel related.
 
-V3 must implement the middle ground:
+V3 targets the middle ground:
 
 ```text
 GLOBAL STABILITY
@@ -81,9 +79,7 @@ LOCAL ELASTICITY
 
 ## 3. Node model
 
-Every rendered token node needs only the spatial state required by the active view.
-
-Conceptually:
+Every rendered token node carries only spatial state required by the active view.
 
 ```text
 Node
@@ -102,7 +98,7 @@ The node does not own business truth. `groupKey`, `radius` and positional target
 
 ## 4. ViewSpec contract
 
-V3 should keep `ViewSpec` deliberately small.
+V3 keeps `ViewSpec` deliberately small.
 
 ```json
 {
@@ -130,13 +126,11 @@ A projection view may instead define axes:
 }
 ```
 
-V3 does **not** need an arbitrary expression language.
-
-Supported mappings should be explicit and finite in `view-spec.js`. New mappings are added only when a real view requires them.
+V3 does **not** introduce an arbitrary expression language. Supported mappings remain explicit and finite in `view-spec.js` and expand only when a real view requires them.
 
 ## 5. Grouping semantics
 
-`group` answers only one question:
+`group` answers one question:
 
 > Which population is this token currently attracted to in this view?
 
@@ -148,30 +142,26 @@ market_cap_tier
 age_tier
 ```
 
-Example market-cap tiers may be defined explicitly as a preset rather than through arbitrary user code:
+Example tiers belong to presets, not to the renderer:
 
 ```text
+Market Cap
 < 10k
 10k–100k
 >= 100k
-```
 
-Example age tiers:
-
-```text
+Age
 fresh
 < 24h
 24h–48h
 >= 48h
 ```
 
-Exact thresholds belong to the view preset, not to the renderer.
+Exact thresholds are view configuration.
 
 ## 6. The only reasons a token should move
 
 A token should not move merely because new data arrived.
-
-Movement needs a semantic cause.
 
 ### 6.1 Radius changed
 
@@ -184,7 +174,7 @@ radius grows or shrinks in place
 nearby nodes yield locally
 ```
 
-The token should not be assigned an unrelated free coordinate.
+The token is not assigned an unrelated free coordinate.
 
 ### 6.2 Group changed
 
@@ -198,33 +188,27 @@ visible transition
 new group
 ```
 
-This is a legitimate A → B movement because the represented population actually changed.
+This is legitimate A → B movement because represented population membership actually changed.
 
 ### 6.3 Projection value changed
 
-If `x` or `y` maps a value that changed, the target coordinate changes.
-
-Movement is then analytically meaningful because position itself encodes data.
+If `x` or `y` maps a value that changed, the positional target changes. Movement is analytically meaningful because position itself encodes data.
 
 ### 6.4 User drag
 
-Dragging is an explicit temporary user constraint.
-
-It must not silently change the token's `groupKey` or business state.
+Dragging is an explicit temporary user constraint. It must not silently change `groupKey` or business state.
 
 ### 6.5 Explicit global refit
 
-Viewport resize, ViewSpec change or a deliberate reset may perform a controlled global refit.
-
-Ordinary SSE deltas may not.
+Viewport resize, ViewSpec change or a deliberate reset may perform a controlled global refit. Ordinary SSE deltas may not.
 
 ## 7. Generic physics
 
-The physical model should be produced from a few general forces rather than special-case relocation rules.
+The desired behavior should emerge from a few general constraints rather than special-case relocation rules.
 
 ### Collision
 
-Bubbles may not overlap beyond the allowed visual tolerance.
+Bubbles may not overlap beyond an allowed visual tolerance.
 
 ```text
 minimum distance = radiusA + radiusB + gap
@@ -232,13 +216,11 @@ minimum distance = radiusA + radiusB + gap
 
 ### Group attraction
 
-Cluster layouts have a weak attraction toward their group's spatial region.
-
-This force gives a population cohesion without requiring fixed coordinates.
+Cluster layouts have weak attraction toward their group's spatial region. This provides cohesion without requiring fixed coordinates.
 
 ### Local relaxation
 
-A local geometry change should affect only the nearby neighborhood required to resolve the change.
+A local geometry change affects only the neighborhood required to resolve that change.
 
 ```text
 one bubble grows
@@ -248,17 +230,13 @@ near neighbors yield
 local equilibrium
 ```
 
-Far-away nodes retain their spatial memory.
+Far-away nodes retain spatial memory.
 
 ### Vacancy closing
 
-When a bubble shrinks or retires, the same weak local attraction should naturally close the nearby vacancy.
-
-There should be no separate "find a hole" or "fill a hole" business rule.
+When a bubble shrinks or retires, the same local attraction should naturally close nearby vacancy. There is no separate `fillHole()` business rule.
 
 ### Drag constraint
-
-While the user drags a bubble:
 
 ```text
 dragged node follows pointer
@@ -270,16 +248,14 @@ After release, the node settles according to the active view.
 
 ## 8. Avoid special-case relocation
 
-V3 explicitly rejects an architecture such as:
+V3 rejects architectures such as:
 
 ```text
 if radius grew      -> search free coordinate
 if token retired    -> run hole filler
 if token added      -> search another free coordinate
-if group changed    -> search destination coordinate
+if group changed    -> custom relocation rule
 ```
-
-That approach accumulates exceptions and makes later ViewSpecs harder.
 
 Preferred model:
 
@@ -293,9 +269,7 @@ layout behavior emerges
 
 ## 9. Cluster centers are view state
 
-Cluster centers are not durable token truth.
-
-For a cluster layout they are temporary spatial anchors belonging to the active view.
+Cluster centers are not durable token truth. They are temporary spatial anchors belonging to the active view.
 
 Changing from:
 
@@ -309,13 +283,11 @@ to:
 group = market_cap_tier
 ```
 
-may replace the cluster centers completely because the represented populations changed.
-
-That global rearrangement is legitimate because the **view changed**, not because one token received a new SSE update.
+may replace cluster centers completely because the represented populations changed. That global rearrangement is legitimate because the **view changed**, not because one token received an SSE update.
 
 ## 10. Projection layouts
 
-Cluster physics and projection physics share the same node/state model but use different positional constraints.
+Cluster and projection layouts share the same node/state model but use different positional constraints.
 
 ### Cluster layout
 
@@ -332,17 +304,63 @@ y target = scale(token[y field])
 forces = target attraction + collision
 ```
 
-A `ViewSpec` switch may therefore reuse the same renderer and state while changing only the constraint model.
+A `ViewSpec` switch therefore reuses the renderer and state while changing the constraint model.
 
-## 11. Initial V3 vertical slice
+## 11. Research gate before implementation
 
-V3 should remain small enough to validate in one real browser session.
+V3-A must **not** begin by inventing another custom physics engine from scratch.
+
+Before implementation, perform a short targeted research pass to determine whether established layout/physics mechanisms already provide the required behavior more simply and robustly.
+
+Research should answer only implementation-relevant questions:
+
+```text
+1. Can the existing D3 force primitives express local elasticity without global reheating?
+2. Can fixed / partially fixed nodes and bounded simulations preserve spatial memory?
+3. What is the simplest reliable way to select a local neighborhood at ~1.5k+ nodes?
+4. Do quadtree / spatial-grid approaches materially simplify local collision work?
+5. Which circle-packing / overlap-removal approaches naturally support growth and vacancy closing?
+6. How should drag constraints interact with collision and weak group attraction?
+7. Can the current Pixi + D3 stack solve this cleanly without another dependency?
+```
+
+Evaluate candidate approaches against the actual V3 behavior, not against theoretical completeness:
+
+```text
+local delta       -> no global movement
+radius growth     -> grow in place; neighbors yield
+radius shrink     -> local vacancy can close
+retirement        -> local population settles naturally
+drag              -> local physical response
+view/group change -> semantic transition allowed
+population        -> remains practical around current 1.5k+ tokens
+implementation    -> minimal state, minimal code, minimal dependencies
+```
+
+Decision rule:
+
+> Prefer the smallest established mechanism that satisfies the observable V3 contract. Reuse the current D3/Pixi stack if it is sufficient. Add a dependency or custom algorithm only when a concrete gap is demonstrated.
+
+The research output should be concise. Record the selected mechanism and the main rejected alternatives in this document or the PR before substantial V3-A implementation. This is a **research gate**, not a separate research project.
+
+## 12. Initial V3 vertical slice
+
+### V3-R — Physics research gate — FIRST
+
+Deliver:
+
+- review established force, packing and local-relaxation options;
+- identify the smallest viable mechanism for the V3 contract;
+- prefer existing D3/Pixi capabilities where sufficient;
+- document the selected approach and why obvious alternatives were rejected;
+- no speculative framework or dependency expansion.
+
+Visible result is not required for V3-R itself; it exists only to make V3-A smaller and more deliberate.
 
 ### V3-A — generic cluster physics
 
 Deliver:
 
-- remove special-case free-coordinate relocation from the intended design;
 - one generic local-elastic cluster model;
 - radius changes grow/shrink in place;
 - nearby collision response;
@@ -370,7 +388,7 @@ Visible success:
 
 A projection preset such as `Age × Market Cap` may follow in the same PR only if V3-A and V3-B are already stable. It is not required to prove the generic cluster model.
 
-## 12. V3 acceptance criteria
+## 13. V3 acceptance criteria
 
 V3 is successful when all of the following are observable:
 
@@ -383,7 +401,7 @@ radius growth
 → immediate neighbors yield
 
 radius shrink / retirement
-→ local neighborhood closes the vacancy naturally
+→ local neighborhood closes vacancy naturally
 
 drag
 → dragged bubble follows pointer
@@ -399,7 +417,9 @@ ViewSpec switch
 → same renderer / same generic physics
 ```
 
-## 13. Boundaries
+In addition, the implementation must trace back to the V3-R research decision rather than an accumulated set of event-specific relocation rules.
+
+## 14. Boundaries
 
 V3 changes frontend spatial semantics only.
 
@@ -413,7 +433,7 @@ It must not change:
 
 No arbitrary SQL, arbitrary Python execution or LLM-controlled physics enters this slice.
 
-## 14. Consequences for later work
+## 15. Consequences for later work
 
 Once V3 exists, later capabilities become simpler:
 
@@ -435,4 +455,4 @@ projection view
 → existing renderer transitions semantically
 ```
 
-The objective is therefore not to perfect one Launchpad Bubble Map. It is to create one small spatial grammar that many later Observatory views can reuse.
+The objective is not to perfect one Launchpad Bubble Map. It is to create one small spatial grammar that many later Observatory views can reuse.
