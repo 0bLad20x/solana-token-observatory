@@ -4,7 +4,7 @@
 
 **Authority:** Frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of the operational token data  
-**Current branch:** `agent/live-token-universe` / Draft PR #5
+**Current checkpoint:** V1 validated for merge; V2 is the next vertical slice
 
 This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
 
@@ -551,34 +551,34 @@ Token timelines, peak metrics, detailed trajectories and historical comparisons 
 
 ## 14. Vertical execution plan
 
-The active draft is developed in short vertical slices. Every slice should end with a visible running result.
+The Observatory is developed in short vertical slices. Every slice should end with a visible running result.
 
-### V0 — Observatory contract
+### V0 — Observatory contract — DONE
 
-Deliver:
+Delivered:
 
 - this document;
 - milestone pointer;
 - explicit design, motion, truth and scope contracts.
 
-Visible product change: none. This slice exists to prevent architectural drift before code movement.
+### V1 — Structural refactor + design system — DONE
 
-### V1 — Structural refactor + design system
+Delivered and locally validated:
 
-Deliver:
-
-- move backend into the minimal `observatory` responsibility split;
-- split monolithic frontend state/rendering/theme responsibilities;
-- preserve current endpoints and behavior;
-- apply the semantic dark/Solana design tokens.
+- backend moved into the minimal `observatory` responsibility split;
+- monolithic frontend state/rendering/theme responsibilities separated;
+- current endpoints and live behavior preserved;
+- semantic dark/Solana design tokens applied;
+- real browser run with more than 1,500 current tokens;
+- `/api/health`, `/api/universe`, static modules and SSE path observed working.
 
 Visible result:
 
-- same working Universe;
+- working Universe retained;
 - calmer, consistent visual chrome;
-- no arbitrary launchpad hash palette as the primary design system.
+- arbitrary launchpad hash palette is no longer the primary design system.
 
-### V2 — Stable Live Universe
+### V2 — Stable Live Universe — NEXT
 
 Deliver:
 
@@ -588,7 +588,7 @@ Deliver:
 - local visual update for changed token;
 - explicit retirement animation;
 - stable visual selection;
-- preserve spatial memory with ~1,200 active tokens.
+- preserve spatial memory with ~1,200+ active tokens.
 
 Visible result:
 
@@ -609,7 +609,7 @@ Visible result:
 
 ### V4 — First LLM vertical slice
 
-Deliver only after V1–V3 remain working.
+Deliver only after the preceding slices remain working.
 
 Minimum useful slice:
 
@@ -629,35 +629,35 @@ Visible result:
 
 A minimal Freeflow Observer may follow immediately if this manual path is stable. It must reuse the same analyst/tool boundary rather than introduce a parallel mechanism.
 
-## 15. First draft merge target
+## 15. Merge checkpoints
 
-Draft PR #5 should not remain open until the whole product vision exists.
+Vertical delivery also applies to Git history. A working slice does not stay artificially unmerged while unrelated future slices accumulate.
 
-The merge target is a coherent vertical foundation:
+### Checkpoint 1 — V0 + V1
+
+Draft PR #5 is the first merge checkpoint and contains:
 
 ```text
-V0 contract
+V0 Observatory contract
 +
-V1 structural split / theme
-+
-V2 stable live delta behavior
-+
-V3 ViewSpec foundation
-+
-optional V4 thin analyst slice if stable
+V1 structural split / semantic design system
 ```
 
-The first merge is ready when:
+This checkpoint is ready because:
 
 - the frontend starts independently;
 - the operational core and Lifecycle v0.1 are untouched;
 - database access remains read-only;
-- the Universe is visually stable under live deltas;
-- semantic design tokens are used consistently;
-- code responsibilities are separated without speculative framework layers;
-- at least two view configurations can use the same state/rendering contract;
-- any included LLM path is server-side, bounded and read-only;
-- the branch remains understandable as one coherent frontend feature.
+- existing API/SSE behavior is preserved;
+- semantic design tokens are applied;
+- responsibilities are separated without a speculative frontend framework;
+- the real browser/API path has been validated.
+
+### Later checkpoints
+
+V2, V3 and V4 should continue as subsequent vertical changes from the merged baseline. They do not need to remain coupled to PR #5.
+
+The success criterion for each checkpoint is a visible, working improvement with a clear responsibility boundary, not completion of the whole Observatory vision.
 
 ## 16. Explicit non-goals of the foundation
 
