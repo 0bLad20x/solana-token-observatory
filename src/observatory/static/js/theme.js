@@ -37,9 +37,11 @@ function paletteIndex(value) {
 export function launchpadAccent(launchpad) {
   const value = String(launchpad || "unknown").toLowerCase();
   if (value.includes("pump")) return COLORS.solPurple;
-  if (value.includes("meteora") || value.includes("dynamic bonding")) return COLORS.solCyan;
-  if (value.includes("jupiter")) return COLORS.positive;
+  if (value.includes("meteora") || value.includes("dynamic bonding") || value === "met-dbc") return COLORS.solCyan;
+  if (value.includes("jupiter") || value.includes("jup-studio")) return COLORS.positive;
   if (value.includes("raydium")) return COLORS.warning;
+  if (value.includes("bags")) return 0xff7ac8;
+  if (value.includes("bonk")) return 0xffb454;
   if (value === "unknown") return COLORS.inactive;
   return GROUP_PALETTE[paletteIndex(value)];
 }
