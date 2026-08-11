@@ -67,8 +67,11 @@ jupiter-data-transform/
 │   ├── diagnose_inactivity.py      # separates Diagnose-/Shadow-Policy-System
 │   ├── diagnostics/                # Diagnosemethodik und AI-Export
 │   └── gmgn.mjs                    # separates GMGN-Research-Tooling
+├── tools/
+│   └── verify_lifecycle_contract_v01.py # live Equivalence Gate
 ├── docs/
 │   ├── architecture.md
+│   ├── LIFECYCLE_CONTRACT.md
 │   ├── DIAGNOSTIC_PHASES.md
 │   ├── GMGN_FIELDS_REFERENCE.md
 │   └── MILESTONES.md
@@ -130,7 +133,17 @@ Operative Deaktivierung ausdrücklich anwenden:
 python src/lifecycle_clean.py --apply --once
 ```
 
-Ohne `--apply` schreibt die Lifecycle-Engine keine Deaktivierungen. Mit `--apply` kann ausschließlich der definierte Lifecycle-Pfad `tracking_enabled=false` setzen. Ein Freshness-Circuit-Breaker schützt vor Entscheidungen auf veralteter Collector-Evidence.
+Ohne `--apply` schreibt die Lifecycle-Engine keine Deaktivierungen. Mit `--apply` kann ausschließlich der definierte Lifecycle-Pfad `tracking_enabled=false` setzen.
+
+Die fachliche Semantik von Rule 1–5 ist in [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) als Contract v0.1 eingefroren. Rule 1 besitzt eine feste Current-State-Freshness; Rule 2 und Rule 3 verwenden ihre jeweiligen Checkpoint-Bedingungen; Rule 4 und Rule 5 arbeiten auf immutable Snapshot-Evidence.
+
+Vor einer reinen Lifecycle-Simplification:
+
+```powershell
+python tools/verify_lifecycle_contract_v01.py
+```
+
+Der Verifier vergleicht die aktuelle Implementierung gegen die eingefrorene v0.1-Referenz auf demselben PostgreSQL-Snapshot.
 
 ## Read-only Research
 
@@ -166,10 +179,11 @@ Die bewusst knappe Roadmap steht in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 ## Validierung
 
 ```powershell
-python -m compileall -q src
+python -m compileall -q src tools
 python -m unittest discover -s tests -v
 python src/main.py --help
 python src/lifecycle_clean.py --help
+python tools/verify_lifecycle_contract_v01.py
 ```
 
 Externe Integrationen zusätzlich mit dem jeweils betroffenen realen Ablauf prüfen.
@@ -178,6 +192,7 @@ Externe Integrationen zusätzlich mit dem jeweils betroffenen realen Ablauf prü
 
 - [`README.md`](README.md): Zweck, Einstieg und Bedienung.
 - [`docs/architecture.md`](docs/architecture.md): implementierte Komponenten, Datenfluss und harte Systemgrenzen.
+- [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md): fachliche Semantik und Version des operativen Lifecycle.
 - [`docs/DIAGNOSTIC_PHASES.md`](docs/DIAGNOSTIC_PHASES.md): Methodik des separaten siebenphasigen Diagnose-/Shadow-Policy-Subsystems.
 - [`docs/GMGN_FIELDS_REFERENCE.md`](docs/GMGN_FIELDS_REFERENCE.md): GMGN-Trenches-Feldreferenz.
 - [`docs/MILESTONES.md`](docs/MILESTONES.md): aktueller Stand und nächste Entwicklungsrichtung; keine Authority für bereits implementierten Zustand.
