@@ -136,45 +136,42 @@ why rejected
 new dependency required? yes/no + reason
 ```
 
-Die erste Auswahl einer velocity-basierten lokalen `d3-force`-Simulation scheiterte im realen Browser. Der aktive Ansatz verwendet jetzt `d3.packSiblings` für den stabilen Restzustand und einen velocity-freien, gruppenisolierten Constraint-Resolver für Live-Interaktion.
+Die velocity-basierte `d3-force`-Simulation und der nachfolgende positionale Constraint-Resolver scheiterten im realen Browser. Beide Ansätze sind verworfen. Der aktive Reset entfernt Live-Physik vollständig.
 
-### V3-A — Generic Cluster Physics — neu implementiert / Browserretest ausstehend
+### V3-A — Static Overview/Focus Reset — Browserretest ausstehend
 
 Ziel:
 
 ```text
-radius grows
-→ grow in place
-→ nearby nodes yield
+overview
+→ one aggregate per canonical launchpad
 
-radius shrinks / token retires
-→ local vacancy closes naturally
+focus
+→ bounded top-market-cap population of one launchpad
 
-drag
-→ node follows pointer
-→ nearby nodes react
-→ far-away population remains stable
+radius changes
+→ change inside one immutable slot
+→ no neighbor movement
 
-group changes
-→ visible move to new group
-→ only because membership changed
+retirement
+→ red collapse
+→ stable empty slot until explicit refit
 ```
 
-Keine Sonderfall-Architektur wie `findFreeCoordinate()`, `fillHole()`, `moveAfterResize()` pro Ereignistyp.
+Keine Sonderfall-Architektur wie `findFreeCoordinate()`, `fillHole()` oder ein neuer Collision Solver.
 
 Aktiver Mechanismus:
 
 ```text
-d3.packSiblings  → packed rest state
-quadtree         → same-group collision lookup
-direct position constraints without velocity
-cluster domain   → hard membership boundary
-finite scope     → complete idle rest
+d3 hierarchy pack → equal non-overlapping slots
+viewport budget   → bounded visible detail
+area mapping      → market-cap size inside a slot
+no drag/physics   → structural stability
 ```
 
 ### V3-B — ViewSpec Proof
 
-Nach stabiler Grundphysik werden mindestens zwei echte Gruppierungs-Views mit derselben Engine bewiesen:
+Erst nach bestandenem Browser-Test des statischen Reset werden mindestens zwei echte Gruppierungs-Views geprüft:
 
 ```text
 Launchpad
@@ -199,7 +196,7 @@ Discovery provenance + flow
 Freeflow analyst
 Lasso / pinning / command palette
 additional visualizations
-semantic zoom / density mode
+deeper semantic zoom / density modes
 ```
 
 Die konkrete Reihenfolge bleibt bewusst offen.
@@ -243,7 +240,7 @@ V2 Stable Live Deltas                   DONE / PR #6
     ↓
 V3-R Physics Research Gate              REVISED BY BROWSER EVIDENCE
     ↓
-V3-A Generic Cluster Physics            REIMPLEMENTED / BROWSER RETEST PENDING
+V3-A Static Overview/Focus Reset        BROWSER RETEST PENDING
     ↓
 V3-B ViewSpec Proof
     ↓
