@@ -108,9 +108,9 @@ group by temporary LLM cohort
 
 Die Physik selbst bleibt generisch.
 
-### V3-R — Physics Research Gate — abgeschlossen
+### V3-R — Physics Research Gate — revidiert durch Browser-Evidence
 
-Bevor V3-A implementiert wird, wird gezielt geprüft, ob etablierte Mechanismen unser gewünschtes Verhalten bereits einfacher abbilden.
+Vor der ersten V3-A-Implementierung wurde gezielt geprüft, ob etablierte Mechanismen unser gewünschtes Verhalten bereits einfacher abbilden.
 
 Research-Fragen:
 
@@ -127,7 +127,7 @@ Entscheidungsregel:
 
 > Bevorzuge den kleinsten etablierten Mechanismus, der den beobachtbaren V3-Vertrag erfüllt. Eigene Physik oder neue Dependencies erst bei einem nachgewiesenen Gap.
 
-Der Research-Pass ist im Spatial Contract festgehalten:
+Der Research-Pass und seine Revision sind im Spatial Contract festgehalten:
 
 ```text
 selected mechanism
@@ -136,9 +136,9 @@ why rejected
 new dependency required? yes/no + reason
 ```
 
-Kein separates Forschungsprojekt.
+Die erste Auswahl einer velocity-basierten lokalen `d3-force`-Simulation scheiterte im realen Browser. Der aktive Ansatz verwendet jetzt `d3.packSiblings` für den stabilen Restzustand und einen velocity-freien, gruppenisolierten Constraint-Resolver für Live-Interaktion.
 
-### V3-A — Generic Cluster Physics — implementiert / Browservalidierung ausstehend
+### V3-A — Generic Cluster Physics — neu implementiert / Browserretest ausstehend
 
 Ziel:
 
@@ -162,16 +162,14 @@ group changes
 
 Keine Sonderfall-Architektur wie `findFreeCoordinate()`, `fillHole()`, `moveAfterResize()` pro Ereignistyp.
 
-Stattdessen wenige allgemeine Constraints mit lokal begrenzter Ausführung:
+Aktiver Mechanismus:
 
 ```text
-collision
-+
-weak group attraction
-+
-optional drag constraint
-
-local bounded relaxation scope
+d3.packSiblings  → packed rest state
+quadtree         → same-group collision lookup
+direct position constraints without velocity
+cluster domain   → hard membership boundary
+finite scope     → complete idle rest
 ```
 
 ### V3-B — ViewSpec Proof
@@ -243,9 +241,9 @@ Observatory V0 + V1                     DONE / PR #5
     ↓
 V2 Stable Live Deltas                   DONE / PR #6
     ↓
-V3-R Physics Research Gate              DONE
+V3-R Physics Research Gate              REVISED BY BROWSER EVIDENCE
     ↓
-V3-A Generic Cluster Physics            IMPLEMENTED / VALIDATION PENDING
+V3-A Generic Cluster Physics            REIMPLEMENTED / BROWSER RETEST PENDING
     ↓
 V3-B ViewSpec Proof
     ↓
