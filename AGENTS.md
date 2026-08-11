@@ -2,7 +2,7 @@
 
 ## Zweck
 
-Dieses Dokument definiert nur die verbindlichen Regeln für Änderungen an `jupiter-data-transform`. Projektbeschreibung, Bedienung, Architektur und Roadmap werden hier nicht dupliziert.
+Dieses Dokument definiert die verbindlichen Regeln für Änderungen an `jupiter-data-transform`. Projektbeschreibung, Bedienung, Architektur und Roadmap werden hier nicht dupliziert.
 
 ## Verbindlicher Einstieg
 
@@ -12,9 +12,7 @@ Vor jeder Änderung:
 2. [`docs/architecture.md`](docs/architecture.md) lesen.
 3. Die direkt betroffenen Dateien vollständig lesen.
 4. Bei Lifecycle-Arbeit zusätzlich [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) lesen.
-5. Bei Diagnose-/Shadow-Policy-Arbeit zusätzlich [`docs/DIAGNOSTIC_PHASES.md`](docs/DIAGNOSTIC_PHASES.md) lesen.
-6. Bei GMGN-Arbeit zusätzlich [`docs/GMGN_FIELDS_REFERENCE.md`](docs/GMGN_FIELDS_REFERENCE.md) lesen.
-7. Bei Roadmap-/Scope-Fragen zusätzlich [`docs/MILESTONES.md`](docs/MILESTONES.md) lesen.
+5. Bei Roadmap-/Scope-Fragen zusätzlich [`docs/MILESTONES.md`](docs/MILESTONES.md) lesen.
 
 Keine Annahmen über Verhalten treffen, das nicht im Code, in persistierten Datenverträgen oder in diesen Authorities belegt ist.
 
@@ -29,7 +27,7 @@ Vermeiden:
 - parallele Implementierungen derselben Verantwortung;
 - Kopien bestehender Dokumentations-Authorities;
 - unnötige Dependencies oder dauerhafte Zwischenartefakte;
-- implizite Änderungen von Daten-, Lifecycle- oder Policy-Semantik.
+- implizite Änderungen von Daten- oder Lifecycle-Semantik.
 
 Die bestehende Struktur wird erweitert, wenn eine neue fachliche Grenze existiert — nicht vorsorglich.
 
@@ -40,14 +38,11 @@ Diese Invarianten gelten, solange sie nicht ausdrücklich als Architekturänderu
 - Discovery entdeckt Mint-Adressen; sie bewertet keine Lifecycle-Entscheidungen.
 - Jupiter Search ist die operative Quelle der gespeicherten Token-Zustände.
 - Ein erfolgreicher Poll ist nicht dasselbe wie ein neuer Snapshot.
+- Unterschiedliche tatsächlich beobachtete Jupiter-`updatedAt`-Versionen dürfen nicht durch Writer-Coalescing verloren gehen.
 - `missing` oder `unknown` ist niemals automatisch numerische Null.
-- GMGN ist zusätzliche Research-Evidenz und darf fehlende Jupiter-Daten nicht stillschweigend ersetzen.
-- Das operative Lifecycle-System und read-only Research sind getrennte Verantwortungen.
 - Nur der ausdrücklich definierte Lifecycle-Pfad darf aufgrund von Lifecycle-Regeln `tracking_enabled=false` setzen.
 - Die fachliche Lifecycle-Semantik folgt `docs/LIFECYCLE_CONTRACT.md`.
-- Diagnose-, Anomaly- und AI-Research dürfen keine operative Priority oder `tracking_enabled` verändern.
-- `p2`, `p3` und `retire` im siebenphasigen Diagnose-Subsystem bleiben Shadow-Actions; sie sind nicht identisch mit den separat implementierten operativen Lifecycle-Regeln.
-- Diagnosephasen behalten ihre eigenen Populationen und Nenner; Cross-Phase-Vergleiche folgen `docs/DIAGNOSTIC_PHASES.md`.
+- Read-only Consumer dürfen operative Daten lesen, aber weder Tracking-, Priority-, Lifecycle- noch Collector-owned State verändern.
 
 ## Datenbank- und Mutation-Ownership
 
@@ -56,7 +51,7 @@ Diese Invarianten gelten, solange sie nicht ausdrücklich als Architekturänderu
 - `src/lifecycle_queries.py` liest Lifecycle-Evidence; es besitzt keine Mint-Mutation.
 - `src/lifecycle_rules.py` enthält reine Regelentscheidungen; keine DB-Zugriffe und keine Writes.
 - `src/lifecycle_clean.py` orchestriert den operativen Lifecycle und ruft Mutationen nur über `MintRepository` auf.
-- Research-Skripte bleiben read-only gegenüber operativen Mint-Zuständen.
+- Downstream-Code bleibt read-only gegenüber operativem State.
 
 Persistente Schemaänderungen erfolgen explizit in `src/schema.sql`.
 
@@ -66,12 +61,13 @@ Keine versteckte Schema-Migration im normalen Lauf einführen.
 
 Die folgenden Zustände dürfen nicht vermischt werden:
 
+- `first_observed_at`: erste vom Collector persistierte Source-Version;
 - `last_polled_at`: letzter erfolgreicher Poll;
-- `last_changed_at`: letzter lokal beobachteter fachlicher Zustandswechsel;
-- `source_updated_at`: zuletzt beobachteter Jupiter-`updatedAt`-Wert;
-- `mint_snapshots`: ausschließlich fachlich veränderte gespeicherte Zustände.
+- `last_changed_at`: lokale Beobachtungszeit der jüngsten neuen Source-Version;
+- `source_updated_at`: jüngster persistierter Jupiter-`updatedAt`-Wert;
+- `mint_snapshots`: immutable Historie beobachteter Source-Versionen.
 
-Snapshot-Abstände sind deshalb keine Poll-Abstände. Fehlende Zwischen-Snapshots dürfen nicht künstlich interpoliert werden, sofern die jeweilige Methodik dies nicht ausdrücklich und nachvollziehbar definiert.
+Snapshot-Abstände sind deshalb keine Poll-Abstände. Fehlende Zwischen-Snapshots dürfen nicht künstlich interpoliert werden, sofern eine spätere Methodik dies nicht ausdrücklich und nachvollziehbar definiert.
 
 ## Lifecycle-Änderungen
 
@@ -96,6 +92,12 @@ python tools/verify_lifecycle_contract_v01.py
 
 Nur wenn pro Regel exakt dieselben `(mint, reason)`-Sets entstehen, ist die Änderung gegenüber Contract v0.1 semantisch äquivalent.
 
+## Downstream-Consumer
+
+Frontend, Research und spätere LLM-Tools sind Consumer operativer Daten und besitzen keine Mutation-Authority.
+
+Eine gemeinsame Abstraktion oder Query-Schicht wird erst eingeführt, wenn mehrere reale Consumer dieselbe Verantwortung teilen. Kein vorsorgliches Framework zwischen PostgreSQL und einem einzelnen Consumer bauen.
+
 ## Fehlerbehandlung
 
 Fehler müssen sichtbar bleiben.
@@ -119,7 +121,7 @@ Roadmap-Ziele aus `docs/MILESTONES.md` sind keine implizite Implementierungsfrei
 Mindestens die zur Änderung passenden Checks ausführen. Für allgemeine Python-Änderungen:
 
 ```powershell
-python -m compileall -q src
+python -m compileall -q src tools
 python -m unittest discover -s tests -v
 ```
 
@@ -140,12 +142,10 @@ Dauerhafte Dokumentation hat genau eine Authority pro Frage:
 - `README.md`: Zweck, Einstieg und Bedienung.
 - `docs/architecture.md`: implementierte Komponenten, Datenfluss und Systemgrenzen.
 - `docs/LIFECYCLE_CONTRACT.md`: fachliche Semantik und Version des operativen Lifecycle.
-- `docs/DIAGNOSTIC_PHASES.md`: Methodik des siebenphasigen Diagnose-/Shadow-Policy-Subsystems.
-- `docs/GMGN_FIELDS_REFERENCE.md`: GMGN-Trenches-Felder und deren Semantik.
 - `docs/MILESTONES.md`: aktueller Stand und nächste Entwicklungsrichtung; keine Authority für implementierten Zustand.
 - `AGENTS.md`: Änderungsregeln.
 
-Änderungshistorie gehört in Git. Refactoring- und Optimization-Notizen werden nach Abschluss entfernt. Generierte Artefakte werden nicht als Dokumentationskopie verwendet.
+Änderungshistorie gehört in Git. Refactoring-, Research- und Optimization-Notizen werden nicht als dauerhafte Architektur-Authority verwendet.
 
 Wenn sich Datenfluss, Bedienung, Persistenz oder Methodik ändern, muss im selben Arbeitsschritt die zuständige Authority angepasst werden.
 
