@@ -2,13 +2,12 @@
 
 ## Status
 
-**Authority:** Frontend product, interaction and implementation direction  
-**Scope:** read-only visual and analytical consumer of the operational token data  
-**Current checkpoint:** V1 validated for merge; V2 is the next vertical slice
+**Authority:** frontend product, interaction and implementation direction  
+**Scope:** read-only visual and analytical consumer of operational token data  
+**Current checkpoint:** V0–V2 merged; V3 Generic Bubble Physics + ViewSpec is active  
+**V3 spatial authority:** `docs/FRONTEND_SPATIAL_MODEL.md`
 
-This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
-
-It is deliberately not a catalog of every future feature. New modules and abstractions are introduced only when a real responsibility exists.
+This document defines the durable product and architecture principles of the Token Observatory. Slice-specific spatial behavior is refined in the V3 spatial contract instead of accumulating special-case rules here.
 
 ## 1. Product definition
 
@@ -32,13 +31,11 @@ REFINE
 DISCOVER
 ```
 
-The primary object of the interface is the data space, not a table.
-
-Tables remain useful for precise values and drill-down. They are not the main navigation model.
+The primary object of the interface is the data space, not a table. Tables remain useful for precise values and drill-down, but they are not the main navigation model.
 
 ## 2. System boundary
 
-The frontend is a read-only downstream consumer.
+The Observatory is a read-only downstream consumer.
 
 ```text
 Operational Core
@@ -52,7 +49,7 @@ Discovery -> Jupiter Monitoring -> Persistence -> Lifecycle
                     Visualization             LLM Analyst
 ```
 
-The frontend and analyst may read operational data. They may not mutate:
+Frontend and analyst may read operational data. They may not mutate:
 
 - `tracking_enabled`;
 - priority;
@@ -88,12 +85,12 @@ The system must remain understandable with thousands of tokens visible without r
 
 A token has visual identity inside a view.
 
-A new observation must not cause unrelated tokens to globally reorganize unless the active view explicitly represents a dimension that changed.
+A new observation must not cause unrelated tokens to globally reorganize unless the active view explicitly represents a dimension or population that changed.
 
 ```text
 one token changes
       ↓
-primarily that token changes visually
+primarily that token and its necessary local context change visually
 ```
 
 ### 3.4 Delta locality
@@ -114,7 +111,8 @@ Animation is semantic, not decorative.
 
 ```text
 enter       = token becomes visible in this population
-move        = represented dimension or population changed
+move        = represented position or population changed
+resize      = represented size value changed
 pulse       = one relevant new delta
 selection   = stable halo / focus
 retire      = collapse, fade or transfer out of active population
@@ -130,9 +128,7 @@ Renderers consume the visual contract. They do not invent category colors indepe
 
 ### 3.7 Visualizations are projections
 
-Bubble maps, trees, radar charts, flow views and timelines are projections of the same underlying data.
-
-They do not own business truth.
+Bubble maps, trees, radar charts, flow views and timelines are projections of the same underlying data. They do not own business truth.
 
 ### 3.8 Vertical delivery
 
@@ -199,8 +195,6 @@ CHAOTIC MARKET
 
 ### 5.1 Base palette
 
-The palette is dark graphite/navy rather than pure black.
-
 ```text
 --bg              #080B14
 --surface         #0F1420
@@ -214,14 +208,12 @@ The palette is dark graphite/navy rather than pure black.
 
 ### 5.2 Solana accents
 
-Solana-derived accent colors are used selectively, not as universal decoration.
-
 ```text
 --sol-purple      #9945FF
 --sol-cyan        #14F1D9
 ```
 
-A purple/cyan gradient may be used for brand-level emphasis, active selection or transitions, but not as a default fill for every object.
+Purple/cyan may be used for brand-level emphasis, active selection or transitions, but not as a default fill for every object.
 
 ### 5.3 Semantic colors
 
@@ -263,86 +255,85 @@ Discovery source should later be recognizable through a subtle, constant seconda
 
 This capability is blocked until discovery provenance is persistently available.
 
-## 6. Live mode visual contract
+## 6. Live mode contract
 
-The current backend already separates initial state from SSE deltas. The frontend must preserve that semantic distinction visually.
+The backend separates initial state from SSE deltas. The frontend must preserve that distinction visually.
 
 ### Bootstrap
 
 ```text
 load current universe
       ↓
-calculate initial layout once
+calculate initial layout
       ↓
-stabilize positions
+stabilize
       ↓
 enter LIVE mode
 ```
 
+### Ordinary live delta
+
+A normal SSE update must not trigger global force reheating or a full repack.
+
+This behavior was validated and merged in V2.
+
 ### New token
 
-Existing nodes remain stable. The new node enters locally and is inserted into the relevant spatial region.
-
-A new token must not trigger a global refit or global force reheating.
+A new token enters the represented population locally. The exact local physics is defined by the active spatial model and `ViewSpec`.
 
 ### Updated token
 
 Only visual channels controlled by changed values should update.
 
-Example:
+Examples:
 
-- if Market Cap controls radius, the affected bubble may resize;
-- if Market Cap is not mapped to geometry, a Market Cap update must not move the bubble;
-- a relevant change may pulse once;
-- unrelated nodes remain visually stable.
+- if Market Cap controls radius, the bubble may resize;
+- if Market Cap does not control geometry, the bubble should not move merely because Market Cap changed;
+- a relevant change may pulse once.
 
 ### Retired token
 
-Retirement is a visible event. The node may collapse, fade or transfer toward a retirement/graveyard representation.
+Retirement is a visible event. The node may collapse, fade or later transfer toward a retirement/graveyard representation.
 
-The surrounding population should not immediately collapse into the empty space in a way that destroys spatial memory.
+### Resize / View change
 
-### Resize
-
-Viewport resize may cause an explicit controlled refit. Live data deltas must not use the same global refit behavior.
+Viewport resize or an explicit ViewSpec switch may perform a controlled global refit. Ordinary live deltas may not use the same global behavior.
 
 ## 7. ViewSpec
 
 A view is described by data-to-visual mappings rather than being hard-coded into one renderer.
 
-Minimal contract:
-
-```json
-{
-  "type": "bubble",
-  "layout": "projection",
-  "x": "age_seconds",
-  "y": "market_cap",
-  "size": "liquidity",
-  "color": "lifecycle_state",
-  "group": null
-}
-```
-
-The current launchpad force view becomes one possible preset rather than the architecture itself:
+Minimal conceptual contract:
 
 ```json
 {
   "type": "bubble",
   "layout": "cluster",
-  "x": null,
-  "y": null,
+  "group": "launchpad",
   "size": "market_cap",
-  "color": "launchpad",
-  "group": "launchpad"
+  "color": "group",
+  "x": null,
+  "y": null
 }
 ```
 
-Initial supported mappings should remain deliberately small and expand only when real views require them.
+Projection example:
 
-## 8. Initial application structure
+```json
+{
+  "type": "bubble",
+  "layout": "projection",
+  "group": null,
+  "size": "liquidity",
+  "color": "lifecycle_state",
+  "x": "age_seconds",
+  "y": "market_cap"
+}
+```
 
-The first structural refactor should create only responsibilities that already exist or are immediately being implemented.
+Initial supported mappings remain deliberately small and explicit. V3 defines how grouping, size and positional constraints interact with generic physics in `docs/FRONTEND_SPATIAL_MODEL.md`.
+
+## 8. Current application structure
 
 ```text
 src/
@@ -370,12 +361,14 @@ app.py            FastAPI, HTTP and SSE boundary
 data.py           read-only PostgreSQL projections
 app.js            application bootstrap and wiring
 state.js          token state, selection, active view, deltas
-universe.js       Pixi/D3 rendering and local motion
-view-spec.js      supported view mappings and presets
+universe.js       rendering and spatial behavior
+view-spec.js      supported mappings and presets
 theme.js          semantic visual tokens
 ```
 
-When LLM integration becomes real in the same draft, only then add:
+New modules are introduced only when a real responsibility appears.
+
+When LLM integration becomes real, likely additions are limited initially to:
 
 ```text
 observatory/analyst.py
@@ -383,11 +376,9 @@ observatory/tools.py
 static/js/analyst.js
 ```
 
-No deeper directory hierarchy is justified yet.
-
 ## 9. Backend contract
 
-The existing minimal endpoints remain useful:
+Current minimal endpoints:
 
 ```text
 GET /api/health
@@ -400,7 +391,7 @@ GET /api/events
 
 `/api/events` is the live delta channel.
 
-The current event classes are sufficient for the first vertical slices:
+Current event classes:
 
 ```text
 token_added
@@ -408,11 +399,11 @@ token_updated
 token_retired
 ```
 
-The event payload may carry the complete current token projection for simplicity. The frontend must still apply the update locally rather than replacing the whole visual state.
+The payload may carry the complete current token projection for simplicity. The browser still applies the change locally rather than replacing the whole visual state.
 
 ## 10. LLM analyst model
 
-The LLM is an analytical controller over read-only tools, not a database authority and not a generic chat widget.
+The LLM is an analytical controller over bounded read-only tools, not a database authority and not a generic chat widget.
 
 Two modes are planned.
 
@@ -434,11 +425,9 @@ user question / visual selection
 
 A configurable periodic process may autonomously use the same read-only tools and emit findings without requiring an explicit user selection.
 
-The cadence is runtime configuration, not part of this contract.
+Cadence is runtime configuration, not part of this contract.
 
 ### Initial tool vocabulary
-
-Use a few general primitives rather than one tool per analysis:
 
 ```text
 observe()
@@ -447,13 +436,11 @@ compare()
 aggregate()
 ```
 
-These tools must expose bounded, structured, read-only data.
+Tools expose bounded structured read-only data.
 
-No arbitrary SQL tool and no arbitrary Python execution tool is part of the initial analyst contract.
+No arbitrary SQL tool and no arbitrary Python execution tool belongs to the initial analyst contract.
 
-### LLM response shape
-
-The LLM should return analytical objects rather than only chat text.
+### Response shape
 
 Conceptually:
 
@@ -467,7 +454,7 @@ Conceptually:
 }
 ```
 
-Possible visual actions include:
+Possible visual actions:
 
 ```text
 highlight mints
@@ -479,15 +466,11 @@ request comparison
 
 The browser decides how approved action types are rendered. The LLM does not manipulate Pixi, DOM or SQL directly.
 
-### Configuration
-
-LLM credentials remain server-side in environment configuration. No provider API key is exposed to JavaScript.
-
-The first implementation should prefer a small provider boundary configured through environment variables rather than coupling the frontend to one vendor SDK.
+LLM credentials remain server-side in environment configuration.
 
 ## 11. Analyst UI pattern
 
-The analyst should appear as an investigation layer, not as a ChatGPT-shaped sidebar.
+The analyst should appear as an investigation layer, not as a generic chat sidebar.
 
 Preferred object:
 
@@ -502,7 +485,7 @@ Confidence
 Actions
 ```
 
-The persistent inspector can later switch context between:
+The persistent inspector may later switch context between:
 
 ```text
 TOKEN
@@ -510,11 +493,9 @@ COHORT
 ANALYST
 ```
 
-Longer-term analyst history may become notebook-like rather than one endless message thread.
-
 ## 12. Selection and navigation direction
 
-The long-term navigation model is population-first:
+Long-term navigation is population-first:
 
 ```text
 Universe
@@ -524,24 +505,22 @@ Universe
   / Derived Population
 ```
 
-Lasso selection, breadcrumbs, pinning and command palette are valuable future interaction primitives.
-
-They are not prerequisites for the first stable merge unless needed by the active vertical slice.
+Lasso selection, breadcrumbs, pinning and command palette are valuable future interaction primitives but are introduced only when an active slice needs them.
 
 ## 13. Known data gaps
 
 ### Discovery provenance
 
-The current core inserts discovered mints without persistently preserving which discovery source observed each mint and when.
+The core currently inserts discovered mints without persistently preserving which discovery source observed each mint and when.
 
-Therefore the following views cannot yet be implemented truthfully:
+Therefore the following cannot yet be represented truthfully:
 
 - source-resolved discovery flow;
 - discovery overlap between sources;
 - source-specific discovery cohort history;
 - exact token travel from source to Jupiter observation.
 
-This must be solved as a separate explicit core evidence contract. The frontend must not infer or fake provenance.
+The frontend must not infer or fake provenance.
 
 ### Historical analysis
 
@@ -551,117 +530,86 @@ Token timelines, peak metrics, detailed trajectories and historical comparisons 
 
 ## 14. Vertical execution plan
 
-The Observatory is developed in short vertical slices. Every slice should end with a visible running result.
-
 ### V0 — Observatory contract — DONE
+
+Established product, architecture, truth, design and delivery principles.
+
+### V1 — Structural refactor + design system — DONE / MERGED
 
 Delivered:
 
-- this document;
-- milestone pointer;
-- explicit design, motion, truth and scope contracts.
+- minimal Observatory module split;
+- semantic theme;
+- independent FastAPI frontend;
+- real browser/API validation with more than 1.500 tokens.
 
-### V1 — Structural refactor + design system — DONE
+Merge checkpoint: PR #5.
 
-Delivered and locally validated:
+### V2 — Stable Live Deltas — DONE / MERGED
 
-- backend moved into the minimal `observatory` responsibility split;
-- monolithic frontend state/rendering/theme responsibilities separated;
-- current endpoints and live behavior preserved;
-- semantic dark/Solana design tokens applied;
-- real browser run with more than 1,500 current tokens;
-- `/api/health`, `/api/universe`, static modules and SSE path observed working.
-
-Visible result:
-
-- working Universe retained;
-- calmer, consistent visual chrome;
-- arbitrary launchpad hash palette is no longer the primary design system.
-
-### V2 — Stable Live Universe — NEXT
-
-Deliver:
+Delivered and validated:
 
 - bootstrap layout once;
-- stop global force reheating for ordinary live deltas;
-- local entry for new token;
-- local visual update for changed token;
-- explicit retirement animation;
-- stable visual selection;
-- preserve spatial memory with ~1,200+ active tokens.
+- ordinary live deltas no longer globally reheat the population;
+- local update/pulse;
+- local entry;
+- local retirement;
+- explicit resize refit remains allowed.
 
-Visible result:
+Merge checkpoint: PR #6.
 
-- the user can see which token changed without the whole universe contracting or expanding.
+V2 deliberately stops before final Bubble Map physics.
 
-### V3 — Minimal ViewSpec
+### V3 — Generic Bubble Physics + ViewSpec — ACTIVE
 
-Deliver:
+Technical authority: `docs/FRONTEND_SPATIAL_MODEL.md`.
 
-- `ViewSpec` state;
-- current cluster map as a preset;
-- at least one true projection preset, preferably `Age × Market Cap` with `Liquidity` as size;
-- minimal visible controls or preset switcher.
+The central rule is:
 
-Visible result:
+```text
+Cluster != hard-coded renderer category
+Cluster = result of active ViewSpec
+```
 
-- the same population can be viewed from two analytically distinct perspectives without rewriting the renderer.
+V3 establishes:
 
-### V4 — First LLM vertical slice
+- generic collision;
+- weak group attraction;
+- local relaxation;
+- radius growth/shrink in place;
+- local vacancy closing;
+- drag as a temporary user constraint;
+- semantic movement only when group or positional mapping changes;
+- at least two grouping configurations using the same renderer/physics.
 
-Deliver only after the preceding slices remain working.
+### V4 — Thin LLM Analyst — LATER
 
 Minimum useful slice:
 
 - server-side analyst configuration;
 - `POST /api/analyst`;
-- two or more bounded read-only tools from the general vocabulary;
-- one visible analyst object in the inspector;
-- one approved visual action such as highlight/select;
+- at least two bounded read-only tools;
+- one visible analyst object;
+- one approved visual action;
 - facts and hypotheses rendered as different truth levels.
 
-Visible result:
-
-- user asks a question about current/selected tokens;
-- backend model performs at least one real tool call;
-- answer and evidence return to the frontend;
-- the frontend visibly highlights or selects the referenced token set.
-
-A minimal Freeflow Observer may follow immediately if this manual path is stable. It must reuse the same analyst/tool boundary rather than introduce a parallel mechanism.
+A minimal Freeflow Observer may follow if the manual path is stable and must reuse the same analyst/tool boundary.
 
 ## 15. Merge checkpoints
 
-Vertical delivery also applies to Git history. A working slice does not stay artificially unmerged while unrelated future slices accumulate.
-
-### Checkpoint 1 — V0 + V1
-
-Draft PR #5 is the first merge checkpoint and contains:
+Working slices merge when their narrow contract is validated. One long-lived frontend PR is explicitly avoided.
 
 ```text
-V0 Observatory contract
-+
-V1 structural split / semantic design system
+PR #5  V0 + V1  Observatory foundation
+PR #6  V2       Stable Live Deltas
+PR #7  V3       Generic Physics + ViewSpec    active draft
 ```
 
-This checkpoint is ready because:
+The success criterion is a visible working improvement with a clear responsibility boundary, not completion of the whole Observatory vision.
 
-- the frontend starts independently;
-- the operational core and Lifecycle v0.1 are untouched;
-- database access remains read-only;
-- existing API/SSE behavior is preserved;
-- semantic design tokens are applied;
-- responsibilities are separated without a speculative frontend framework;
-- the real browser/API path has been validated.
+## 16. Explicit non-goals of the current foundation
 
-### Later checkpoints
-
-V2, V3 and V4 should continue as subsequent vertical changes from the merged baseline. They do not need to remain coupled to PR #5.
-
-The success criterion for each checkpoint is a visible, working improvement with a clear responsibility boundary, not completion of the whole Observatory vision.
-
-## 16. Explicit non-goals of the foundation
-
-The foundation does not require:
+The current foundation does not require:
 
 - full Cohort engine;
 - Graveyard explorer;
@@ -673,17 +621,17 @@ The foundation does not require:
 - population trees;
 - complete discovery flow;
 - time scrubber;
-- density/semantic zoom for 20k+ tokens;
+- semantic zoom for 20k+ tokens;
 - OHLC/time-bucket work;
 - permanent LLM-generated lifecycle classifications.
 
-These may be added vertically after the foundation proves the interaction model.
+These may be added vertically after their preceding contracts prove useful.
 
 ## 17. Validation principle
 
-Each slice must be validated through the real running frontend, not only static checks.
+Each slice is validated through the real running frontend, not only static checks.
 
-At minimum retain:
+Minimum validation remains:
 
 ```text
 Python compile check
@@ -693,4 +641,4 @@ live SSE observation
 visual verification in browser
 ```
 
-The success criterion is not file count or abstraction depth. It is a stable, understandable, visibly working Observatory that can grow without turning `app.js` or the backend into a new monolith.
+The success criterion is not file count or abstraction depth. It is a stable, understandable, visibly working Observatory that can grow without turning the renderer, `app.js` or the backend into a new monolith.
