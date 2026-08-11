@@ -1,3 +1,5 @@
+import { DEFAULT_VIEW_ID } from "./view-spec.js";
+
 export function normalizedLaunchpad(token) {
   return token?.launchpad && token.launchpad !== "" ? token.launchpad : "unknown";
 }
@@ -6,7 +8,7 @@ export class ObservatoryState {
   constructor() {
     this.tokens = new Map();
     this.selectedMint = null;
-    this.activeView = "launchpad-cluster";
+    this.activeView = DEFAULT_VIEW_ID;
     this.recentChanges = [];
     this.eventCount = 0;
   }
