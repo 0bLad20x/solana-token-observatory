@@ -1,7 +1,13 @@
 import { DEFAULT_VIEW_ID } from "./view-spec.js";
 
 export function normalizedLaunchpad(token) {
-  return token?.launchpad && token.launchpad !== "" ? token.launchpad : "unknown";
+  const value = String(token?.launchpad || "").trim().toLowerCase();
+  if (!value) return "unknown";
+  if (value.includes("pump")) return "pump.fun";
+  if (value.includes("meteora") || value.includes("dynamic bonding") || value === "met-dbc") {
+    return "meteora";
+  }
+  return value;
 }
 
 export class ObservatoryState {
