@@ -9,6 +9,9 @@ const VIEW_PADDING = 14;
 const CLUSTER_GAP = 18;
 const PACKING_DENSITY = 0.72;
 const TARGET_NODE_AREA_SHARE = 0.48;
+const BOOTSTRAP_TICKS = 240;
+const LOCAL_SEARCH_ATTEMPTS = 1600;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 function clamp(value, minimum, maximum) {
   if (minimum > maximum) return (minimum + maximum) / 2;
@@ -44,14 +47,6 @@ function freshnessAlpha(changeAgeSeconds) {
   return 0.5;
 }
 
-function sameSet(left, right) {
-  if (left.size !== right.size) return false;
-  for (const value of left) {
-    if (!right.has(value)) return false;
-  }
-  return true;
-}
-
 export class TokenUniverse {
   constructor(stageElement, { onSelect } = {}) {
     this.stageElement = stageElement;
@@ -63,7 +58,6 @@ export class TokenUniverse {
     this.nodes = new Map();
     this.clusterViews = new Map();
     this.clusterCenters = new Map();
-    this.simulation = null;
     this.selectedMint = null;
     this.sceneScale = 1;
     this.resizeTimer = null;
@@ -92,7 +86,7 @@ export class TokenUniverse {
       clearTimeout(this.resizeTimer);
       this.resizeTimer = setTimeout(() => {
         if (!this.nodes.size) return;
-        this._layoutScene({ refit: true, seedUnplaced: false, reheat: 0.14 });
+        this._layoutScene({ refit: true });
       }, 180);
     });
     this.resizeObserver.observe(this.stageElement);
@@ -100,7 +94,7 @@ export class TokenUniverse {
 
   load(tokens) {
     for (const token of tokens) this._addToken(token, false);
-    this._layoutScene({ refit: true, seedUnplaced: true, reheat: 0.55 });
+    this._layoutScene({ refit: true });
   }
 
   setSelectedMint(mint) {
@@ -111,52 +105,38 @@ export class TokenUniverse {
   }
 
   applyEvents(events) {
-    const beforeClusters = this._activeClusterNames();
-    let topologyChanged = false;
-    let clusterChanged = false;
-    let geometryChanged = false;
-
     for (const event of events) {
       if (event.type === "token_added") {
-        this._addToken(event.token, true);
-        topologyChanged = true;
+        const node = this._addToken(event.token, true);
+        this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
+        this._placeNodeLocally(node, { preserveCurrent: false });
         continue;
       }
 
       if (event.type === "token_updated") {
         const result = this._updateToken(event.token, true);
-        topologyChanged ||= result.topologyChanged;
-        clusterChanged ||= result.clusterChanged;
-        geometryChanged ||= result.geometryChanged;
+        const node = result.node;
+        if (!node) continue;
+
+        if (result.clusterChanged) {
+          this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
+          this._placeNodeLocally(node, { preserveCurrent: false });
+        } else if (result.geometryChanged) {
+          this._placeNodeLocally(node, { preserveCurrent: true });
+        }
         continue;
       }
 
       if (event.type === "token_retired") {
-        topologyChanged ||= this._retireToken(event.token, event.reason);
+        this._retireToken(event.token, event.reason);
       }
     }
 
-    const afterClusters = this._activeClusterNames();
-    const clusterSetChanged = !sameSet(beforeClusters, afterClusters);
-
-    if (clusterSetChanged) {
-      this._layoutScene({ refit: false, seedUnplaced: true, reheat: 0.16 });
-    } else {
-      this._refreshClusterVisuals();
-      if (topologyChanged || clusterChanged) {
-        this._configureSimulation(this._activeNodes(), 0.085);
-      } else if (geometryChanged) {
-        this._refreshCollision(0.03);
-      }
-    }
+    this._refreshClusterVisuals();
   }
 
   _activeNodes() {
     return [...this.nodes.values()].filter(node => !node.retiringAt);
-  }
-
-  _activeClusterNames() {
-    return new Set(this._activeNodes().map(node => node.cluster));
   }
 
   _updateNodeGeometry(node) {
@@ -192,23 +172,11 @@ export class TokenUniverse {
       });
   }
 
-  _seedNode(node, center) {
-    const value = hash(node.token.mint);
-    const angle = ((value & 0xffff) / 0xffff) * Math.PI * 2;
-    const radialUnit = Math.sqrt(((value >>> 16) & 0xffff) / 0xffff);
-    const distance = radialUnit * Math.max(8, center.radius * 0.72);
-
-    node.x = center.x + Math.cos(angle) * distance;
-    node.y = center.y + Math.sin(angle) * distance;
-    node.vx = 0;
-    node.vy = 0;
-    node.seeded = true;
-  }
-
   _addToken(token, animate = true) {
-    if (this.nodes.has(token.mint)) {
+    const existing = this.nodes.get(token.mint);
+    if (existing) {
       this._updateToken(token, false);
-      return;
+      return existing;
     }
 
     const cluster = normalizedLaunchpad(token);
@@ -226,20 +194,23 @@ export class TokenUniverse {
       pulseUntil: 0,
       bornAt: animate ? performance.now() : 0,
       retiringAt: 0,
-      seeded: false,
     };
 
     this.nodes.set(token.mint, node);
-    if (center) this._seedNode(node, center);
     this._createView(node);
     node.view.scale.set(animate ? 0.02 : 1);
+    return node;
   }
 
   _updateToken(token, pulse = true) {
     const node = this.nodes.get(token.mint);
     if (!node) {
-      this._addToken(token, true);
-      return { topologyChanged: true, clusterChanged: false, geometryChanged: true };
+      const added = this._addToken(token, true);
+      return {
+        node: added,
+        clusterChanged: true,
+        geometryChanged: true,
+      };
     }
 
     const previousCluster = node.cluster;
@@ -250,7 +221,7 @@ export class TokenUniverse {
     if (pulse) node.pulseUntil = performance.now() + 900;
 
     return {
-      topologyChanged: false,
+      node,
       clusterChanged: previousCluster !== node.cluster,
       geometryChanged: Math.abs(previousRadius - node.radius) > 0.15,
     };
@@ -327,17 +298,12 @@ export class TokenUniverse {
     const entries = [...metrics.values()].sort((a, b) => b.radius - a.radius);
     if (!entries.length) return new Map();
 
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
     const orbitBase = Math.min(width, height) * 0.24;
     const layoutNodes = entries.map((metric, index) => {
-      const previous = this.clusterCenters.get(metric.name);
-      if (previous) {
-        return { ...metric, x: previous.x, y: previous.y, vx: 0, vy: 0 };
-      }
       if (index === 0) {
         return { ...metric, x: width / 2, y: height / 2, vx: 0, vy: 0 };
       }
-      const angle = (index - 1) * goldenAngle;
+      const angle = (index - 1) * GOLDEN_ANGLE;
       const orbit = orbitBase + Math.floor((index - 1) / 6) * Math.min(width, height) * 0.14;
       return {
         ...metric,
@@ -380,6 +346,119 @@ export class TokenUniverse {
     ]));
   }
 
+  _clusterPositionFree(x, y, radius, ignoreName = null) {
+    for (const [name, center] of this.clusterCenters.entries()) {
+      if (name === ignoreName) continue;
+      const dx = x - center.x;
+      const dy = y - center.y;
+      const minimum = radius + center.radius + CLUSTER_GAP;
+      if (dx * dx + dy * dy < minimum * minimum) return false;
+    }
+    return true;
+  }
+
+  _ensureClusterCenter(name, radius) {
+    const existing = this.clusterCenters.get(name);
+    if (existing) return existing;
+
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
+    const seed = hash(name);
+    const angleOffset = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
+    const maxDistance = Math.hypot(width, height) * 0.55;
+
+    for (let index = 0; index < 360; index += 1) {
+      const distance = Math.min(maxDistance, 24 + Math.sqrt(index) * Math.max(26, radius * 0.72));
+      const angle = angleOffset + index * GOLDEN_ANGLE;
+      const x = clamp(width / 2 + Math.cos(angle) * distance, radius + VIEW_PADDING, width - radius - VIEW_PADDING);
+      const y = clamp(height / 2 + Math.sin(angle) * distance, radius + VIEW_PADDING, height - radius - VIEW_PADDING);
+      if (!this._clusterPositionFree(x, y, radius)) continue;
+
+      const center = {
+        x,
+        y,
+        radius,
+        total: 0,
+        color: launchpadAccent(name),
+      };
+      this.clusterCenters.set(name, center);
+      return center;
+    }
+
+    const fallback = {
+      x: clamp(width / 2, radius + VIEW_PADDING, width - radius - VIEW_PADDING),
+      y: clamp(height / 2, radius + VIEW_PADDING, height - radius - VIEW_PADDING),
+      radius,
+      total: 0,
+      color: launchpadAccent(name),
+    };
+    this.clusterCenters.set(name, fallback);
+    return fallback;
+  }
+
+  _nodePositionFree(node, x, y) {
+    for (const other of this.nodes.values()) {
+      if (other === node || other.retiringAt || other.cluster !== node.cluster) continue;
+      const dx = x - other.x;
+      const dy = y - other.y;
+      const minimum = node.radius + other.radius + NODE_GAP;
+      if (dx * dx + dy * dy < minimum * minimum) return false;
+    }
+    return true;
+  }
+
+  _placeNodeLocally(node, { preserveCurrent = true } = {}) {
+    const center = this.clusterCenters.get(node.cluster)
+      || this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
+
+    if (preserveCurrent && this._nodePositionFree(node, node.x, node.y)) {
+      return;
+    }
+
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
+    const seed = hash(node.token.mint);
+    const angleOffset = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
+    const step = Math.max(8, (node.radius + NODE_GAP) * 1.8);
+    const maxDistance = Math.max(center.radius + node.radius + 24, step * 8);
+
+    for (let index = 0; index < LOCAL_SEARCH_ATTEMPTS; index += 1) {
+      const distance = Math.min(maxDistance, step * Math.sqrt(index));
+      const angle = angleOffset + index * GOLDEN_ANGLE;
+      const x = clamp(
+        center.x + Math.cos(angle) * distance,
+        node.radius + VIEW_PADDING,
+        width - node.radius - VIEW_PADDING,
+      );
+      const y = clamp(
+        center.y + Math.sin(angle) * distance,
+        node.radius + VIEW_PADDING,
+        height - node.radius - VIEW_PADDING,
+      );
+
+      if (!this._nodePositionFree(node, x, y)) continue;
+      node.x = x;
+      node.y = y;
+      node.vx = 0;
+      node.vy = 0;
+      return;
+    }
+
+    const fallbackDistance = Math.min(maxDistance, Math.max(24, center.radius * 0.8));
+    node.x = clamp(
+      center.x + Math.cos(angleOffset) * fallbackDistance,
+      node.radius + VIEW_PADDING,
+      width - node.radius - VIEW_PADDING,
+    );
+    node.y = clamp(
+      center.y + Math.sin(angleOffset) * fallbackDistance,
+      node.radius + VIEW_PADDING,
+      height - node.radius - VIEW_PADDING,
+    );
+    node.vx = 0;
+    node.vy = 0;
+  }
+
   _updateClusterViews(metrics) {
     for (const [name, view] of this.clusterViews.entries()) {
       if (metrics.has(name)) continue;
@@ -400,8 +479,8 @@ export class TokenUniverse {
     });
 
     for (const [name, metric] of metrics.entries()) {
-      const center = this.clusterCenters.get(name);
-      if (!center) continue;
+      const center = this.clusterCenters.get(name)
+        || this._ensureClusterCenter(name, metric.radius);
       center.radius = metric.radius;
       center.total = metric.total;
       center.color = metric.color;
@@ -451,39 +530,46 @@ export class TokenUniverse {
     return force;
   }
 
-  _configureSimulation(items, reheat = 0.1) {
+  _seedNode(node, center) {
+    const value = hash(node.token.mint);
+    const angle = ((value & 0xffff) / 0xffff) * Math.PI * 2;
+    const radialUnit = Math.sqrt(((value >>> 16) & 0xffff) / 0xffff);
+    const distance = radialUnit * Math.max(8, center.radius * 0.72);
+    node.x = center.x + Math.cos(angle) * distance;
+    node.y = center.y + Math.sin(angle) * distance;
+    node.vx = 0;
+    node.vy = 0;
+  }
+
+  _settleBootstrap(items) {
     const targetX = node => this.clusterCenters.get(node.cluster)?.x ?? this.app.screen.width / 2;
     const targetY = node => this.clusterCenters.get(node.cluster)?.y ?? this.app.screen.height / 2;
 
-    if (!this.simulation) {
-      this.simulation = forceSimulation(items)
-        .velocityDecay(0.34)
-        .alphaDecay(0.038)
-        .force("x", forceX(targetX).strength(0.115))
-        .force("y", forceY(targetY).strength(0.115))
-        .force("collide", forceCollide(node => node.radius + NODE_GAP).strength(0.94).iterations(2))
-        .force("bounds", this._forceBounds(VIEW_PADDING));
-    } else {
-      this.simulation.nodes(items);
-      this.simulation.force("x").x(targetX);
-      this.simulation.force("y").y(targetY);
-      this.simulation.force("collide").radius(node => node.radius + NODE_GAP);
+    const simulation = forceSimulation(items)
+      .stop()
+      .velocityDecay(0.34)
+      .alphaDecay(0.038)
+      .force("x", forceX(targetX).strength(0.115))
+      .force("y", forceY(targetY).strength(0.115))
+      .force("collide", forceCollide(node => node.radius + NODE_GAP).strength(0.94).iterations(2))
+      .force("bounds", this._forceBounds(VIEW_PADDING));
+
+    simulation.alpha(1);
+    for (let index = 0; index < BOOTSTRAP_TICKS; index += 1) simulation.tick();
+    simulation.stop();
+
+    for (const node of items) {
+      node.vx = 0;
+      node.vy = 0;
+      node.view.position.set(node.x, node.y);
     }
-
-    this.simulation.alpha(Math.max(this.simulation.alpha(), reheat)).restart();
-  }
-
-  _refreshCollision(reheat = 0.035) {
-    if (!this.simulation) return;
-    this.simulation.force("collide").radius(node => node.radius + NODE_GAP);
-    this.simulation.alpha(Math.max(this.simulation.alpha(), reheat)).restart();
   }
 
   _refreshClusterVisuals() {
     this._updateClusterViews(this._clusterMetrics(this._activeNodes()));
   }
 
-  _layoutScene({ refit = false, seedUnplaced = false, reheat = 0.16 } = {}) {
+  _layoutScene({ refit = false } = {}) {
     const items = this._activeNodes();
     if (!items.length) return;
 
@@ -498,17 +584,13 @@ export class TokenUniverse {
 
     const metrics = this._clusterMetrics(items);
     this.clusterCenters = this._computeClusterCenters(metrics);
-    this._updateClusterViews(metrics);
-
-    if (seedUnplaced) {
-      for (const node of items) {
-        if (node.seeded) continue;
-        const center = this.clusterCenters.get(node.cluster);
-        if (center) this._seedNode(node, center);
-      }
+    for (const node of items) {
+      const center = this.clusterCenters.get(node.cluster);
+      if (center) this._seedNode(node, center);
     }
 
-    this._configureSimulation(items, reheat);
+    this._settleBootstrap(items);
+    this._updateClusterViews(metrics);
   }
 
   _tick() {
