@@ -507,8 +507,10 @@ query_tokens result ─────────┘
 
 Search uses the complete active population already delivered by `/api/universe`. A
 backend search endpoint is not introduced without a measured client-side limitation.
-Only active tokens are search results; a selected token may remain visible as retired
-context after a live retirement event.
+Only active tokens are search results. They are ordered by current Market Cap and expose
+Market Cap, Liquidity and Holders as identity context; missing remains visible as
+missing. A selected token may remain visible as retired context after a live retirement
+event.
 
 The long-term navigation model is population-first:
 
@@ -623,6 +625,7 @@ Deliver only:
 
 - client-side search over the complete active `/api/universe` population;
 - lookup by Mint, Symbol or Name;
+- Market-Cap ordering plus Market Cap, Liquidity and Holders per search result;
 - one shared Selection for bubbles, search results and `query_tokens` results;
 - selected-token Inspector and Web-Research context updates;
 - a small bounded result list without a new backend endpoint.

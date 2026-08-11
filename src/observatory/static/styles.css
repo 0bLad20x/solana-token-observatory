@@ -189,6 +189,10 @@ h2 { margin-bottom: 0; font-size: 17px; letter-spacing: -.02em; }
 .analyst-token-choice strong { font-size: 10px; }
 .token-search-choice span,
 .analyst-token-choice span { color: var(--text-secondary); font-size: 9px; }
+.token-search-choice .token-choice-metrics {
+  color: var(--selection);
+  font-variant-numeric: tabular-nums;
+}
 .token-search-choice small,
 .analyst-token-choice small {
   overflow: hidden;

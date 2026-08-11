@@ -3,26 +3,35 @@ import test from "node:test";
 
 import { ObservatoryState } from "../src/observatory/static/js/state.js";
 
-function token(mint, symbol, name, trackingEnabled = true) {
+function token(
+  mint,
+  symbol,
+  name,
+  { trackingEnabled = true, marketCap = null, liquidity = null, holders = null } = {},
+) {
   return {
     mint,
     symbol,
     name,
     launchpad: "pump.fun",
     tracking_enabled: trackingEnabled,
+    market_cap: marketCap,
+    liquidity,
+    holders,
   };
 }
 
-test("search ranks exact identity before partial matches", () => {
+test("search sorts matching identities by market cap", () => {
   const state = new ObservatoryState();
   state.load([
-    token("ExactMint1111111111111111111111111111111", "CAT", "Cat Coin"),
-    token("OtherMint2222222222222222222222222222222", "CATS", "Cats Club"),
+    token("ExactMint1111111111111111111111111111111", "CAT", "Cat Coin", { marketCap: 10 }),
+    token("OtherMint2222222222222222222222222222222", "CATS", "Cats Club", { marketCap: 100 }),
+    token("MissingMint33333333333333333333333333333", "CATX", "Cat Unknown"),
   ]);
 
   assert.deepEqual(
     state.searchTokens("cat").map(item => item.symbol),
-    ["CAT", "CATS"],
+    ["CATS", "CAT", "CATX"],
   );
   assert.equal(state.searchTokens("ExactMint1111111111111111111111111111111")[0].symbol, "CAT");
 });
@@ -31,7 +40,9 @@ test("search covers name and mint but excludes retired tokens", () => {
   const state = new ObservatoryState();
   state.load([
     token("AlphaMint1111111111111111111111111111111", "AAA", "Northern Light"),
-    token("RetiredMint22222222222222222222222222222", "OLD", "Northern Ghost", false),
+    token("RetiredMint22222222222222222222222222222", "OLD", "Northern Ghost", {
+      trackingEnabled: false,
+    }),
   ]);
 
   assert.deepEqual(state.searchTokens("northern").map(item => item.symbol), ["AAA"]);

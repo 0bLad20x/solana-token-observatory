@@ -71,6 +71,7 @@ Der Slice enthält ausschließlich:
 
 - clientseitige Suche in der bereits geladenen `/api/universe`-Population;
 - Mint, Symbol und Name als Suchfelder;
+- Market-Cap-Sortierung sowie Market Cap, Liquidity und Holders pro Treffer;
 - eine gemeinsame Selection für Visualisierung, Suche und `query_tokens`-Treffer;
 - Inspector- und Web-Research-Kontext für den ausgewählten Token;
 - höchstens acht sichtbare Suchtreffer.

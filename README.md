@@ -162,9 +162,11 @@ Treffer und akzeptiert weder SQL noch operative Mutationen. Dafür ist keine zus
 Konfiguration nötig.
 
 Das Observatory kann die bereits geladene aktive Population direkt nach Mint, Symbol
-oder Name durchsuchen. Suchtreffer und von `query_tokens` zurückgegebene Tokens führen
-über dieselbe Selection zum Inspector und zur tokenbezogenen Webrecherche. Dafür wird
-kein zusätzlicher Datenbank-Endpunkt benötigt.
+oder Name durchsuchen. Suchtreffer sind nach aktueller Market Cap sortiert und zeigen
+Market Cap, Liquidity und Holders zur Unterscheidung gleichnamiger Tokens. Suchtreffer
+und von `query_tokens` zurückgegebene Tokens führen über dieselbe Selection zum Inspector
+und zur tokenbezogenen Webrecherche. Dafür wird kein zusätzlicher Datenbank-Endpunkt
+benötigt.
 
 OHLC/Time-Buckets und Snapshot-Retention sind derzeit bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 

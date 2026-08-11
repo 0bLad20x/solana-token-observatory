@@ -72,22 +72,26 @@ export class ObservatoryState {
       const name = String(token.name || "");
       const values = [mint, symbol, name].map(value => value.toLowerCase());
 
-      let rank = Number.POSITIVE_INFINITY;
-      if (mint === raw) rank = 0;
-      else if (values.includes(needle)) rank = 1;
-      else if (values.some(value => value.startsWith(needle))) rank = 2;
-      else if (values.some(value => value.includes(needle))) rank = 3;
-      if (!Number.isFinite(rank)) continue;
+      if (!values.some(value => value.includes(needle))) continue;
 
       matches.push({
         token,
-        rank,
+        exactMint: mint === raw,
+        marketCap: Number.isFinite(token.market_cap) ? token.market_cap : null,
         label: `${symbol}\u0000${name}\u0000${mint}`.toLowerCase(),
       });
     }
 
     return matches
-      .sort((left, right) => left.rank - right.rank || left.label.localeCompare(right.label))
+      .sort((left, right) => {
+        if (left.exactMint !== right.exactMint) return left.exactMint ? -1 : 1;
+        if (left.marketCap !== right.marketCap) {
+          if (left.marketCap == null) return 1;
+          if (right.marketCap == null) return -1;
+          return right.marketCap - left.marketCap;
+        }
+        return left.label.localeCompare(right.label);
+      })
       .slice(0, limit)
       .map(match => match.token);
   }

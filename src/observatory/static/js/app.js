@@ -149,7 +149,7 @@ function tokenIdentity(token) {
   return token.symbol || token.name || token.mint.slice(0, 8);
 }
 
-function tokenChoice(token, className) {
+function tokenChoice(token, className, showMetrics = false) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = className;
@@ -160,7 +160,14 @@ function tokenChoice(token, className) {
   detail.textContent = `${token.name || "Unnamed token"} · ${normalizedLaunchpad(token)}`;
   const mint = document.createElement("small");
   mint.textContent = token.mint;
-  button.append(identity, detail, mint);
+  button.append(identity, detail);
+  if (showMetrics) {
+    const metrics = document.createElement("span");
+    metrics.className = "token-choice-metrics";
+    metrics.textContent = `MC ${money(token.market_cap)} · LIQ ${money(token.liquidity)} · ${count(token.holders)} holders`;
+    button.append(metrics);
+  }
+  button.append(mint);
   button.addEventListener("click", () => {
     if (!selectToken(token.mint)) return;
     tokenSearchInput.value = tokenIdentity(token);
@@ -186,7 +193,7 @@ function renderTokenSearch() {
   } else {
     for (const token of matches) {
       const item = document.createElement("li");
-      item.append(tokenChoice(token, "token-search-choice"));
+      item.append(tokenChoice(token, "token-search-choice", true));
       tokenSearchResults.append(item);
     }
   }
