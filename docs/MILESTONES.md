@@ -2,7 +2,7 @@
 
 ## Zweck
 
-Dieses Dokument beschreibt knapp den aktuellen Projektstand und die nächste Entwicklungsrichtung. Es ist keine Authority für bereits implementierte Architektur oder konkrete Thresholds. Implementierter Zustand gehört in `README.md`, `docs/architecture.md`, `docs/LIFECYCLE_CONTRACT.md` und den Code.
+Dieses Dokument beschreibt knapp den aktuellen Projektstand und die nächste Entwicklungsrichtung. Es ist keine Authority für bereits implementierte Architektur oder konkrete Thresholds. Implementierter Zustand gehört in `README.md`, `docs/architecture.md`, `docs/LIFECYCLE_CONTRACT.md`, `docs/FRONTEND_OBSERVATORY.md` und den Code.
 
 ## Foundation — abgeschlossen
 
@@ -19,42 +19,60 @@ Die operative Basis steht:
 
 Diese Foundation wird nicht vorsorglich weiter refaktoriert. Änderungen benötigen ein konkretes Problem oder eine neue fachliche Grenze.
 
-## Aktiv — Frontend Observatory
+## Frontend Observatory
 
-Draft PR #5 entwickelt den ersten read-only Vertical Slice des Frontends.
+Die fachliche und architektonische Authority ist [`docs/FRONTEND_OBSERVATORY.md`](FRONTEND_OBSERVATORY.md).
 
-Die fachliche und architektonische Authority dafür ist [`docs/FRONTEND_OBSERVATORY.md`](FRONTEND_OBSERVATORY.md).
+Das Frontend wird in kurzen vertikalen Slices entwickelt. Jeder Slice soll in einem real laufenden Browser/API-Pfad sichtbar funktionieren, bevor der nächste beginnt.
 
-Das Ziel ist nicht, zuerst horizontal ein großes Frontend-Framework aufzubauen. Jeder Schritt soll in kurzer Folge ein sichtbar funktionierendes Ergebnis liefern.
-
-Aktiver Ablauf:
+Aktueller Stand:
 
 ```text
-V0  Observatory Contract                 DONE / DOCUMENTED
+V0  Observatory Contract                 DONE
  ↓
-V1  Structural split + design system     NEXT
+V1  Structural split + design system     DONE / VALIDATED
  ↓
 V2  Stable Live Universe                 NEXT
  ↓
-V3  Minimal ViewSpec                     NEXT
+V3  Minimal ViewSpec                     LATER
  ↓
-V4  Thin LLM analyst slice               TARGET IF V1-V3 STABLE
+V4  Thin LLM analyst slice               LATER
 ```
 
-Der erste Merge soll einen kohärenten Observatory-Unterbau liefern: read-only, visuell stabil unter Live-Deltas, semantisch konsistent gestaltet und ohne neuen Monolithen. Eine dünne LLM-Integration darf bereits Teil dieses Drafts werden, wenn sie denselben bounded read-only Datenvertrag nutzt und die vorherigen Slices stabil bleiben.
+V1 wurde mit dem real laufenden Frontend validiert: unabhängiger Serverstart, statische Module, `/api/health`, `/api/universe`, SSE-Pfad und eine Universe-Population von mehr als 1,500 Tokens funktionieren.
+
+PR #5 ist damit der erste Merge-Checkpoint `V0 + V1`. V2 und spätere Slices werden nicht künstlich an diesen PR gekoppelt, sondern bauen vertikal auf der gemergten Baseline weiter.
+
+## Nächster Slice — V2 Stable Live Universe
+
+Das nächste konkrete Problem ist die visuelle Instabilität unter Live-Deltas.
+
+Heute können einzelne Token-Änderungen die D3-Force-Simulation für eine größere Population erneut anstoßen. Bei großen Populationen wirkt dadurch eine lokale Änderung wie ein globaler Refresh.
+
+V2 soll deshalb erreichen:
+
+```text
+new token      -> local enter
+updated token  -> local visual change / one pulse
+retired token  -> explicit retirement transition
+unrelated      -> remain spatially stable
+```
+
+Der sichtbare Erfolg ist erreicht, wenn sich die räumliche Orientierung bei laufenden Deltas erhält und klar erkennbar bleibt, welcher Token tatsächlich geändert wurde.
 
 ## Danach — vertikale Observatory-Erweiterungen
 
-Nach dem ersten Merge werden neue Fähigkeiten als kleine vertikale Slices ergänzt. Die Reihenfolge wird nach realem Erkenntniswert entschieden und nicht vorsorglich festgeschrieben.
+Nach V2 werden neue Fähigkeiten nach realem Erkenntniswert ausgewählt und nicht vorsorglich als große horizontale Roadmap gebaut.
 
 Mögliche nächste Grenzen:
 
 ```text
+Minimal ViewSpec / alternate projection
+Thin interactive LLM analyst
 Token history / timeline
 Graveyard
 Cohorts / population trees
 Discovery provenance + flow
-Interactive analyst expansion
 Freeflow analyst
 Lasso / pinning / command palette
 additional visualizations
@@ -98,14 +116,9 @@ Wenn dieser Milestone wieder aufgenommen wird, soll die Semantik zunächst an ei
 ```text
 Operational Foundation                  DONE
     ↓
-Frontend Observatory Draft #5           ACTIVE
-    ├─ stable visual delta semantics
-    ├─ minimal responsibility split
-    ├─ semantic Solana/memecoin design language
-    ├─ ViewSpec foundation
-    └─ thin LLM vertical slice if stable
+Observatory V0 + V1                     DONE / MERGE CHECKPOINT PR #5
     ↓
-Merge coherent Observatory foundation
+V2 Stable Live Universe                 NEXT
     ↓
 Next vertical slice chosen by value
 
