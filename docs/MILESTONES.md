@@ -108,6 +108,27 @@ group by temporary LLM cohort
 
 Die Physik selbst bleibt generisch.
 
+### V3-R — Physics Research Gate — zuerst
+
+Bevor V3-A implementiert wird, wird gezielt geprüft, ob etablierte Mechanismen unser gewünschtes Verhalten bereits einfacher abbilden.
+
+Research-Fragen:
+
+```text
+D3 local / bounded force simulation?
+fixed or partially fixed nodes?
+quadtree / spatial grid for local neighborhoods?
+circle packing / overlap removal?
+drag + collision + weak attraction?
+Pixi + D3 sufficient without another dependency?
+```
+
+Entscheidungsregel:
+
+> Bevorzuge den kleinsten etablierten Mechanismus, der den beobachtbaren V3-Vertrag erfüllt. Eigene Physik oder neue Dependencies erst bei einem nachgewiesenen Gap.
+
+Der Research-Pass bleibt kurz und implementierungsbezogen. Ergebnis ist eine knappe Entscheidung im V3-Vertrag bzw. PR, kein separates Forschungsprojekt.
+
 ### V3-A — Generic Cluster Physics
 
 Ziel:
@@ -213,7 +234,11 @@ Observatory V0 + V1                     DONE / PR #5
     ↓
 V2 Stable Live Deltas                   DONE / PR #6
     ↓
-V3 Generic Physics + ViewSpec           ACTIVE
+V3-R Physics Research Gate              ACTIVE / FIRST
+    ↓
+V3-A Generic Cluster Physics
+    ↓
+V3-B ViewSpec Proof
     ↓
 Next vertical slice chosen by value
 
