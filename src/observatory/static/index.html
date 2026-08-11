@@ -34,6 +34,23 @@
             <span class="toolbar-label">UNIVERSE · LIVE</span>
             <span class="toolbar-note">Market cap size · launchpad grouping · read-only deltas</span>
           </div>
+          <div class="token-search">
+            <form id="token-search-form" role="search">
+              <label class="sr-only" for="token-search-input">Find an active token</label>
+              <input
+                id="token-search-input"
+                type="search"
+                placeholder="Find mint, symbol, or name"
+                autocomplete="off"
+                spellcheck="false"
+                aria-controls="token-search-results"
+                aria-expanded="false"
+                disabled
+              >
+              <button type="submit">Find</button>
+            </form>
+            <ol id="token-search-results" class="token-search-results hidden"></ol>
+          </div>
           <div class="legend" aria-label="Visual semantics">
             <span><i class="legend-dot change"></i>recent change</span>
             <span><i class="legend-ring selection"></i>selection</span>
@@ -53,7 +70,7 @@
           <div class="empty-detail" id="empty-detail">
             <span class="empty-orbit"></span>
             <h2>Select a token</h2>
-            <p>Click a bubble to keep its current state in context.</p>
+            <p>Use search or click a bubble to keep its current state in context.</p>
           </div>
 
           <div class="token-detail hidden" id="token-detail">

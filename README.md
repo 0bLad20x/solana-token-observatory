@@ -161,6 +161,11 @@ der aktiven Population ergänzt. Das Tool liefert standardmäßig fünf und maxi
 Treffer und akzeptiert weder SQL noch operative Mutationen. Dafür ist keine zusätzliche
 Konfiguration nötig.
 
+Das Observatory kann die bereits geladene aktive Population direkt nach Mint, Symbol
+oder Name durchsuchen. Suchtreffer und von `query_tokens` zurückgegebene Tokens führen
+über dieselbe Selection zum Inspector und zur tokenbezogenen Webrecherche. Dafür wird
+kein zusätzlicher Datenbank-Endpunkt benötigt.
+
 OHLC/Time-Buckets und Snapshot-Retention sind derzeit bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
 ## Validierung

@@ -4,7 +4,7 @@
 
 **Authority:** Frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of the operational token data  
-**Current checkpoint:** V0–V2 and WP1 merged; spatial experiments stopped; WP2 current-data tool active
+**Current checkpoint:** V0–V2, WP1 and WP2 merged; spatial experiments stopped; WP3 token access active
 
 This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
 
@@ -379,7 +379,7 @@ analyst.py        Mistral protocol, tool orchestration and web-reference parsing
 data.py           read-only PostgreSQL projections
 tools.py          bounded internal query_tokens contract and execution
 app.js            application bootstrap and wiring
-state.js          token state, selection, active view, deltas
+state.js          token state, search, selection, active view, deltas
 universe.js       Pixi/D3 rendering and local motion
 view-spec.js      supported view mappings and presets
 theme.js          semantic visual tokens
@@ -489,13 +489,26 @@ The analyst card has two small explicit scopes:
 ```text
 CURRENT DATA             WEB RESEARCH
 population question      selected token + exact mint
-query_tokens trace       answer + sources + search mode
+selectable query result  answer + sources + search mode
 capabilities on miss
 ```
 
 Switching scope changes the tool boundary; it is not an LLM routing guess.
 
 ## 12. Selection and navigation direction
+
+WP3 establishes one current navigation path:
+
+```text
+Mint / Symbol / Name search ─┐
+                             ├─> shared token selection -> Inspector -> Web Research
+query_tokens result ─────────┘
+```
+
+Search uses the complete active population already delivered by `/api/universe`. A
+backend search endpoint is not introduced without a measured client-side limitation.
+Only active tokens are search results; a selected token may remain visible as retired
+context after a live retirement event.
 
 The long-term navigation model is population-first:
 
@@ -584,7 +597,7 @@ Visible result:
 - observe a real Web Search execution;
 - receive a sourced answer or an explicit lack of reliable evidence.
 
-### WP2 — Current Population Query — ACTIVE
+### WP2 — Current Population Query — DONE / MERGED
 
 Deliver only:
 
@@ -603,6 +616,30 @@ Visible result:
 - receive an answer grounded in the bounded result;
 - use natural launchpad, spelling and sort-order variants;
 - ask for five-minute price increase and receive current capabilities instead of a proxy.
+
+### WP3 — Token Search & Selection — ACTIVE
+
+Deliver only:
+
+- client-side search over the complete active `/api/universe` population;
+- lookup by Mint, Symbol or Name;
+- one shared Selection for bubbles, search results and `query_tokens` results;
+- selected-token Inspector and Web-Research context updates;
+- a small bounded result list without a new backend endpoint.
+
+Visible result:
+
+- find an active token that is not practically reachable through the visualization;
+- select it from search and see its current Inspector state;
+- use the same token immediately as exact-mint Web Research context;
+- select any token returned by a current-data question.
+
+Not part of WP3:
+
+- Bubble Map or design redesign;
+- historical data;
+- new LLM tools or Conversation Memory;
+- database, Lifecycle or API changes.
 
 ## 15. Merge checkpoints
 
@@ -628,8 +665,8 @@ This checkpoint is ready because:
 - responsibilities are separated without a speculative frontend framework;
 - the real browser/API path has been validated.
 
-WP1 was merged as PR #10 after its real browser path was validated. WP2 is an independent
-merge checkpoint and does not reopen spatial or design work.
+WP1 was merged as PR #10 and WP2 as PR #11 after their real browser paths were validated.
+WP3 is an independent merge checkpoint and does not reopen spatial or design work.
 
 ## 16. Explicit non-goals of the foundation
 

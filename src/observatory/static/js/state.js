@@ -59,6 +59,39 @@ export class ObservatoryState {
     return this.selectedMint ? this.token(this.selectedMint) : null;
   }
 
+  searchTokens(query, limit = 8) {
+    const raw = String(query || "").trim();
+    if (!raw || limit < 1) return [];
+    const needle = raw.toLowerCase();
+
+    const matches = [];
+    for (const token of this.tokens.values()) {
+      if (!token.tracking_enabled) continue;
+      const mint = String(token.mint || "");
+      const symbol = String(token.symbol || "");
+      const name = String(token.name || "");
+      const values = [mint, symbol, name].map(value => value.toLowerCase());
+
+      let rank = Number.POSITIVE_INFINITY;
+      if (mint === raw) rank = 0;
+      else if (values.includes(needle)) rank = 1;
+      else if (values.some(value => value.startsWith(needle))) rank = 2;
+      else if (values.some(value => value.includes(needle))) rank = 3;
+      if (!Number.isFinite(rank)) continue;
+
+      matches.push({
+        token,
+        rank,
+        label: `${symbol}\u0000${name}\u0000${mint}`.toLowerCase(),
+      });
+    }
+
+    return matches
+      .sort((left, right) => left.rank - right.rank || left.label.localeCompare(right.label))
+      .slice(0, limit)
+      .map(match => match.token);
+  }
+
   stats(now = Date.now()) {
     const cutoff = now - 60_000;
     this.recentChanges = this.recentChanges.filter(timestamp => timestamp >= cutoff);

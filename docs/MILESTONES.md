@@ -25,7 +25,7 @@ Bubble-Physik und ViewSpec-Arbeit sind kein aktiver Milestone.
 WP1 liefert ausgewählten Token, freie Frage, serverseitige Mistral Web Search sowie
 Antwort und Quellen als externe Evidenz. Der Slice wurde als PR #10 gemergt.
 
-## Aktiv — WP2 Current Population Query
+## WP2 Current Population Query — abgeschlossen
 
 WP2 beweist genau einen internen Tool Call:
 
@@ -55,16 +55,36 @@ WP2 ist abgeschlossen, wenn eine frei formulierte unterstützte Frage nachweisba
 `query_tokens` ausführt und eine Frage nach einer nicht vorhandenen Metrik keine
 Ersatzmetrik oder erfundene Antwort erzeugt, sondern die verfügbaren Möglichkeiten zeigt.
 
-## Nicht Teil von WP2
+Der Slice wurde nach realer Browservalidierung als PR #11 gemergt.
+
+## Aktiv — WP3 Token Search & Selection
+
+WP3 stellt vollständigen funktionalen Zugriff auf die aktive Population her:
+
+```text
+Mint / Symbol / Name search ─┐
+                             ├─> shared selection -> Inspector -> Web Research
+query_tokens result ─────────┘
+```
+
+Der Slice enthält ausschließlich:
+
+- clientseitige Suche in der bereits geladenen `/api/universe`-Population;
+- Mint, Symbol und Name als Suchfelder;
+- eine gemeinsame Selection für Visualisierung, Suche und `query_tokens`-Treffer;
+- Inspector- und Web-Research-Kontext für den ausgewählten Token;
+- höchstens acht sichtbare Suchtreffer.
+
+WP3 ist abgeschlossen, wenn jeder aktive Token unabhängig von der Visualisierung
+auffindbar und auswählbar ist und ein `query_tokens`-Treffer dieselbe Selection auslöst.
+
+## Nicht Teil von WP3
 
 - Bubble Map oder Designumbau;
 - historische Analyse;
 - Conversation Memory;
-- Streaming;
-- mehrere interne Tools;
-- Provider- oder Tool-Framework;
-- SQL-, Python- oder Mutation-Tools;
-- freie Expressions oder Aggregationssprache;
-- Planung des nächsten Slices.
+- neue LLM-Tools;
+- Backend-Suche oder Datenbankänderungen;
+- Lifecycle- oder API-Änderungen.
 
-Der nächste Slice wird erst nach der Browservalidierung von WP2 festgelegt.
+Der nächste Slice wird erst nach der Browservalidierung von WP3 festgelegt.
