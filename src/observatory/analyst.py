@@ -4,14 +4,18 @@ import json
 from typing import Any
 from urllib.parse import urlparse
 
-from .tools import QUERY_FIELDS, QUERY_TOKENS_TOOL, QueryToolError, query_tokens
+from .tools import (
+    QueryToolError,
+    query_capabilities,
+    query_tokens,
+    query_tokens_tool,
+)
 
 MISTRAL_CONVERSATIONS_URL = "https://api.mistral.ai/v1/conversations"
 MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions"
 WEB_SEARCH_MODES = frozenset({"web_search", "web_search_premium"})
 UNSUPPORTED_QUERY_ANSWER = (
-    "This question cannot be answered from the current token projection. "
-    f"Available current fields are: {', '.join(QUERY_FIELDS)}."
+    "This question cannot be mapped unambiguously to the current token data."
 )
 
 
@@ -185,14 +189,19 @@ def _tool_call(message: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
     return call_id, arguments
 
 
-def _internal_instructions() -> str:
+def _internal_instructions(capabilities: dict[str, Any]) -> str:
+    vocabulary = json.dumps(capabilities, ensure_ascii=False, separators=(",", ":"))
     return f"""Answer questions about the current active Solana token population.
-For any question that is exactly answerable from the available current fields, call
-query_tokens once and answer only from its result. Available fields: {', '.join(QUERY_FIELDS)}.
-The tool has no price-change field, historical series, social data or inferred metrics.
-Never substitute a different field or time window. If the requested information is not
-available, do not call the tool and say that the current projection cannot answer it.
-Missing values are unknown, not zero. Keep the final answer concise and name the metric.
+Use the vocabulary below to translate natural language into canonical query_tokens
+arguments. Interpret clear spelling, spacing, punctuation and language variations, but
+emit only a listed field key, sort-order key and launchpad value. For a clear supported
+question, call query_tokens exactly once and answer only from its result. If a required
+dimension is absent or the intent remains ambiguous, do not call the tool. Never replace
+an unavailable metric or time window with another one. Missing values are unknown, not
+zero. Keep the final answer concise and name the metric.
+
+Current query vocabulary:
+{vocabulary}
 """
 
 
@@ -207,14 +216,15 @@ async def query_current_tokens(
 
     import httpx
 
+    capabilities = query_capabilities(tokens)
     messages = [
-        {"role": "system", "content": _internal_instructions()},
+        {"role": "system", "content": _internal_instructions(capabilities)},
         {"role": "user", "content": question},
     ]
     request = {
         "model": model,
         "messages": messages,
-        "tools": [QUERY_TOKENS_TOOL],
+        "tools": [query_tokens_tool(capabilities)],
         "tool_choice": "auto",
         "parallel_tool_calls": False,
         "temperature": 0,
@@ -235,6 +245,7 @@ async def query_current_tokens(
                 "answer": UNSUPPORTED_QUERY_ANSWER,
                 "scope": "current_data",
                 "tool": None,
+                "capabilities": capabilities,
             }
 
         call_id, arguments = call

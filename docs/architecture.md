@@ -163,10 +163,12 @@ Das Observatory ist als separater read-only FastAPI-/Browser-Prozess unter `src/
 
 `src/observatory/tools.py` besitzt den realen internen Tool-Vertrag. `query_tokens`
 filtert und sortiert ausschließlich die aktuelle aktive `FrontendReader`-Projektion. Die
-erlaubten Felder und Sortierrichtungen sind fest, der Default sind fünf und das harte
-Maximum zwanzig Ergebnisse. Das Modell erhält weder SQL noch Datenbankzugriff und darf kein
-fehlendes Feld durch eine andere Metrik ersetzen. Tool Calls und Webrecherche bleiben
-read-only, werden nicht persistiert und besitzen keine Lifecycle-Authority.
+zentrale Feldbeschreibung erzeugt Tool-Schema, LLM-Vokabular und den sichtbaren
+Capabilities-Hinweis. Die kanonischen Launchpad-Werte werden pro Anfrage aus der aktiven
+Population ergänzt. Der Default sind fünf und das harte Maximum zwanzig Ergebnisse. Das
+Modell erhält weder SQL noch Datenbankzugriff und darf kein fehlendes Feld durch eine
+andere Metrik ersetzen. Tool Calls und Webrecherche bleiben read-only, werden nicht
+persistiert und besitzen keine Lifecycle-Authority.
 
 ## 7. Generierte Artefakte
 

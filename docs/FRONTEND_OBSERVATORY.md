@@ -461,13 +461,18 @@ grounded answer
 
 `query_tokens` can use only current `market_cap`, `liquidity`, `holders`, `trades_5m`,
 `traders_5m`, `volume_5m`, `age_seconds` and `change_age_seconds`. It may filter by an
-exact launchpad, then sort and limit the result. The default limit is five and the hard
-maximum is twenty. Missing remains `null` and is excluded when it is the ranking field.
+available canonical launchpad, then sort and limit the result. The default limit is five
+and the hard maximum is twenty. Missing remains `null` and is excluded when it is the
+ranking field.
 
-Natural-language wording is not part of the contract: Mistral translates paraphrases to
-the fixed arguments. The available fields are the semantic boundary. A question about
-an unavailable field such as five-minute price change must return unavailable; another
-metric must never be used as a proxy. No SQL or full dataset is sent to the model.
+One central field vocabulary supplies descriptions, canonical keys, Tool Schema and the
+visible capabilities response. Current launchpad values and counts are derived from the
+active population for every request. Mistral translates paraphrases, spelling and
+punctuation variants to those canonical arguments. The available fields remain the
+semantic boundary: a question about an unavailable field such as five-minute price
+change must not use another metric as a proxy. If no unambiguous supported query exists,
+the backend returns the current fields, sort directions, launchpads and result limits.
+No SQL or full dataset is sent to the model.
 
 ### Configuration
 
@@ -485,6 +490,7 @@ The analyst card has two small explicit scopes:
 CURRENT DATA             WEB RESEARCH
 population question      selected token + exact mint
 query_tokens trace       answer + sources + search mode
+capabilities on miss
 ```
 
 Switching scope changes the tool boundary; it is not an LLM routing guess.
@@ -587,14 +593,16 @@ Deliver only:
 - explicit field, filter, sort and result-limit validation;
 - default five and maximum twenty rows;
 - a grounded answer plus visible tool-call counts;
-- an explicit unavailable response when the requested field does not exist.
+- one shared field vocabulary and request-local canonical launchpads;
+- visible current capabilities when no unambiguous supported query exists.
 
 Visible result:
 
 - ask for the five tokens with the highest current Market Cap using natural wording;
 - observe a real `query_tokens` execution;
 - receive an answer grounded in the bounded result;
-- ask for five-minute price increase and receive unavailable instead of a proxy metric.
+- use natural launchpad, spelling and sort-order variants;
+- ask for five-minute price increase and receive current capabilities instead of a proxy.
 
 ## 15. Merge checkpoints
 

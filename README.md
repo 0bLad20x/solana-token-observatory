@@ -156,8 +156,10 @@ keine operative Mutation-Authority.
 
 Der Analyst kann außerdem Fragen zur aktuellen aktiven Token-Population in einen
 serverseitigen `query_tokens`-Aufruf übersetzen. Das Tool kennt nur eine feste Liste
-aktueller Felder, liefert standardmäßig fünf und maximal zwanzig Treffer und akzeptiert
-weder SQL noch operative Mutationen. Dafür ist keine zusätzliche Konfiguration nötig.
+beschriebener aktueller Felder. Die real verfügbaren Launchpads werden pro Anfrage aus
+der aktiven Population ergänzt. Das Tool liefert standardmäßig fünf und maximal zwanzig
+Treffer und akzeptiert weder SQL noch operative Mutationen. Dafür ist keine zusätzliche
+Konfiguration nötig.
 
 OHLC/Time-Buckets und Snapshot-Retention sind derzeit bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 

@@ -45,15 +45,15 @@ Der Slice enthält ausschließlich:
 
 - die bestehende aktuelle aktive `FrontendReader`-Projektion;
 - genau ein internes `query_tokens`-Tool;
-- eine feste Feldliste für aktuelle Werte;
-- optional einen Launchpad-Filter;
+- ein zentrales beschriebenes Feldvokabular für aktuelle Werte;
+- die pro Anfrage real verfügbaren kanonischen Launchpads;
 - Sortierung sowie Default-Limit fünf und Hard-Limit zwanzig;
 - eine kleine Scope-Umschaltung im bestehenden Analyst-Panel;
-- eine sichtbare unavailable-Antwort für nicht vorhandene Felder.
+- sichtbare aktuelle Abfragemöglichkeiten, wenn keine eindeutige Zuordnung gelingt.
 
 WP2 ist abgeschlossen, wenn eine frei formulierte unterstützte Frage nachweisbar
 `query_tokens` ausführt und eine Frage nach einer nicht vorhandenen Metrik keine
-Ersatzmetrik oder erfundene Antwort erzeugt.
+Ersatzmetrik oder erfundene Antwort erzeugt, sondern die verfügbaren Möglichkeiten zeigt.
 
 ## Nicht Teil von WP2
 

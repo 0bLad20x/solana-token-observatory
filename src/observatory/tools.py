@@ -1,57 +1,48 @@
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
-QUERY_FIELDS = (
-    "market_cap",
-    "liquidity",
-    "holders",
-    "trades_5m",
-    "traders_5m",
-    "volume_5m",
-    "age_seconds",
-    "change_age_seconds",
-)
-DEFAULT_LIMIT = 5
-MAX_LIMIT = 20
-
-QUERY_TOKENS_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "query_tokens",
-        "description": (
-            "Query the current active Solana token population. Use only the explicitly "
-            "available current fields; never substitute one metric for an unavailable "
-            "metric such as historical or five-minute price change."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "sort_by": {
-                    "type": "string",
-                    "enum": list(QUERY_FIELDS),
-                    "description": "Current field used to rank the matching tokens.",
-                },
-                "sort_order": {
-                    "type": "string",
-                    "enum": ["asc", "desc"],
-                    "description": "Ascending or descending rank order.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": MAX_LIMIT,
-                    "description": "Number of rows to return. Defaults to 5.",
-                },
-                "launchpad": {
-                    "type": "string",
-                    "description": "Optional exact, case-insensitive launchpad filter.",
-                },
-            },
-            "additionalProperties": False,
-        },
+QUERY_FIELDS = {
+    "market_cap": {
+        "label": "Market cap",
+        "description": "Current market capitalization (Market Cap, MC, Marktkapitalisierung).",
+    },
+    "liquidity": {
+        "label": "Liquidity",
+        "description": "Current available liquidity (Liquidity, Liquidität, Liq).",
+    },
+    "holders": {
+        "label": "Holders",
+        "description": "Current number of token holders.",
+    },
+    "trades_5m": {
+        "label": "Trades 5m",
+        "description": "Number of buys and sells during the last five minutes.",
+    },
+    "traders_5m": {
+        "label": "Traders 5m",
+        "description": "Number of distinct traders during the last five minutes.",
+    },
+    "volume_5m": {
+        "label": "Volume 5m",
+        "description": "Buy plus sell volume during the last five minutes.",
+    },
+    "age_seconds": {
+        "label": "Token age",
+        "description": "Time since the token or its first pool was created.",
+    },
+    "change_age_seconds": {
+        "label": "Last change",
+        "description": "Time since the latest observed source-data change.",
     },
 }
+SORT_ORDERS = {
+    "desc": "Highest, largest, most, top; höchste, größte, meiste.",
+    "asc": "Lowest, smallest, least, bottom; niedrigste, kleinste, wenigste.",
+}
+DEFAULT_LIMIT = 5
+MAX_LIMIT = 20
 
 _ARGUMENTS = {
     "sort_by",
@@ -72,6 +63,74 @@ class QueryToolError(ValueError):
     """Invalid model-produced arguments at the bounded tool boundary."""
 
 
+def query_capabilities(tokens: list[dict[str, Any]]) -> dict[str, Any]:
+    launchpad_counts = Counter(
+        str(token.get("launchpad") or "unknown")
+        for token in tokens
+        if token.get("tracking_enabled") is not False
+    )
+    return {
+        "fields": [
+            {"key": key, **description}
+            for key, description in QUERY_FIELDS.items()
+        ],
+        "sort_orders": [
+            {"key": key, "description": description}
+            for key, description in SORT_ORDERS.items()
+        ],
+        "launchpads": [
+            {"value": value, "active_tokens": launchpad_counts[value]}
+            for value in sorted(launchpad_counts, key=str.casefold)
+        ],
+        "default_limit": DEFAULT_LIMIT,
+        "maximum_limit": MAX_LIMIT,
+    }
+
+
+def query_tokens_tool(capabilities: dict[str, Any]) -> dict[str, Any]:
+    launchpads = [item["value"] for item in capabilities["launchpads"]]
+    launchpad_property: dict[str, Any] = {
+        "type": "string",
+        "description": "Optional launchpad filter using one canonical available value.",
+    }
+    if launchpads:
+        launchpad_property["enum"] = launchpads
+
+    return {
+        "type": "function",
+        "function": {
+            "name": "query_tokens",
+            "description": (
+                "Query the current active Solana token population. Use only the "
+                "provided vocabulary and never substitute an unavailable metric."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sort_by": {
+                        "type": "string",
+                        "enum": list(QUERY_FIELDS),
+                        "description": "Canonical current field used for ranking.",
+                    },
+                    "sort_order": {
+                        "type": "string",
+                        "enum": list(SORT_ORDERS),
+                        "description": "Canonical ascending or descending order.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_LIMIT,
+                        "description": "Number of rows to return. Defaults to 5.",
+                    },
+                    "launchpad": launchpad_property,
+                },
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _arguments(arguments: dict[str, Any]) -> dict[str, Any]:
     unknown = set(arguments) - _ARGUMENTS
     if unknown:
@@ -82,7 +141,7 @@ def _arguments(arguments: dict[str, Any]) -> dict[str, Any]:
         raise QueryToolError("unsupported sort_by field")
 
     sort_order = arguments.get("sort_order", "desc")
-    if sort_order not in {"asc", "desc"}:
+    if sort_order not in SORT_ORDERS:
         raise QueryToolError("sort_order must be asc or desc")
 
     limit = arguments.get("limit", DEFAULT_LIMIT)
@@ -116,11 +175,19 @@ def query_tokens(
 
     matching = [token for token in tokens if token.get("tracking_enabled") is not False]
     if query["launchpad"] is not None:
-        launchpad = query["launchpad"].casefold()
+        launchpads = {
+            item["value"].casefold(): item["value"]
+            for item in query_capabilities(tokens)["launchpads"]
+        }
+        launchpad = launchpads.get(query["launchpad"].casefold())
+        if launchpad is None:
+            raise QueryToolError("unsupported launchpad")
+        query["launchpad"] = launchpad
         matching = [
             token
             for token in matching
-            if str(token.get("launchpad") or "unknown").casefold() == launchpad
+            if str(token.get("launchpad") or "unknown").casefold()
+            == launchpad.casefold()
         ]
 
     matching = [token for token in matching if token.get(query["sort_by"]) is not None]

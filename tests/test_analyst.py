@@ -214,7 +214,37 @@ class AnalystTests(unittest.TestCase):
                 "volume_5m": None,
                 "age_seconds": None,
                 "change_age_seconds": None,
-            }
+            },
+            {
+                "mint": "mint-b",
+                "name": "BBB",
+                "symbol": "BBB",
+                "launchpad": "met-dbc",
+                "tracking_enabled": True,
+                "market_cap": 90,
+                "liquidity": None,
+                "holders": None,
+                "trades_5m": None,
+                "traders_5m": None,
+                "volume_5m": None,
+                "age_seconds": None,
+                "change_age_seconds": None,
+            },
+            {
+                "mint": "mint-c",
+                "name": "CCC",
+                "symbol": "CCC",
+                "launchpad": "letsbonk.fun",
+                "tracking_enabled": True,
+                "market_cap": 80,
+                "liquidity": None,
+                "holders": None,
+                "trades_5m": None,
+                "traders_5m": None,
+                "volume_5m": None,
+                "age_seconds": None,
+                "change_age_seconds": None,
+            },
         ]
         with patch.dict(sys.modules, {"httpx": fake_httpx}):
             result = asyncio.run(
@@ -228,6 +258,17 @@ class AnalystTests(unittest.TestCase):
 
         first_request = captured[0]["json"]
         self.assertEqual(first_request["tools"][0]["function"]["name"], "query_tokens")
+        system_prompt = first_request["messages"][0]["content"]
+        self.assertIn("met-dbc", system_prompt)
+        self.assertIn("letsbonk.fun", system_prompt)
+        self.assertIn("Liquidität", system_prompt)
+        launchpad_schema = first_request["tools"][0]["function"]["parameters"][
+            "properties"
+        ]["launchpad"]
+        self.assertEqual(
+            launchpad_schema["enum"],
+            ["letsbonk.fun", "met-dbc", "pump.fun"],
+        )
         self.assertNotIn(
             "price_change_5m",
             first_request["tools"][0]["function"]["parameters"]["properties"][
@@ -236,8 +277,8 @@ class AnalystTests(unittest.TestCase):
         )
         tool_message = captured[1]["json"]["messages"][-1]
         self.assertEqual(tool_message["role"], "tool")
-        self.assertEqual(json.loads(tool_message["content"])["returned_count"], 1)
-        self.assertEqual(result["tool"]["returned_count"], 1)
+        self.assertEqual(json.loads(tool_message["content"])["returned_count"], 3)
+        self.assertEqual(result["tool"]["returned_count"], 3)
         self.assertEqual(result["scope"], "current_data")
 
     def test_current_data_does_not_trust_an_answer_without_tool_use(self) -> None:
@@ -272,14 +313,28 @@ class AnalystTests(unittest.TestCase):
                 query_current_tokens(
                     api_key="secret",
                     model="mistral-small-latest",
-                    tokens=[],
+                    tokens=[
+                        {
+                            "mint": "mint-a",
+                            "launchpad": "pump.fun",
+                            "tracking_enabled": True,
+                        }
+                    ],
                     question="Which tokens had the largest price increase in five minutes?",
                 )
             )
 
         self.assertIsNone(result["tool"])
         self.assertNotIn("invented", result["answer"])
-        self.assertIn("cannot be answered", result["answer"])
+        self.assertIn("cannot be mapped", result["answer"])
+        self.assertIn(
+            "liquidity",
+            [field["key"] for field in result["capabilities"]["fields"]],
+        )
+        self.assertEqual(
+            result["capabilities"]["launchpads"],
+            [{"value": "pump.fun", "active_tokens": 1}],
+        )
 
 
 if __name__ == "__main__":

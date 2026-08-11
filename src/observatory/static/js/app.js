@@ -107,6 +107,35 @@ function syncAnalyst(clearResult = true) {
   if (clearResult) clearAnalystResult();
 }
 
+function renderCapabilities(capabilities) {
+  const heading = document.createElement("strong");
+  heading.textContent = "Available current queries";
+  analystSources.append(heading);
+
+  const fields = document.createElement("span");
+  fields.textContent = `Sort by: ${capabilities.fields.map(field => field.label).join(", ")}`;
+  analystSources.append(fields);
+
+  const orders = document.createElement("span");
+  orders.textContent = "Order: highest / top or lowest / bottom";
+  analystSources.append(orders);
+
+  const launchpads = document.createElement("span");
+  launchpads.textContent = `Launchpads: ${capabilities.launchpads.map(item => item.value).join(", ")}`;
+  analystSources.append(launchpads);
+
+  const limit = document.createElement("span");
+  limit.textContent = `Results: default ${capabilities.default_limit}, maximum ${capabilities.maximum_limit}`;
+  analystSources.append(limit);
+
+  const example = document.createElement("span");
+  const launchpad = capabilities.launchpads[0]?.value;
+  example.textContent = launchpad
+    ? `Example: Which five ${launchpad} tokens have the highest 5m volume?`
+    : "Example: Which five tokens have the highest 5m volume?";
+  analystSources.append(example);
+}
+
 function renderAnalyst(payload) {
   analystAnswer.textContent = payload.answer;
   analystSources.replaceChildren();
@@ -116,8 +145,8 @@ function renderAnalyst(payload) {
       analystSources.textContent = `query_tokens · ${integerFormat.format(payload.tool.matched_count)} matched · ${integerFormat.format(payload.tool.returned_count)} returned`;
       analystStatus.textContent = "Current data query completed";
     } else {
-      analystSources.textContent = "query_tokens was not executed.";
-      analystStatus.textContent = "The current projection cannot answer this question";
+      renderCapabilities(payload.capabilities);
+      analystStatus.textContent = "No unambiguous supported query was found";
     }
   } else if (payload.sources.length) {
     const heading = document.createElement("strong");
