@@ -30,12 +30,16 @@
     <section class="workspace">
       <div class="universe-panel">
         <div class="universe-toolbar">
-          <div>
-            <span class="toolbar-label">UNIVERSE · LIVE</span>
-            <span class="toolbar-note">Market cap size · launchpad grouping · read-only deltas</span>
+          <div class="universe-context-row">
+            <button id="universe-back" class="universe-back hidden" type="button">← ALL LAUNCHPADS</button>
+            <div>
+              <span class="toolbar-label" id="universe-context">All launchpads</span>
+              <span class="toolbar-note" id="universe-summary">Loading spatial overview…</span>
+            </div>
           </div>
           <div class="legend" aria-label="Visual semantics">
-            <span><i class="legend-dot group"></i>launchpad color</span>
+            <span><i class="legend-dot group"></i>launchpad</span>
+            <span><i class="legend-size"></i><span id="universe-size-legend">active token count</span></span>
             <span><i class="legend-ring selection"></i>selection</span>
             <span><i class="legend-dot retired"></i>retirement</span>
           </div>
