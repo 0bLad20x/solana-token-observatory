@@ -109,12 +109,32 @@ h2 { margin-bottom: 0; font-size: 17px; letter-spacing: -.02em; }
   background: rgba(21, 27, 42, 0.5);
 }
 .toolbar-note { margin-left: 8px; color: var(--text-muted); font-size: 10px; }
+.universe-context-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.universe-back {
+  padding: 6px 8px;
+  border: 1px solid rgba(73, 217, 255, .2);
+  border-radius: 6px;
+  background: rgba(73, 217, 255, .05);
+  color: var(--selection);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.universe-back:hover { background: rgba(73, 217, 255, .1); }
 .legend { display: flex; gap: 13px; flex-wrap: wrap; color: var(--text-muted); font-size: 9px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
 .legend-dot.group { background: linear-gradient(135deg, var(--sol-purple), var(--sol-cyan)); }
 .legend-dot.retired { background: var(--destructive); }
 .legend-ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--selection); }
+.legend-size {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--text-muted);
+  border-radius: 50%;
+  box-shadow: -5px 3px 0 -3px var(--text-muted);
+}
 
 .universe-stage {
   position: relative;
