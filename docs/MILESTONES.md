@@ -2,131 +2,101 @@
 
 ## Zweck
 
-Dieses Dokument beschreibt knapp den aktuellen Projektstand und die nächste Entwicklungsrichtung. Es ist keine Authority für bereits implementierte Architektur oder konkrete Thresholds. Implementierter Zustand gehört in `README.md`, `docs/architecture.md` und den Code.
+Dieses Dokument beschreibt knapp den aktuellen Projektstand und die nächste Entwicklungsrichtung. Es ist keine Authority für bereits implementierte Architektur oder konkrete Thresholds. Implementierter Zustand gehört in `README.md`, `docs/architecture.md`, `docs/LIFECYCLE_CONTRACT.md` und den Code.
 
-## Aktueller Stand
+## Foundation — abgeschlossen
 
-Das Framework besitzt bereits vier getrennte Ebenen:
+Die operative Basis steht:
 
-1. **Discovery:** neue Solana-Mints aus mehreren Quellen aufnehmen.
-2. **Jupiter Monitoring:** aktive Mints regelmäßig über Jupiter Search beobachten und fachlich veränderte Zustände historisieren.
-3. **Operational Lifecycle:** wirtschaftlich offensichtlich schlechte Tokens anhand transparenter Regeln deaktivieren.
-4. **Read-only Research:** Survivor-Tokens mit Diagnose- und Anomaly-Analysen untersuchen, ohne daraus automatisch operative Mutationen abzuleiten.
+- Discovery aus mehreren Solana-Quellen;
+- Jupiter Search Monitoring mit mehreren API-Key-Lanes;
+- version-safe Writer-Pfad ohne Verlust unterschiedlicher beobachteter `updatedAt`-Versionen;
+- PostgreSQL-Registry in `mints` und immutable Source-Versionen in `mint_snapshots`;
+- Operational Lifecycle Rule 1–5;
+- eingefrorener Lifecycle Contract v0.1;
+- ausführbarer Equivalence Gate gegen die v0.1-Referenz;
+- Trennung des operativen Core von Diagnose-/GMGN-Research-Tooling.
 
-Die nächste Entwicklungsstufe beginnt bewusst **nach** dem Lifecycle: Aus den verbleibenden Survivor-Tokens soll eine strukturierte Zeitreihen- und Query-Schicht entstehen.
+Diese Foundation wird nicht vorsorglich weiter refaktoriert. Änderungen benötigen ein konkretes Problem oder eine neue fachliche Grenze.
 
-## Milestone 1 — Survivor OHLC / Time Buckets
+## Aktiv — Frontend MVP
 
-Aus den gespeicherten Jupiter-Beobachtungen der relevanten Survivor-Tokens sollen OHLC-Zeitreihen aufgebaut werden.
+Ein lokales read-only Frontend wird aktuell separat in Draft PR #5 entwickelt.
 
-### Ziel
+Ziel der ersten Version:
 
-- kanonische Time Buckets erzeugen;
-- zunächst ein 1-Minuten-Schema definieren und validieren;
-- spätere Timeframes wie 5m, 15m, 1h oder weitere Intervalle daraus ableiten können;
-- unregelmäßige Jupiter-Beobachtungen korrekt behandeln.
+- aktuelle aktive Survivor-Population sichtbar machen;
+- Market Cap, Liquidity, Holder und aktuelle Aktivität darstellen;
+- neue, veränderte und deaktivierte Tokens live sichtbar machen;
+- Lifecycle-Deaktivierungsgründe anzeigen;
+- keine operative Mutation aus dem Frontend erlauben.
 
-### 1-Minuten-Vertrag
+Der Draft ist bewusst additiv. Collector, Lifecycle, Repository und Schema werden durch die Frontend-Implementierung nicht verändert.
 
-Für einen Bucket `[t, t + 1m)`:
+Vor einem späteren Merge wird der Draft auf den dann aktuellen `main` synchronisiert und gegen dessen Schema-/Read-only-Vertrag geprüft.
 
-```text
-open  = erster beobachteter Preis im Bucket
-high  = höchster beobachteter Preis im Bucket
-low   = niedrigster beobachteter Preis im Bucket
-close = letzter beobachteter Preis im Bucket
-observation_count = Anzahl realer Preisbeobachtungen im Bucket
-```
+## Später — gemeinsame Read-only Query-Schicht
 
-Leere Buckets werden **nicht** automatisch per Fill-Forward zu künstlichen Candles. Fehlende Beobachtung bleibt zunächst fehlend.
+Eine eigene Query-Schicht wird nicht vorsorglich gebaut.
 
-Konzeptionelles Schema:
+Sie wird erst sinnvoll, wenn mindestens zwei reale Consumer dieselben fachlichen Queries benötigen, zum Beispiel Frontend und LLM-Tools.
 
-```sql
-CREATE TABLE token_ohlc_1m (
-    mint              TEXT        NOT NULL,
-    bucket_start      TIMESTAMPTZ NOT NULL,
-    open              DOUBLE PRECISION NOT NULL,
-    high              DOUBLE PRECISION NOT NULL,
-    low               DOUBLE PRECISION NOT NULL,
-    close             DOUBLE PRECISION NOT NULL,
-    observation_count INTEGER     NOT NULL,
-    first_observed_at TIMESTAMPTZ NOT NULL,
-    last_observed_at  TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (mint, bucket_start)
-);
-```
+Dann soll sie:
 
-Noch offen bleiben bewusst:
+- wenige klar definierte read-only Queries besitzen;
+- reproduzierbare strukturierte Rückgabewerte liefern;
+- keine freien operativen Writes ermöglichen;
+- PostgreSQL-Details dort kapseln, wo tatsächlich eine gemeinsame Consumer-Grenze entstanden ist.
 
-- welches konkrete Jupiter-Preisfeld der kanonische Input wird;
-- ob größere Timeframes ausschließlich aus 1m-Buckets oder teilweise direkt aus Rohbeobachtungen aggregiert werden;
-- Retention und mögliche Verdichtung alter Rohdaten.
+## Zurückgestellt — OHLC / Time Buckets
 
-Diese Entscheidungen werden erst nach einem kleinen realen 1m-Testdatensatz festgelegt.
+OHLC, Time-Buckets und Snapshot-Retention sind bewusst zurückgestellt.
 
-## Milestone 2 — Read-only Query Layer
+Offene Fragen bleiben ausdrücklich offen, bis diese Arbeit wieder aktiviert wird:
 
-Über den persistierten Token-, Lifecycle-, Anomaly- und später OHLC-Daten soll eine kontrollierte Query-Schicht entstehen.
+- welches Jupiter-Preisfeld kanonischer Input wird;
+- welche Zeitsemantik für Buckets gilt;
+- welche Timeframes benötigt werden;
+- wie leere Buckets behandelt werden;
+- ob größere Timeframes aus 1m-Buckets oder Rohbeobachtungen entstehen;
+- wie lange Roh-Snapshots behalten werden.
 
-Ziel:
+Es existiert deshalb derzeit **kein OHLC-Contract** und kein vorab festgeschriebenes Tabellenschema.
 
-- klar definierte read-only Queries statt freiem Datenbankzugriff;
-- reproduzierbare Antworten auf Fragen zu einzelnen Tokens, Populationen und Zeiträumen;
-- strukturierte Rückgabewerte, die sowohl Frontend als auch LLM verwenden können.
+Wenn dieser Milestone wieder aufgenommen wird, soll die Semantik zunächst an einem kleinen realen Datensatz validiert und anschließend als eigener Vertrag dokumentiert werden.
 
-Die Query-Schicht ist die fachliche Grenze zwischen PostgreSQL und späteren Verbrauchern.
+## Später — LLM Tool Calling
 
-## Milestone 3 — Frontend
+Ein Large Language Model soll später über wenige kontrollierte read-only Tools auf das System zugreifen können.
 
-Ein lokales Frontend soll den aktuellen Zustand des Systems sichtbar machen.
-
-Mögliche Inhalte:
-
-- aktive Survivor-Population;
-- Lifecycle-Status und Deaktivierungsgründe;
-- Anomaly-/Archetype-Tags;
-- Token-Verläufe und optional OHLC-Charts;
-- Query-Ergebnisse aus der gemeinsamen read-only Query-Schicht.
-
-Der konkrete Frontend-Stack und die endgültige Visualisierung sind noch nicht festgelegt.
-
-## Milestone 4 — LLM Tool Calling
-
-Aus einem lokalen Browser-Frontend soll ein Large Language Model über eine API auf kontrollierte Tools zugreifen können.
-
-Zielablauf:
+Zielbild:
 
 ```text
 User question
     ↓
 LLM
     ↓ tool call
-Read-only query tool
+Read-only query/tool contract
     ↓
-Structured database result
+Structured result
     ↓
 LLM analysis
-    ↓
-Answer in browser
 ```
 
-Das LLM soll nicht direkt beliebige SQL-Schreibzugriffe erzeugen. Die erste Version soll wenige klar definierte read-only Tools verwenden und deren Ergebnisse analysieren.
+Das LLM erhält keine direkte Authority für operative SQL-Writes oder Lifecycle-Mutationen.
 
-Welche Daten und Queries das LLM konkret verwenden darf, wird erst anhand realer Analysefragen festgelegt.
-
-## Reihenfolge
+## Aktuelle Reihenfolge
 
 ```text
-Operational Lifecycle
-        ↓
-Survivor population
-        ↓
-1m OHLC / Time-Bucket contract
-        ↓
-Read-only Query Layer
-        ├──────────────→ Frontend
-        └──────────────→ LLM Tool Calling
+Foundation                         DONE
+    ↓
+Frontend MVP                      ACTIVE — Draft PR #5
+    ↓
+Shared Query Layer                WHEN NEEDED BY MULTIPLE CONSUMERS
+    ↓
+OHLC / Time Buckets / Retention   DEFERRED
+    ↓
+LLM Tool Calling                  LATER
 ```
 
-Anomaly Research läuft parallel weiter und kann später zusätzliche Tags oder Query-Dimensionen liefern. Es bleibt von operativen Lifecycle-Mutationen getrennt, bis einzelne Regeln ausdrücklich validiert und übernommen werden.
+Die Reihenfolge ist keine Verpflichtung, künstliche Zwischenabstraktionen zu bauen. Neue Schichten werden erst eingeführt, wenn ein realer Consumer oder Datenvertrag sie benötigt.
