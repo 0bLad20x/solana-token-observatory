@@ -1,228 +1,185 @@
-# Frontend Spatial Model — V3
+# Frontend Spatial Model — V3 Reset
 
 ## Status
 
-**Authority:** V3 Bubble-Cluster-Layout und `ViewSpec`-Verhalten  
+**Authority:** V3 spatial behavior and `ViewSpec` boundaries  
 **Parent authority:** `docs/FRONTEND_OBSERVATORY.md`  
 **Branch:** `agent/generic-bubble-physics-v3`  
-**Checkpoint:** V3-A nach fehlgeschlagener Browservalidierung neu implementiert; erneute Browservalidierung erforderlich
+**Checkpoint:** both live-physics attempts failed browser validation; V3-A is reset to a static semantic-zoom proof
 
-V2 verhinderte globale Repaints durch normale SSE-Deltas. V3 definiert darauf aufbauend eine wiederverwendbare räumliche Grammatik.
+V3-B remains blocked until this reduced V3-A is readable and stable in the real browser.
 
-## 1. First principle
+## 1. Browser evidence overrides the former contract
 
-```text
-Token data + ViewSpec
-        ↓
-groupKey / radius / optional targets
-        ↓
-layout-specific spatial model
-        ↓
-Pixi rendering
-```
+The browser test with roughly 1,400 Pump.fun tokens disproved the assumption that all active tokens can be presented simultaneously as freely draggable, colliding bubbles.
 
-Der Renderer besitzt keine Launchpad-Physik. `ViewSpec.group` erzeugt `groupKey`; die Cluster Engine verarbeitet beliebige `groupKey`-Werte gleich.
+Observed failures:
 
-Die Engine ist nur innerhalb von `layout = cluster` generisch. Projection, Flow, Tree und Network dürfen später eigene etablierte Layouts verwenden.
+- raw launchpad variants could create separate groups while receiving the same color;
+- newly added nodes did not enlarge their group domain;
+- a group that could not find free space fell back to the viewport center;
+- a logarithmic, capped radius made materially different market caps look alike;
+- fast drag propagated displacement through large contact chains;
+- pointer release and return-to-home were not reliable browser invariants;
+- rendering every token at overview scale produced density without readable information.
 
-## 2. Minimaler Node-Vertrag
+The first velocity-based solver and the second positional constraint solver are both rejected. Their code must not be revived through further parameter tuning.
 
-```text
-mint
-token
-groupKey
-radius
-x / y
-selection state
-enter / retire state
-temporary drag state
-```
-
-Business Truth bleibt außerhalb des Renderers. V3 führt keine freie Expression-Sprache ein.
-
-Aktives V3-A-Preset:
-
-```json
-{
-  "type": "bubble",
-  "layout": "cluster",
-  "group": "launchpad",
-  "size": "market_cap",
-  "color": "launchpad",
-  "x": null,
-  "y": null
-}
-```
-
-## 3. Bewegungssemantik
-
-Ein Node darf sich nur bewegen wegen:
-
-1. sichtbarer Änderung einer gemappten Geometrie;
-2. echtem `groupKey`-Wechsel;
-3. User-Drag;
-4. Populationseintritt oder -austritt;
-5. explizitem View-Wechsel oder Resize-Refit.
-
-Ein normales SSE-Update allein ist kein Bewegungsgrund. Subpixel-Änderungen werden akkumuliert, bis sie im aktuellen Screen Space sichtbar sind.
-
-## 4. Cluster-Invarianten
-
-### Zugehörigkeit
-
-Jeder Node besitzt genau eine aktive Cluster Domain:
+## 2. First principle
 
 ```text
-domain = group center + group radius
+Movement is allowed only when it communicates data.
+Interaction is allowed only when it changes analytical context.
+Containment must be structural, not simulated.
 ```
 
-Drag verändert niemals `groupKey`. Die Node-Mitte wird auf die eigene Domain begrenzt. Ein Node kann deshalb weder lose außerhalb liegen noch in ein fremdes Cluster abgelegt werden.
+User drag had no analytical meaning. It is removed.
 
-### Isolation
+Collision physics had no durable product responsibility. It is removed.
 
-Collision und lokale Relaxation betrachten ausschließlich Nodes desselben `groupKey`. Cluster beeinflussen einander nicht im Live-Solver. Ihre Domains werden nur beim Bootstrap oder expliziten globalen Refit gemeinsam gepackt.
-
-### Abstand
+The new V3-A proves a smaller proposition:
 
 ```text
-minimum distance = radiusA + radiusB + collision gap
+large population
+      ↓
+aggregate overview
+      ↓ click launchpad
+bounded token detail
 ```
 
-Der Bootstrap verwendet zusätzlich einen größeren Pack-Abstand. Dieser sichtbare und physische Spielraum verhindert, dass jede kleine Radiusänderung eine Kontaktkette durch den gesamten Cluster auslöst.
+## 3. Two deterministic levels
 
-## 5. Zwei räumliche Zustände
+### Overview
 
-### Packed rest state
-
-Bootstrap, Resize und expliziter View-Wechsel verwenden `d3.packSiblings` und `d3.packEnclose`:
+The overview renders one aggregate bubble per canonical launchpad.
 
 ```text
-Nodes pro groupKey packen
-        ↓
-enclosing cluster circles berechnen
-        ↓
-cluster circles packen
-        ↓
-einmal rendern und ruhen
+position    = stable equal slot
+area        = active token count relative to the largest group
+color       = launchpad
+label       = launchpad + exact count
+interaction = focus this launchpad
 ```
 
-Das Ergebnis ist kompakt, deterministisch, überlappungsfrei und besitzt explizite Cluster Domains.
+No individual token exists in the overview. A Pump.fun population of 1,400 tokens is therefore one truthful aggregate, not 1,400 illegible marks.
 
-### Bounded interaction state
+### Launchpad focus
 
-Live-Interaktion verwendet keine Velocity-Simulation. Nur die betroffene Gruppe und deren geweckte Nachbarschaft werden positional aufgelöst:
+The focus renders a viewport-derived budget of the highest-market-cap tokens in one launchpad.
 
 ```text
-finite center compaction
-+ quadtree collision resolution
-+ circular domain constraint
+position    = stable equal slot
+area        = market cap
+label       = symbol for sufficiently large marks
+interaction = select token
 ```
 
-Positionen werden direkt korrigiert. Es gibt keine Geschwindigkeit, Trägheit, Force-Reheizung oder Oszillation. Wenn keine räumliche Arbeit aktiv ist, läuft kein Layout-Code über die Population.
+The toolbar always states `shown / total`. Hidden tokens are not silently implied to be visible.
 
-## 6. Ereignisse
+The visible budget is derived from viewport area and bounded to keep marks selectable. Ranking is deterministic:
 
-### Radiusänderung
+```text
+market_cap descending
+mint ascending as tie-breaker
+```
 
-Der neue Radius entsteht an derselben Position. Der Node bleibt während der Relaxation verankert; ausschließlich notwendige Nachbarn weichen aus.
+Re-entering the focus or resizing performs an explicit refit. Ordinary SSE updates do not reorder the visible set.
 
-### Drag
+## 4. Size semantics
 
-Der Pointer bewegt den Node nur innerhalb seiner Domain. Kollision weckt ausschließlich berührte Nodes derselben Gruppe. Vor dem Drag werden die Restpositionen der betroffenen Nachbarschaft gespeichert; nach Release kehren Node und Nachbarn dorthin zurück. Drag ist damit vollständig temporär und zerstört keine räumliche Erinnerung.
+Circle area, not radius, represents the mapped value.
+
+```text
+radius ∝ sqrt(value / reference)
+```
+
+For token focus, the reference is the visible population's 95th percentile, bounded between $1M and $10M. This prevents a single extreme outlier from flattening the rest while preserving a clear area difference between $100k and $1M.
+
+For overview, the reference is the largest launchpad count. A minimum display radius keeps small launchpads clickable; the exact count remains authoritative in the label.
+
+## 5. Structural invariants
+
+1. Every item owns one immutable slot until explicit refit.
+2. The rendered bubble is always smaller than its slot.
+3. Slots never overlap.
+4. A token focus contains exactly one canonical `groupKey`.
+5. There is no drag state, velocity, collision solver, attraction, group-domain fallback or free-coordinate search.
+6. An idle scene executes no spatial work.
+
+These properties make cross-cluster drift impossible by construction.
+
+## 6. Live semantics
+
+### Ordinary update
+
+Token data is replaced. If the token is visible and market cap changed, its radius eases toward the new value at the same slot center. No other token moves.
+
+### Added token
+
+Overview count updates in place. A focused visible set is not reordered mid-session; the next explicit focus/refit recomputes its deterministic ranking.
+
+### Group change
+
+The token immediately leaves a focus it no longer belongs to. Overview counts update. No spatial transition is simulated between groups.
 
 ### Retirement
 
-Der Node signalisiert den fachlichen Austritt kurz in `destructive`, kollabiert und wird danach entfernt. Erst dann kompaktieren nahe Nodes die Vacancy in Richtung Clusterzentrum.
+A visible token turns red, collapses and leaves its slot empty. The vacancy is not physically filled. The next explicit refit compacts the static presentation.
 
-### Neuer Node
+### Resize or focus change
 
-Ein neuer Node wird deterministisch am freien Domain-Rand seines `groupKey` geseedet und durch dieselben Collision-/Compaction-Constraints integriert.
+This is an explicit analytical context change and may recompute all slots once.
 
-### `groupKey`-Wechsel
-
-Die alte Gruppe schließt die Vacancy. Der Node tritt in die neue Domain ein. Das ist die einzige Live-Interaktion, die einen fachlichen A→B-Wechsel darstellt.
-
-## 7. Visuelle Semantik in V3-A
+## 7. Visual semantics
 
 ```text
-radius       = market_cap
-fill color   = groupKey / launchpad
-cyan stroke  = selection
-red          = retirement
-motion       = ausschließlich räumliches Ereignis
+overview bubble area = population count
+token bubble area    = market cap
+launchpad accent     = grouping context
+cyan stroke          = selection
+red                  = retirement
+symbol text          = identity on readable marks
+motion               = mapped radius or exit only
 ```
 
-Freshness, Liquidity und allgemeine SSE-Aktivität sind im aktiven `ViewSpec` nicht gemappt und verändern deshalb weder Alpha, Stroke noch Scale.
+Freshness, liquidity and generic update activity remain outside the active visual channels.
 
-Die Bubble selbst pulsiert bei Updates nicht. Ein geometrisches Update ist an der tatsächlichen Radiusänderung erkennbar; der Event Feed liefert die präzise Delta-Evidence.
-
-## 8. Research decision
-
-### Fehlgeschlagener Ansatz
-
-Die erste V3-A-Implementierung verwendete eine lokale `d3-force`-Simulation mit `forceX`, `forceY`, `forceCollide`, `fx/fy` und einer 96-Pixel-Quadtree-Nachbarschaft.
-
-Die Browservalidierung widerlegte die Annahme, dass dieser Mechanismus den Vertrag erfüllt:
-
-- Drag war nur am Viewport begrenzt, nicht an der Cluster Domain;
-- Nachbarschaften waren nicht nach `groupKey` isoliert;
-- mehrere Live-Deltas konnten fast den gesamten Großcluster reaktivieren;
-- Velocity und erneutes Alpha-Heating erzeugten sichtbare Nervosität;
-- ein Scale-Pulse verfälschte Collision-Radius und Größenwahrnehmung;
-- der Cluster besaß keinen stabilen gepackten Restzustand.
-
-Dieser Ansatz ist verworfen und wurde nicht weiter parametrisch getunt.
-
-### Gewählter Mechanismus
+## 8. Implementation boundary
 
 ```text
-d3-hierarchy   exact initial/refit packing
-d3-quadtree    same-group collision lookup
-direct constraints without velocity
-finite active neighborhoods
-PixiJS         rendering and pointer input
+bubble-layout.js
+    equal non-overlapping slots
+    viewport detail budget
+    percentile reference
+    area-to-radius mapping
+
+universe.js
+    Pixi rendering
+    overview/focus navigation
+    selection and finite animations
 ```
 
-Keine neue Physics Dependency ist erforderlich.
+The layout uses D3 hierarchy packing only to allocate equal stable slots. There is no force or quadtree dependency.
 
-### Verworfene Alternativen
+## 9. V3-A acceptance
 
-- dauerhafte `d3-force`-Simulation: bleibt velocity-basiert und muss wiederholt reheated werden;
-- Matter.js: liefert Sleeping und Rigid Bodies, benötigt für diesen Vertrag aber zusätzliche Springs, Group Filtering und Domain Constraints;
-- wiederholtes Full Packing bei jedem Delta: kompakt, zerstört aber Live-Spatial-Continuity;
-- event-spezifische `findFreeCoordinate()`- oder `fillHole()`-Algorithmen: duplizieren räumliche Verantwortung.
-
-## 9. V3-A-Akzeptanz
-
-V3-A ist erst bestanden, wenn im realen Browser alle Punkte gleichzeitig gelten:
+V3-A passes only if the real browser proves all of the following:
 
 ```text
-bootstrap        → kompakte, getrennte Cluster
-idle             → vollständig ruhig
-ordinary update  → keine räumliche Reaktion
-radius growth    → verankertes Wachstum, lokale Verdrängung
-radius shrink    → lokale Kompaktierung
-drag             → eigene Domain, gleiche Gruppe, temporäre Nachbarreaktion
-release          → Rückkehr zum stabilen Restzustand
-retirement       → sichtbarer Exit, danach Vacancy Closing
-other groups     → exakt keine Live-Bewegung
+overview          → one readable aggregate per launchpad
+focus             → one launchpad only
+idle              → no movement
+ordinary update   → only the changed radius moves
+retirement        → red collapse, then a stable empty slot
+market-cap scale  → $100k and $1M are visibly distinct
+membership        → no token can appear in another launchpad focus
+density           → shown / total remains explicit
 ```
 
-V3-B beginnt vorher nicht.
+## 10. V3-B and later work
 
-## 10. V3-B und spätere Grenzen
+V3-B does not begin until this contract passes browser validation.
 
-V3-B beweist dieselbe Cluster Engine mit mindestens zwei Presets:
+Later work may add another grouping preset, search/filter, deeper progressive disclosure or a true analytical projection. It must not reintroduce free drag or live collision merely to make the view feel dynamic.
 
-```text
-group = launchpad
-group = market_cap_tier oder age_tier
-```
-
-Semantic Zoom oder Density Aggregation ist kein V3-A-Fix. Es ist eine spätere eigene Grenze, falls die stabile Übersicht mit wachsender Population nicht mehr lesbar ist. Dabei dürfen Nodes nicht zufällig ausgeblendet werden; Overview, Cluster-Zoom und Detail-Zoom benötigen einen deterministischen View-Vertrag.
-
-Flow, Tree, Network, Projection, LLM Cohorts und Discovery Provenance bleiben außerhalb V3-A.
-
-## 11. Systemgrenzen
-
-V3 verändert nur die read-only räumliche Projektion. Es verändert weder PostgreSQL-Schema, Collector, Lifecycle v0.1 noch operative Token-Zustände.
+Flow, Tree, Network, LLM Cohorts and Discovery Provenance remain outside V3-A.
