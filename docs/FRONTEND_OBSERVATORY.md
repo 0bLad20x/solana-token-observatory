@@ -4,7 +4,7 @@
 
 **Authority:** frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of operational token data  
-**Current checkpoint:** V0–V2 merged; V3-A implementation awaits real-browser validation
+**Current checkpoint:** V0–V2 merged; V3-A reimplemented after failed browser validation and awaits retest  
 **V3 spatial authority:** `docs/FRONTEND_SPATIAL_MODEL.md`
 
 This document defines the durable product and architecture principles of the Token Observatory. Slice-specific spatial behavior is refined in the V3 spatial contract instead of accumulating special-case rules here.
@@ -347,7 +347,7 @@ src/
         ├── styles.css
         └── js/
             ├── app.js
-            ├── cluster-physics.js
+            ├── cluster-layout.js
             ├── state.js
             ├── universe.js
             ├── view-spec.js
@@ -361,7 +361,7 @@ frontend.py       tiny executable entry point
 app.py            FastAPI, HTTP and SSE boundary
 data.py           read-only PostgreSQL projections
 app.js            application bootstrap and wiring
-cluster-physics.js finite local D3 cluster relaxation
+cluster-layout.js packed rest state and bounded same-group constraints
 state.js          token state, selection, active view, deltas
 universe.js       Pixi rendering, animation and pointer interaction
 view-spec.js      supported mappings and presets
@@ -573,13 +573,13 @@ Cluster != hard-coded renderer category
 Cluster = result of active ViewSpec
 ```
 
-V3-R selected the existing D3/Pixi stack for V3-A: `forceCollide`, weak positional forces, quadtree neighborhood selection, temporary `fx/fy` constraints and a finite frame-bounded simulation. No new physics dependency is required.
+The first velocity-based V3-A solver failed browser validation and was removed. The revised V3-A keeps PixiJS and D3, but separates an exact packed rest state from velocity-free, same-group interaction constraints. No new physics dependency is required.
 
 V3 then establishes:
 
 - generic collision;
-- weak group attraction;
-- local relaxation;
+- explicit cluster domains;
+- finite center compaction;
 - radius growth/shrink in place;
 - local vacancy closing;
 - drag as a temporary user constraint;
