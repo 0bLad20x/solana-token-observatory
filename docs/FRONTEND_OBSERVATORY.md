@@ -571,7 +571,9 @@ Cluster != hard-coded renderer category
 Cluster = result of active ViewSpec
 ```
 
-V3 establishes:
+V3 begins with a short **V3-R Physics Research Gate** before implementation. The purpose is to determine whether established D3/Pixi, force, packing or local-relaxation mechanisms already satisfy the required behavior more simply than another custom physics layer. The gate must remain concise and implementation-oriented; it is not a separate research project.
+
+V3 then establishes:
 
 - generic collision;
 - weak group attraction;
