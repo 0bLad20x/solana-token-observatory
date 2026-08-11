@@ -20,47 +20,51 @@ Die operative Basis steht:
 Die beiden V3-Spatial-Experimente wurden nach negativem Browserergebnis geschlossen.
 Bubble-Physik und ViewSpec-Arbeit sind kein aktiver Milestone.
 
-## Aktiv — WP1 Token Web Research
+## WP1 Token Web Research — abgeschlossen
 
-WP1 beweist den kleinsten LLM-Durchstich:
+WP1 liefert ausgewählten Token, freie Frage, serverseitige Mistral Web Search sowie
+Antwort und Quellen als externe Evidenz. Der Slice wurde als PR #10 gemergt.
+
+## Aktiv — WP2 Current Population Query
+
+WP2 beweist genau einen internen Tool Call:
 
 ```text
-selected token
-      ↓
 free question
       ↓
-server-side Mistral Conversations API
+Mistral function arguments
       ↓
-web_search | web_search_premium
+bounded read-only query_tokens
       ↓
-answer + source references
+top 5 current rows
+      ↓
+grounded answer
 ```
 
 Der Slice enthält ausschließlich:
 
-- `POST /api/analyst`;
-- serverseitige Mistral-Konfiguration;
-- die bestehende Tokenidentität als Kontext;
-- genau ein Built-in Web-Search-Tool;
-- ein kleines Prompt-Feld;
-- Antwort und Quellen als `EXTERNAL EVIDENCE`;
-- `MISTRAL_WEB_SEARCH_MODE` als Backend-Switch.
+- die bestehende aktuelle aktive `FrontendReader`-Projektion;
+- genau ein internes `query_tokens`-Tool;
+- eine feste Feldliste für aktuelle Werte;
+- optional einen Launchpad-Filter;
+- Sortierung sowie Default-Limit fünf und Hard-Limit zwanzig;
+- eine kleine Scope-Umschaltung im bestehenden Analyst-Panel;
+- eine sichtbare unavailable-Antwort für nicht vorhandene Felder.
 
-WP1 ist abgeschlossen, wenn der reale Browserpfad mit beiden Search-Modi geprüft wurde,
-der Tool Call nachweisbar ist und fehlende Evidenz nicht durch erfundene Zuordnungen
-ersetzt wird.
+WP2 ist abgeschlossen, wenn eine frei formulierte unterstützte Frage nachweisbar
+`query_tokens` ausführt und eine Frage nach einer nicht vorhandenen Metrik keine
+Ersatzmetrik oder erfundene Antwort erzeugt.
 
-## Nicht Teil von WP1
+## Nicht Teil von WP2
 
 - Bubble Map oder Designumbau;
-- interne Datenbank-Tools;
 - historische Analyse;
 - Conversation Memory;
 - Streaming;
-- persistierte Rechercheergebnisse;
+- mehrere interne Tools;
 - Provider- oder Tool-Framework;
 - SQL-, Python- oder Mutation-Tools;
+- freie Expressions oder Aggregationssprache;
 - Planung des nächsten Slices.
 
-Der nächste Slice wird erst nach der Browservalidierung von WP1 festgelegt.
-
+Der nächste Slice wird erst nach der Browservalidierung von WP2 festgelegt.

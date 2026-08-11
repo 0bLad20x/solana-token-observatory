@@ -98,13 +98,26 @@ class FrontendReader:
                 NULLIF(s.payload->>'mcap', '')::double precision AS market_cap,
                 NULLIF(s.payload->>'liquidity', '')::double precision AS liquidity,
                 NULLIF(s.payload->>'holderCount', '')::integer AS holders,
-                COALESCE(NULLIF(s.payload->'stats5m'->>'numBuys', '')::integer, 0)
-                  + COALESCE(NULLIF(s.payload->'stats5m'->>'numSells', '')::integer, 0)
-                    AS trades_5m,
+                CASE
+                    WHEN NULLIF(s.payload->'stats5m'->>'numBuys', '') IS NULL
+                     AND NULLIF(s.payload->'stats5m'->>'numSells', '') IS NULL
+                    THEN NULL
+                    ELSE COALESCE(NULLIF(s.payload->'stats5m'->>'numBuys', '')::integer, 0)
+                       + COALESCE(NULLIF(s.payload->'stats5m'->>'numSells', '')::integer, 0)
+                END AS trades_5m,
                 NULLIF(s.payload->'stats5m'->>'numTraders', '')::integer AS traders_5m,
-                COALESCE(NULLIF(s.payload->'stats5m'->>'buyVolume', '')::double precision, 0)
-                  + COALESCE(NULLIF(s.payload->'stats5m'->>'sellVolume', '')::double precision, 0)
-                    AS volume_5m,
+                CASE
+                    WHEN NULLIF(s.payload->'stats5m'->>'buyVolume', '') IS NULL
+                     AND NULLIF(s.payload->'stats5m'->>'sellVolume', '') IS NULL
+                    THEN NULL
+                    ELSE COALESCE(
+                        NULLIF(s.payload->'stats5m'->>'buyVolume', '')::double precision,
+                        0
+                    ) + COALESCE(
+                        NULLIF(s.payload->'stats5m'->>'sellVolume', '')::double precision,
+                        0
+                    )
+                END AS volume_5m,
                 EXTRACT(EPOCH FROM (
                     NOW() - COALESCE(
                         m.first_pool_created_at,

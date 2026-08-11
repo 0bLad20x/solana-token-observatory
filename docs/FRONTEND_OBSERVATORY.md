@@ -4,7 +4,7 @@
 
 **Authority:** Frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of the operational token data  
-**Current checkpoint:** V0–V2 merged; spatial experiments stopped; WP1 token web research active
+**Current checkpoint:** V0–V2 and WP1 merged; spatial experiments stopped; WP2 current-data tool active
 
 This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
 
@@ -358,6 +358,7 @@ src/
     ├── analyst.py
     ├── app.py
     ├── data.py
+    ├── tools.py
     └── static/
         ├── index.html
         ├── styles.css
@@ -374,8 +375,9 @@ Responsibilities:
 ```text
 frontend.py       tiny executable entry point
 app.py            FastAPI, HTTP and SSE boundary
-analyst.py        Mistral Conversations and web-reference parsing
+analyst.py        Mistral protocol, tool orchestration and web-reference parsing
 data.py           read-only PostgreSQL projections
+tools.py          bounded internal query_tokens contract and execution
 app.js            application bootstrap and wiring
 state.js          token state, selection, active view, deltas
 universe.js       Pixi/D3 rendering and local motion
@@ -383,8 +385,8 @@ view-spec.js      supported view mappings and presets
 theme.js          semantic visual tokens
 ```
 
-No generic tool registry or separate analyst frontend module is justified for one bounded
-research path.
+`tools.py` exists because WP2 introduces the first real internal tool responsibility. It
+is not a generic registry and exposes no SQL, plugin or mutation framework.
 
 ## 9. Backend contract
 
@@ -414,7 +416,7 @@ The event payload may carry the complete current token projection for simplicity
 
 ## 10. Current LLM analyst contract
 
-WP1 proves only one interaction:
+WP1 provides token-scoped external research:
 
 ```text
 selected token + free question
@@ -443,6 +445,30 @@ The current response is deliberately small:
 No internal database tool, arbitrary SQL, Python execution, conversation memory,
 provider framework or visual action belongs to WP1.
 
+WP2 adds one separate current-data interaction:
+
+```text
+free population question
+          ↓
+Mistral function arguments
+          ↓
+bounded query_tokens
+          ↓
+at most 20 current rows
+          ↓
+grounded answer
+```
+
+`query_tokens` can use only current `market_cap`, `liquidity`, `holders`, `trades_5m`,
+`traders_5m`, `volume_5m`, `age_seconds` and `change_age_seconds`. It may filter by an
+exact launchpad, then sort and limit the result. The default limit is five and the hard
+maximum is twenty. Missing remains `null` and is excluded when it is the ranking field.
+
+Natural-language wording is not part of the contract: Mistral translates paraphrases to
+the fixed arguments. The available fields are the semantic boundary. A question about
+an unavailable field such as five-minute price change must return unavailable; another
+metric must never be used as a proxy. No SQL or full dataset is sent to the model.
+
 ### Configuration
 
 LLM credentials remain server-side in environment configuration. No provider API key is exposed to JavaScript.
@@ -453,15 +479,15 @@ client is sufficient.
 
 ## 11. Analyst UI pattern
 
-The first analyst object is attached to the selected token and clearly marked as external
-evidence:
+The analyst card has two small explicit scopes:
 
 ```text
-free question
-answer
-source links
-search mode
+CURRENT DATA             WEB RESEARCH
+population question      selected token + exact mint
+query_tokens trace       answer + sources + search mode
 ```
+
+Switching scope changes the tool boundary; it is not an LLM routing guess.
 
 ## 12. Selection and navigation direction
 
@@ -534,7 +560,7 @@ Visible result:
 The current frontend displays the active population, current token state, live updates and
 retirements. Spatial redesign is not an active dependency for WP1.
 
-### WP1 — Token Web Research — ACTIVE
+### WP1 — Token Web Research — DONE / MERGED
 
 Deliver only:
 
@@ -551,6 +577,24 @@ Visible result:
 - ask a question;
 - observe a real Web Search execution;
 - receive a sourced answer or an explicit lack of reliable evidence.
+
+### WP2 — Current Population Query — ACTIVE
+
+Deliver only:
+
+- one free question about the current active population;
+- exactly one internal read-only `query_tokens` tool;
+- explicit field, filter, sort and result-limit validation;
+- default five and maximum twenty rows;
+- a grounded answer plus visible tool-call counts;
+- an explicit unavailable response when the requested field does not exist.
+
+Visible result:
+
+- ask for the five tokens with the highest current Market Cap using natural wording;
+- observe a real `query_tokens` execution;
+- receive an answer grounded in the bounded result;
+- ask for five-minute price increase and receive unavailable instead of a proxy metric.
 
 ## 15. Merge checkpoints
 
@@ -576,8 +620,8 @@ This checkpoint is ready because:
 - responsibilities are separated without a speculative frontend framework;
 - the real browser/API path has been validated.
 
-WP1 is its own merge checkpoint. No following slice is planned before its real browser
-path has been validated.
+WP1 was merged as PR #10 after its real browser path was validated. WP2 is an independent
+merge checkpoint and does not reopen spatial or design work.
 
 ## 16. Explicit non-goals of the foundation
 

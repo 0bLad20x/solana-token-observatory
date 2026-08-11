@@ -196,6 +196,32 @@ h2 { margin-bottom: 0; font-size: 17px; letter-spacing: -.02em; }
   font-weight: 800;
   letter-spacing: .08em;
 }
+.evidence-chip.current {
+  border-color: rgba(73, 217, 255, .2);
+  color: var(--selection);
+  background: rgba(73, 217, 255, .045);
+}
+.analyst-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding-top: 10px;
+}
+.analyst-modes button {
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 800;
+}
+.analyst-modes button.active {
+  border-color: rgba(183, 124, 255, .28);
+  background: rgba(183, 124, 255, .08);
+  color: var(--text-primary);
+}
 .analyst-form { display: grid; gap: 8px; padding-top: 12px; }
 .analyst-form label, .analyst-status { color: var(--text-muted); font-size: 9px; }
 .analyst-form textarea {
