@@ -4,7 +4,7 @@
 
 **Authority:** Frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of the operational token data  
-**Current checkpoint:** V0–V2, WP1 and WP2 merged; spatial experiments stopped; WP3 token access active
+**Current checkpoint:** V0–V2 and WP1–WP3 merged; spatial experiments stopped; WP4 volume activity active
 
 This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
 
@@ -414,6 +414,19 @@ token_retired
 
 The event payload may carry the complete current token projection for simplicity. The frontend must still apply the update locally rather than replacing the whole visual state.
 
+For `token_updated`, `changes` includes `volume_5m`. The compact activity feed derives
+observed before/after values from that delta and the current token snapshot. It retains
+only a rolling 60-second browser window, aggregates by Mint and ranks the five greatest
+positive increases of:
+
+```text
+volume_5m / market_cap
+```
+
+Both volume and ratio must rise, and both Market Cap values must be positive. Missing
+inputs are excluded. `volume_5m` remains Jupiter's rolling five-minute value; the feed
+must not describe it as exact volume produced since the SSE event.
+
 ## 10. Current LLM analyst contract
 
 WP1 provides token-scoped external research:
@@ -619,7 +632,7 @@ Visible result:
 - use natural launchpad, spelling and sort-order variants;
 - ask for five-minute price increase and receive current capabilities instead of a proxy.
 
-### WP3 — Token Search & Selection — ACTIVE
+### WP3 — Token Search & Selection — DONE / MERGED
 
 Deliver only:
 
@@ -643,6 +656,32 @@ Not part of WP3:
 - historical data;
 - new LLM tools or Conversation Memory;
 - database, Lifecycle or API changes.
+
+### WP4 — Volume Activity Deltas — ACTIVE
+
+Deliver only:
+
+- `volume_5m` in the existing `token_updated.changes` contract;
+- a rolling 60-second client-side window;
+- one aggregate per Mint;
+- the five greatest positive increases of `volume_5m / market_cap`;
+- timestamp, token, volume before/after, current Market Cap and ratio delta;
+- distinct changed-token count for the existing 60-second status metric.
+
+Visible result:
+
+- the old unbounded state-event list is replaced by at most five meaningful rows;
+- repeated updates to one Token produce one aggregated row;
+- stale rows disappear automatically after 60 seconds;
+- missing, falling or non-rising ratios do not enter the ranking.
+- selecting a row uses the shared token Selection and updates the Inspector.
+
+Not part of WP4:
+
+- Bubble size, pulse, color, motion, layout or Physics;
+- historical queries or persistence;
+- price-change inference;
+- Lifecycle, Collector or database mutations.
 
 ## 15. Merge checkpoints
 
@@ -668,8 +707,9 @@ This checkpoint is ready because:
 - responsibilities are separated without a speculative frontend framework;
 - the real browser/API path has been validated.
 
-WP1 was merged as PR #10 and WP2 as PR #11 after their real browser paths were validated.
-WP3 is an independent merge checkpoint and does not reopen spatial or design work.
+WP1 was merged as PR #10, WP2 as PR #11 and WP3 as PR #12 after their real browser
+paths were validated. WP4 is an independent merge checkpoint and does not reopen
+spatial or design work.
 
 ## 16. Explicit non-goals of the foundation
 

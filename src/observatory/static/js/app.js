@@ -30,6 +30,13 @@ const state = new ObservatoryState();
 let analystScope = "current_data";
 const numberCompact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const integerFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const ratioFormat = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 });
+const timeFormat = new Intl.DateTimeFormat("en-US", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
 
 function money(value) {
   return value == null ? "—" : `$${numberCompact.format(value)}`;
@@ -49,10 +56,12 @@ function duration(seconds) {
 
 function updateStats() {
   const stats = state.stats();
+  const activity = state.topVolumeActivity();
   activeCount.textContent = integerFormat.format(stats.active);
   launchpadCount.textContent = integerFormat.format(stats.launchpads);
   changedCount.textContent = integerFormat.format(stats.changed);
-  feedRate.textContent = `${stats.events} event${stats.events === 1 ? "" : "s"}`;
+  feedRate.textContent = `${activity.length} ranked · 60s`;
+  renderActivityFeed(activity);
 }
 
 function renderDetail(token) {
@@ -254,38 +263,48 @@ function renderAnalyst(payload) {
   analystResult.classList.remove("hidden");
 }
 
-function eventSummary(event) {
-  const token = event.token;
-  if (event.type === "token_added") {
-    return `entered ${normalizedLaunchpad(token)} · ${money(token.market_cap)}`;
+function renderActivityFeed(activity) {
+  eventFeed.replaceChildren();
+  if (!activity.length) {
+    const empty = document.createElement("li");
+    empty.className = "event-empty";
+    empty.textContent = "Waiting for positive 5m volume activity…";
+    eventFeed.append(empty);
+    return;
   }
-  if (event.type === "token_retired") {
-    return event.reason || token.disabled_reason || "tracking disabled";
-  }
 
-  const percent = event.changes?.market_cap?.percent;
-  if (percent != null && Math.abs(percent) >= 0.1) {
-    return `market cap ${percent > 0 ? "+" : ""}${percent.toFixed(1)}% · ${money(token.market_cap)}`;
-  }
-  return `state changed · ${duration(token.change_age_seconds)} since update`;
-}
+  for (const event of activity) {
+    const token = state.token(event.mint);
+    const item = document.createElement("li");
+    item.className = "event-item";
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.className = "event-choice";
+    choice.setAttribute("aria-label", `Select ${token ? tokenIdentity(token) : event.mint}`);
+    choice.addEventListener("click", () => selectToken(event.mint));
 
-function pushFeed(event) {
-  const item = document.createElement("li");
-  item.className = "event-item";
-  const type = event.type.replace("token_", "");
+    const meta = document.createElement("span");
+    meta.className = "event-meta";
+    const type = document.createElement("strong");
+    type.className = "event-type";
+    type.textContent = "VOLUME ↑";
+    const time = document.createElement("time");
+    time.dateTime = new Date(event.timestamp).toISOString();
+    time.textContent = timeFormat.format(event.timestamp);
+    meta.append(type, time);
 
-  item.innerHTML = `
-    <span class="event-type ${type}">${type.toUpperCase()}</span>
-    <span class="event-copy"><strong></strong><span></span></span>
-  `;
-  item.querySelector("strong").textContent =
-    event.token.symbol || event.token.name || event.token.mint.slice(0, 8);
-  item.querySelector(".event-copy span").textContent = eventSummary(event);
-  eventFeed.prepend(item);
-
-  while (eventFeed.children.length > 36) {
-    eventFeed.lastElementChild.remove();
+    const copy = document.createElement("span");
+    copy.className = "event-copy";
+    const identity = document.createElement("strong");
+    identity.textContent = token ? tokenIdentity(token) : event.mint.slice(0, 8);
+    const volume = document.createElement("span");
+    volume.textContent = `5m volume ${money(event.volumeBefore)} → ${money(event.volumeAfter)}`;
+    const ratio = document.createElement("span");
+    ratio.textContent = `Activity ${ratioFormat.format(event.ratioBefore)} → ${ratioFormat.format(event.ratioAfter)} · +${(event.ratioChange * 100).toFixed(1)} pp · MC ${money(event.marketCapAfter)}`;
+    copy.append(identity, volume, ratio);
+    choice.append(meta, copy);
+    item.append(choice);
+    eventFeed.append(item);
   }
 }
 
@@ -301,10 +320,10 @@ function selectToken(mint) {
   return true;
 }
 
-function applyDelta(events) {
+function applyDelta(events, generatedAt) {
+  const timestamp = Date.parse(generatedAt);
   for (const event of events) {
-    state.applyEvent(event);
-    pushFeed(event);
+    state.applyEvent(event, timestamp);
     if (state.selectedMint === event.token?.mint) renderDetail(state.selectedToken());
   }
   universe.applyEvents(events);
@@ -337,7 +356,7 @@ async function bootstrap() {
   });
   stream.addEventListener("universe_delta", message => {
     const delta = JSON.parse(message.data);
-    applyDelta(delta.events);
+    applyDelta(delta.events, delta.generated_at);
   });
 }
 

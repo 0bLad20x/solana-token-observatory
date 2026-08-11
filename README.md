@@ -168,6 +168,13 @@ und von `query_tokens` zurückgegebene Tokens führen über dieselbe Selection z
 und zur tokenbezogenen Webrecherche. Dafür wird kein zusätzlicher Datenbank-Endpunkt
 benötigt.
 
+Der Live-Feed zeigt höchstens fünf unterschiedliche Tokens, deren rollierendes Jupiter-
+`volume_5m` innerhalb der letzten 60 Sekunden positiv gestiegen ist. Gerankt wird die
+Zunahme von `volume_5m / market_cap`; fehlende Werte werden ausgeschlossen. Der Feed
+leitet sich ausschließlich aus SSE-Deltas ab und verändert weder Token-Daten noch die
+Visualisierung. Ein Klick auf eine Feed-Zeile verwendet dieselbe Token-Selection wie
+Suche und Bubble und öffnet den Token im Inspector.
+
 OHLC/Time-Buckets und Snapshot-Retention sind derzeit bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
 ## Validierung

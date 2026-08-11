@@ -78,6 +78,7 @@ def _changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
         "liquidity": _numeric_change(before.get("liquidity"), after.get("liquidity")),
         "holders": _numeric_change(before.get("holders"), after.get("holders")),
         "traders_5m": _numeric_change(before.get("traders_5m"), after.get("traders_5m")),
+        "volume_5m": _numeric_change(before.get("volume_5m"), after.get("volume_5m")),
     }
 
 
