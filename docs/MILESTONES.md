@@ -15,38 +15,66 @@ Die operative Basis steht:
 - Operational Lifecycle Rule 1–5;
 - eingefrorener Lifecycle Contract v0.1;
 - ausführbarer Equivalence Gate gegen die v0.1-Referenz;
-- Trennung des operativen Core von Diagnose-/GMGN-Research-Tooling.
+- Trennung des operativen Core von Research-Tooling.
 
 Diese Foundation wird nicht vorsorglich weiter refaktoriert. Änderungen benötigen ein konkretes Problem oder eine neue fachliche Grenze.
 
-## Aktiv — Frontend MVP
+## Aktiv — Frontend Observatory
 
-Ein lokales read-only Frontend wird aktuell separat in Draft PR #5 entwickelt.
+Draft PR #5 entwickelt den ersten read-only Vertical Slice des Frontends.
 
-Ziel der ersten Version:
+Die fachliche und architektonische Authority dafür ist [`docs/FRONTEND_OBSERVATORY.md`](FRONTEND_OBSERVATORY.md).
 
-- aktuelle aktive Survivor-Population sichtbar machen;
-- Market Cap, Liquidity, Holder und aktuelle Aktivität darstellen;
-- neue, veränderte und deaktivierte Tokens live sichtbar machen;
-- Lifecycle-Deaktivierungsgründe anzeigen;
-- keine operative Mutation aus dem Frontend erlauben.
+Das Ziel ist nicht, zuerst horizontal ein großes Frontend-Framework aufzubauen. Jeder Schritt soll in kurzer Folge ein sichtbar funktionierendes Ergebnis liefern.
 
-Der Draft ist bewusst additiv. Collector, Lifecycle, Repository und Schema werden durch die Frontend-Implementierung nicht verändert.
+Aktiver Ablauf:
 
-Vor einem späteren Merge wird der Draft auf den dann aktuellen `main` synchronisiert und gegen dessen Schema-/Read-only-Vertrag geprüft.
+```text
+V0  Observatory Contract                 DONE / DOCUMENTED
+ ↓
+V1  Structural split + design system     NEXT
+ ↓
+V2  Stable Live Universe                 NEXT
+ ↓
+V3  Minimal ViewSpec                     NEXT
+ ↓
+V4  Thin LLM analyst slice               TARGET IF V1-V3 STABLE
+```
 
-## Später — gemeinsame Read-only Query-Schicht
+Der erste Merge soll einen kohärenten Observatory-Unterbau liefern: read-only, visuell stabil unter Live-Deltas, semantisch konsistent gestaltet und ohne neuen Monolithen. Eine dünne LLM-Integration darf bereits Teil dieses Drafts werden, wenn sie denselben bounded read-only Datenvertrag nutzt und die vorherigen Slices stabil bleiben.
+
+## Danach — vertikale Observatory-Erweiterungen
+
+Nach dem ersten Merge werden neue Fähigkeiten als kleine vertikale Slices ergänzt. Die Reihenfolge wird nach realem Erkenntniswert entschieden und nicht vorsorglich festgeschrieben.
+
+Mögliche nächste Grenzen:
+
+```text
+Token history / timeline
+Graveyard
+Cohorts / population trees
+Discovery provenance + flow
+Interactive analyst expansion
+Freeflow analyst
+Lasso / pinning / command palette
+additional visualizations
+semantic zoom / density mode
+```
+
+Die konkrete Reihenfolge bleibt bewusst offen.
+
+## Read-only Query-Schicht — nur bei realem gemeinsamen Bedarf
 
 Eine eigene Query-Schicht wird nicht vorsorglich gebaut.
 
-Sie wird erst sinnvoll, wenn mindestens zwei reale Consumer dieselben fachlichen Queries benötigen, zum Beispiel Frontend und LLM-Tools.
+Sobald Frontend und LLM tatsächlich dieselben Datenprojektionen benötigen, darf `observatory/data.py` beziehungsweise eine daraus entstehende kleine read-only Query-Grenze diese gemeinsame Verantwortung übernehmen.
 
-Dann soll sie:
+Sie soll:
 
 - wenige klar definierte read-only Queries besitzen;
 - reproduzierbare strukturierte Rückgabewerte liefern;
 - keine freien operativen Writes ermöglichen;
-- PostgreSQL-Details dort kapseln, wo tatsächlich eine gemeinsame Consumer-Grenze entstanden ist.
+- PostgreSQL-Details nur dort kapseln, wo tatsächlich eine gemeinsame Consumer-Grenze entstanden ist.
 
 ## Zurückgestellt — OHLC / Time Buckets
 
@@ -65,38 +93,23 @@ Es existiert deshalb derzeit **kein OHLC-Contract** und kein vorab festgeschrieb
 
 Wenn dieser Milestone wieder aufgenommen wird, soll die Semantik zunächst an einem kleinen realen Datensatz validiert und anschließend als eigener Vertrag dokumentiert werden.
 
-## Später — LLM Tool Calling
-
-Ein Large Language Model soll später über wenige kontrollierte read-only Tools auf das System zugreifen können.
-
-Zielbild:
-
-```text
-User question
-    ↓
-LLM
-    ↓ tool call
-Read-only query/tool contract
-    ↓
-Structured result
-    ↓
-LLM analysis
-```
-
-Das LLM erhält keine direkte Authority für operative SQL-Writes oder Lifecycle-Mutationen.
-
 ## Aktuelle Reihenfolge
 
 ```text
-Foundation                         DONE
+Operational Foundation                  DONE
     ↓
-Frontend MVP                      ACTIVE — Draft PR #5
+Frontend Observatory Draft #5           ACTIVE
+    ├─ stable visual delta semantics
+    ├─ minimal responsibility split
+    ├─ semantic Solana/memecoin design language
+    ├─ ViewSpec foundation
+    └─ thin LLM vertical slice if stable
     ↓
-Shared Query Layer                WHEN NEEDED BY MULTIPLE CONSUMERS
+Merge coherent Observatory foundation
     ↓
-OHLC / Time Buckets / Retention   DEFERRED
-    ↓
-LLM Tool Calling                  LATER
+Next vertical slice chosen by value
+
+OHLC / Time Buckets / Retention          DEFERRED
 ```
 
-Die Reihenfolge ist keine Verpflichtung, künstliche Zwischenabstraktionen zu bauen. Neue Schichten werden erst eingeführt, wenn ein realer Consumer oder Datenvertrag sie benötigt.
+Die Reihenfolge ist keine Verpflichtung, künstliche Zwischenabstraktionen zu bauen. Neue Schichten werden erst eingeführt, wenn ein realer Consumer, eine sichtbare Interaktion oder ein Datenvertrag sie benötigt.
