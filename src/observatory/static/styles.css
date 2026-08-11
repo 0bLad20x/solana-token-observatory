@@ -358,7 +358,22 @@ h2 { margin-bottom: 0; font-size: 17px; letter-spacing: -.02em; }
 .feed-heading .toolbar-label { margin-bottom: 3px; }
 .feed-heading > span { color: var(--text-muted); font-size: 9px; }
 .event-feed { list-style: none; margin: 0; padding: 4px 10px 10px; overflow: auto; min-height: 0; }
-.event-item { display: grid; grid-template-columns: 64px 1fr; gap: 8px; padding: 9px 3px; border-bottom: 1px solid rgba(146,155,173,.07); }
+.event-item { border-bottom: 1px solid rgba(146,155,173,.07); }
+.event-choice {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px;
+  padding: 9px 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.event-choice:hover,
+.event-choice:focus-visible { outline: none; background: rgba(73, 217, 255, .07); }
 .event-meta { display: flex; flex-direction: column; gap: 4px; }
 .event-type { font-size: 8px; font-weight: 800; letter-spacing: .08em; color: var(--positive); }
 .event-meta time { color: var(--text-muted); font-size: 8px; }

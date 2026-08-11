@@ -277,6 +277,11 @@ function renderActivityFeed(activity) {
     const token = state.token(event.mint);
     const item = document.createElement("li");
     item.className = "event-item";
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.className = "event-choice";
+    choice.setAttribute("aria-label", `Select ${token ? tokenIdentity(token) : event.mint}`);
+    choice.addEventListener("click", () => selectToken(event.mint));
 
     const meta = document.createElement("span");
     meta.className = "event-meta";
@@ -297,7 +302,8 @@ function renderActivityFeed(activity) {
     const ratio = document.createElement("span");
     ratio.textContent = `Activity ${ratioFormat.format(event.ratioBefore)} → ${ratioFormat.format(event.ratioAfter)} · +${(event.ratioChange * 100).toFixed(1)} pp · MC ${money(event.marketCapAfter)}`;
     copy.append(identity, volume, ratio);
-    item.append(meta, copy);
+    choice.append(meta, copy);
+    item.append(choice);
     eventFeed.append(item);
   }
 }

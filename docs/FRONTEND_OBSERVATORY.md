@@ -674,6 +674,7 @@ Visible result:
 - repeated updates to one Token produce one aggregated row;
 - stale rows disappear automatically after 60 seconds;
 - missing, falling or non-rising ratios do not enter the ranking.
+- selecting a row uses the shared token Selection and updates the Inspector.
 
 Not part of WP4:
 
