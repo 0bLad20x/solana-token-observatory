@@ -178,9 +178,13 @@ lifecycle_clean.py
     -> Candidate ordering / mode
 MintRepository.disable_mints()
     -> tracking_enabled=false
+    -> disabled_at=CURRENT_TIMESTAMP
+    -> disabled_reason=<reason>
 ```
 
-Research- und Diagnose-Code besitzt keine Authority, diese Mutationskette zu umgehen.
+`disabled_at` und `disabled_reason` sind Audit-Fakten der ausgeführten Entscheidung; sie verändern nicht die Candidate-Semantik.
+
+Read-only Downstream-Code besitzt keine Authority, diese Mutationskette zu umgehen.
 
 ## Equivalence Gate
 
