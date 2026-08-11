@@ -4,7 +4,7 @@
 
 **Authority:** frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of operational token data  
-**Current checkpoint:** V0–V2 merged; V3-A reimplemented after failed browser validation and awaits retest  
+**Current checkpoint:** V0–V2 merged; both V3-A physics attempts rejected; static Overview/Focus reset awaits browser validation  
 **V3 spatial authority:** `docs/FRONTEND_SPATIAL_MODEL.md`
 
 This document defines the durable product and architecture principles of the Token Observatory. Slice-specific spatial behavior is refined in the V3 spatial contract instead of accumulating special-case rules here.
@@ -279,7 +279,7 @@ This behavior was validated and merged in V2.
 
 ### New token
 
-A new token enters the represented population locally. The exact local physics is defined by the active spatial model and `ViewSpec`.
+A new token updates its aggregate population immediately. A bounded token focus recomputes its visible ranking only on explicit refit, focus entry or resize.
 
 ### Updated token
 
@@ -287,7 +287,7 @@ Only visual channels controlled by changed values should update.
 
 Examples:
 
-- if Market Cap controls radius, the bubble may resize;
+- if Market Cap controls area, the bubble may resize inside its immutable slot;
 - if Market Cap does not control geometry, the bubble should not move merely because Market Cap changed;
 - a relevant change may pulse once.
 
@@ -308,12 +308,17 @@ Minimal conceptual contract:
 ```json
 {
   "type": "bubble",
-  "layout": "cluster",
-  "group": "launchpad",
-  "size": "market_cap",
-  "color": null,
-  "x": null,
-  "y": null
+  "layout": "overview-focus",
+  "overview": {
+    "group": "launchpad",
+    "size": "token_count",
+    "color": "launchpad"
+  },
+  "focus": {
+    "rank": "market_cap",
+    "size": "market_cap",
+    "color": "launchpad"
+  }
 }
 ```
 
@@ -331,7 +336,7 @@ Projection example:
 }
 ```
 
-Initial supported mappings remain deliberately small and explicit. V3 defines how grouping, size and positional constraints interact with generic physics in `docs/FRONTEND_SPATIAL_MODEL.md`.
+Initial supported mappings remain deliberately small and explicit. V3 defines how grouping, bounded detail and static slots interact in `docs/FRONTEND_SPATIAL_MODEL.md`.
 
 ## 8. Current application structure
 
@@ -347,7 +352,7 @@ src/
         ├── styles.css
         └── js/
             ├── app.js
-            ├── cluster-layout.js
+            ├── bubble-layout.js
             ├── state.js
             ├── universe.js
             ├── view-spec.js
@@ -361,9 +366,9 @@ frontend.py       tiny executable entry point
 app.py            FastAPI, HTTP and SSE boundary
 data.py           read-only PostgreSQL projections
 app.js            application bootstrap and wiring
-cluster-layout.js packed rest state and bounded same-group constraints
+bubble-layout.js equal slots, viewport budget and area scaling
 state.js          token state, selection, active view, deltas
-universe.js       Pixi rendering, animation and pointer interaction
+universe.js       Pixi overview/focus rendering, selection and finite animation
 view-spec.js      supported mappings and presets
 theme.js          semantic visual tokens
 ```
@@ -562,7 +567,7 @@ Merge checkpoint: PR #6.
 
 V2 deliberately stops before final Bubble Map physics.
 
-### V3 — Generic Bubble Physics + ViewSpec — ACTIVE
+### V3 — Static Spatial Grammar Reset — ACTIVE
 
 Technical authority: `docs/FRONTEND_SPATIAL_MODEL.md`.
 
@@ -573,18 +578,16 @@ Cluster != hard-coded renderer category
 Cluster = result of active ViewSpec
 ```
 
-The first velocity-based V3-A solver failed browser validation and was removed. The revised V3-A keeps PixiJS and D3, but separates an exact packed rest state from velocity-free, same-group interaction constraints. No new physics dependency is required.
+Two live-physics implementations failed browser validation. V3-A no longer attempts to make the full population draggable or physically reactive. It uses aggregate overview, bounded launchpad focus and immutable non-overlapping slots.
 
 V3 then establishes:
 
-- generic collision;
-- explicit cluster domains;
-- finite center compaction;
-- radius growth/shrink in place;
-- local vacancy closing;
-- drag as a temporary user constraint;
-- semantic movement only when group or positional mapping changes;
-- at least two grouping configurations using the same renderer/physics.
+- one aggregate per canonical launchpad in overview;
+- viewport-bounded token detail after focus;
+- Market Cap encoded as circle area inside a stable slot;
+- no drag, collision, attraction or persistent layout loop;
+- explicit `shown / total` density disclosure;
+- semantic movement only for radius, retirement or explicit refit.
 
 ### V4 — Thin LLM Analyst — LATER
 
@@ -606,7 +609,7 @@ Working slices merge when their narrow contract is validated. One long-lived fro
 ```text
 PR #5  V0 + V1  Observatory foundation
 PR #6  V2       Stable Live Deltas
-PR #7  V3       Generic Physics + ViewSpec    active draft
+PR #7  V3       Static Overview/Focus reset   active draft
 ```
 
 The success criterion is a visible working improvement with a clear responsibility boundary, not completion of the whole Observatory vision.
@@ -625,7 +628,7 @@ The current foundation does not require:
 - population trees;
 - complete discovery flow;
 - time scrubber;
-- semantic zoom for 20k+ tokens;
+- arbitrary-depth semantic zoom for 20k+ tokens;
 - OHLC/time-bucket work;
 - permanent LLM-generated lifecycle classifications.
 
