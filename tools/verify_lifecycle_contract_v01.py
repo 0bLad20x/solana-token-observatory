@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,22 +11,13 @@ if str(SRC) not in sys.path:
 
 from psycopg.rows import dict_row
 
+import lifecycle_clean as current_lifecycle
 from config import Settings
 from database import Database
 from lifecycle_queries import LifecycleQueries
-from lifecycle_rules import (
-    COLLAPSE_GRACE_MINUTES,
-    COLLAPSE_RULES,
-    OBSERVATION_MINUTES,
-    RULE2_CHECKPOINT_GRACE_SECONDS,
-    RULE2_CHECKPOINT_MINUTES,
-    RULE3_CHECKPOINT_GRACE_SECONDS,
-    RULE3_CHECKPOINT_MINUTES,
-    classify_rule1,
-    classify_rule2,
-    classify_rule3,
-)
 
+
+RULE_KEYS = ("rule1", "rule2", "rule3", "rule4", "rule5")
 
 REFERENCE_RULE1_MAX_POLL_LAG_SECONDS = 60.0
 REFERENCE_RULE2_MAX_CHANGES = 10
@@ -38,8 +28,6 @@ REFERENCE_COLLAPSE_RULES = (
     ("rule4", "liquidity", 2_000.0, "liquidity_collapse_below_2000"),
     ("rule5", "mcap", 2_000.0, "mcap_collapse_below_2000"),
 )
-
-RULE_KEYS = ("rule1", "rule2", "rule3", "rule4", "rule5")
 
 
 class SnapshotQueries(LifecycleQueries):
@@ -55,6 +43,21 @@ class SnapshotQueries(LifecycleQueries):
     ) -> list[dict[str, Any]]:
         with self._connection.cursor(row_factory=dict_row) as cursor:
             return cursor.execute(query, params).fetchall()
+
+
+class SnapshotRepository:
+    """Read-only repository surface required by lifecycle_clean.run_cycle."""
+
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def disable_mints(self, _candidates: Any) -> set[str]:
+        raise RuntimeError("equivalence verifier must remain read-only")
+
+    def count_active(self) -> int:
+        return self._connection.execute(
+            "SELECT COUNT(*) FROM mints WHERE tracking_enabled = true"
+        ).fetchone()[0]
 
 
 def _as_float(payload: dict[str, Any], key: str) -> float | None:
@@ -137,82 +140,64 @@ def _fetchall(
 
 
 def _current_candidates(
-    queries: SnapshotQueries,
-    now: datetime,
+    connection: Any,
+    transaction_now: Any,
 ) -> dict[str, set[tuple[str, str]]]:
-    result: dict[str, set[tuple[str, str]]] = {
+    captured: dict[str, set[tuple[str, str]]] = {
         key: set() for key in RULE_KEYS
     }
-    already_flagged: set[str] = set()
+    call_index = 0
 
-    for row in queries.fetch_mature_active_state(OBSERVATION_MINUTES * 60):
-        last_polled_at = row["last_polled_at"]
-        if last_polled_at is None:
-            continue
-        if (
-            now - last_polled_at
-        ).total_seconds() > REFERENCE_RULE1_MAX_POLL_LAG_SECONDS:
-            continue
+    original_act = current_lifecycle._act
+    original_datetime = current_lifecycle.datetime
 
-        reason = classify_rule1(row["payload"])
-        if reason is not None:
-            result["rule1"].add((row["mint"], reason))
+    class FixedDateTime:
+        @classmethod
+        def now(cls, _tz: Any = None) -> Any:
+            return transaction_now
 
-    already_flagged.update(mint for mint, _reason in result["rule1"])
+    def capture_act(
+        _repository: Any,
+        candidates: list[dict[str, Any]],
+        apply: bool,
+    ) -> list[dict[str, Any]]:
+        nonlocal call_index
+        if apply:
+            raise RuntimeError("equivalence verifier must remain read-only")
+        if call_index >= len(RULE_KEYS):
+            raise RuntimeError("unexpected additional lifecycle rule")
+        rule_key = RULE_KEYS[call_index]
+        call_index += 1
+        captured[rule_key] = {
+            (row["mint"], row["reason"])
+            for row in candidates
+        }
+        return candidates
 
-    for row in queries.fetch_continuation_checkpoint(
-        checkpoint_minutes=RULE2_CHECKPOINT_MINUTES,
-        signal_start_minutes=OBSERVATION_MINUTES,
-        grace_seconds=RULE2_CHECKPOINT_GRACE_SECONDS,
-    ):
-        if row["mint"] in already_flagged:
-            continue
+    current_lifecycle._act = capture_act
+    current_lifecycle.datetime = FixedDateTime
 
-        reason = classify_rule2(
-            row["payload"],
-            row["changes_in_window"],
+    try:
+        current_lifecycle.run_cycle(
+            repository=SnapshotRepository(connection),
+            queries=SnapshotQueries(connection),
+            apply=False,
         )
-        if reason is not None:
-            result["rule2"].add((row["mint"], reason))
+    finally:
+        current_lifecycle._act = original_act
+        current_lifecycle.datetime = original_datetime
 
-    already_flagged.update(mint for mint, _reason in result["rule2"])
-
-    for row in queries.fetch_economic_presence_checkpoint(
-        checkpoint_minutes=RULE3_CHECKPOINT_MINUTES,
-        grace_seconds=RULE3_CHECKPOINT_GRACE_SECONDS,
-    ):
-        if row["mint"] in already_flagged:
-            continue
-
-        reason = classify_rule3(row["has_economic_data"])
-        if reason is not None:
-            result["rule3"].add((row["mint"], reason))
-
-    already_flagged.update(mint for mint, _reason in result["rule3"])
-
-    for rule in COLLAPSE_RULES:
-        for row in queries.fetch_threshold_scan(
-            rule_key=rule.key,
-            field=rule.field,
-            threshold=rule.floor,
-            min_age_minutes=COLLAPSE_GRACE_MINUTES,
-        ):
-            if (
-                row["crossing_at"] is not None
-                and row["mint"] not in already_flagged
-            ):
-                result[rule.key].add((row["mint"], rule.reason))
-
-        already_flagged.update(
-            mint for mint, _reason in result[rule.key]
+    if call_index != len(RULE_KEYS):
+        raise RuntimeError(
+            f"expected {len(RULE_KEYS)} rule actions, observed {call_index}"
         )
 
-    return result
+    return captured
 
 
 def _reference_rule1(
     connection: Any,
-    now: datetime,
+    now: Any,
 ) -> list[dict[str, Any]]:
     rows = _fetchall(
         connection,
@@ -369,7 +354,7 @@ def _reference_threshold_scan(
 
 def _reference_candidates(
     connection: Any,
-    now: datetime,
+    now: Any,
 ) -> dict[str, set[tuple[str, str]]]:
     result: dict[str, set[tuple[str, str]]] = {
         key: set() for key in RULE_KEYS
@@ -380,30 +365,25 @@ def _reference_candidates(
         reason = _reference_classify_rule1(row["payload"])
         if reason is not None:
             result["rule1"].add((row["mint"], reason))
-
     already_flagged.update(mint for mint, _reason in result["rule1"])
 
     for row in _reference_rule2(connection):
         if row["mint"] in already_flagged:
             continue
-
         reason = _reference_classify_rule2(
             row["payload"],
             row["changes_in_window"],
         )
         if reason is not None:
             result["rule2"].add((row["mint"], reason))
-
     already_flagged.update(mint for mint, _reason in result["rule2"])
 
     for row in _reference_rule3(connection):
         if row["mint"] in already_flagged:
             continue
-
         reason = _reference_classify_rule3(row["has_economic_data"])
         if reason is not None:
             result["rule3"].add((row["mint"], reason))
-
     already_flagged.update(mint for mint, _reason in result["rule3"])
 
     for rule_key, field, threshold, reason in REFERENCE_COLLAPSE_RULES:
@@ -418,7 +398,6 @@ def _reference_candidates(
                 and row["mint"] not in already_flagged
             ):
                 result[rule_key].add((row["mint"], reason))
-
         already_flagged.update(
             mint for mint, _reason in result[rule_key]
         )
@@ -473,10 +452,9 @@ def main() -> int:
                     "SELECT CURRENT_TIMESTAMP"
                 ).fetchone()[0]
 
-                queries = SnapshotQueries(connection)
                 current = _current_candidates(
-                    queries,
-                    now=transaction_now,
+                    connection,
+                    transaction_now=transaction_now,
                 )
                 reference = _reference_candidates(
                     connection,
