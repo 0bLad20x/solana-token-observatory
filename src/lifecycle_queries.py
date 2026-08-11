@@ -22,15 +22,6 @@ class LifecycleQueries:
             with connection.cursor(row_factory=dict_row) as cursor:
                 return cursor.execute(query, params).fetchall()
 
-    def _fetchone(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        with self._db.connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                return cursor.execute(query, params).fetchone()
-
     def fetch_mature_active_state(
         self,
         observation_seconds: float,
@@ -58,24 +49,11 @@ class LifecycleQueries:
             {"observation_seconds": observation_seconds},
         )
 
-    def fetch_startup_health(self) -> dict[str, Any]:
-        """Visibility only; does not participate in lifecycle decisions."""
-        query = """
-            SELECT
-                COUNT(*) AS active_total,
-                COUNT(first_observed_at) AS active_with_snapshot,
-                MIN(first_observed_at) AS oldest_snapshot_at
-            FROM mints
-            WHERE tracking_enabled = true
-        """
-        return self._fetchone(query)
-
     def fetch_continuation_checkpoint(
         self,
         checkpoint_minutes: int,
         signal_start_minutes: int,
         grace_seconds: float,
-        max_poll_lag_seconds: float,
     ) -> list[dict[str, Any]]:
         query = """
             SELECT
@@ -120,9 +98,6 @@ class LifecycleQueries:
               AND m.last_polled_at >=
                   m.created_at
                   + (%(checkpoint_minutes)s * INTERVAL '1 minute')
-              AND m.last_polled_at >=
-                  CURRENT_TIMESTAMP
-                  - (%(max_poll_lag_seconds)s * INTERVAL '1 second')
             ORDER BY m.mint
         """
         return self._fetchall(
@@ -131,7 +106,6 @@ class LifecycleQueries:
                 "checkpoint_minutes": checkpoint_minutes,
                 "signal_start_minutes": signal_start_minutes,
                 "grace_seconds": grace_seconds,
-                "max_poll_lag_seconds": max_poll_lag_seconds,
             },
         )
 
@@ -139,7 +113,6 @@ class LifecycleQueries:
         self,
         checkpoint_minutes: int,
         grace_seconds: float,
-        max_poll_lag_seconds: float,
     ) -> list[dict[str, Any]]:
         query = """
             SELECT
@@ -172,10 +145,6 @@ class LifecycleQueries:
               AND m.last_polled_at >=
                   m.created_at
                   + (%(checkpoint_minutes)s * INTERVAL '1 minute')
-              AND m.last_polled_at >=
-                  CURRENT_TIMESTAMP
-                  - (%(max_poll_lag_seconds)s * INTERVAL '1 second')
-              AND m.last_polled_at > m.first_observed_at
             ORDER BY m.mint
         """
         return self._fetchall(
@@ -183,7 +152,6 @@ class LifecycleQueries:
             {
                 "checkpoint_minutes": checkpoint_minutes,
                 "grace_seconds": grace_seconds,
-                "max_poll_lag_seconds": max_poll_lag_seconds,
             },
         )
 
@@ -193,9 +161,8 @@ class LifecycleQueries:
         field: str,
         threshold: float,
         min_age_minutes: int,
-        max_poll_lag_seconds: float,
     ) -> list[dict[str, Any]]:
-        """Scan only snapshots newer than the rule's clean checkpoint."""
+        """Scan immutable snapshots newer than the rule's clean checkpoint."""
         query = """
             SELECT
                 m.mint,
@@ -209,9 +176,14 @@ class LifecycleQueries:
                 SELECT
                     MAX(s.observed_at) AS scanned_through,
                     MIN(s.observed_at) FILTER (
-                        WHERE NULLIF(BTRIM(s.payload ->> %(field)s), '') IS NOT NULL
-                          AND NULLIF(BTRIM(s.payload ->> %(field)s), '')::float8
-                              < %(threshold)s
+                        WHERE NULLIF(
+                            BTRIM(s.payload ->> %(field)s),
+                            ''
+                        ) IS NOT NULL
+                          AND NULLIF(
+                              BTRIM(s.payload ->> %(field)s),
+                              ''
+                          )::float8 < %(threshold)s
                     ) AS crossing_at
                 FROM mint_snapshots s
                 WHERE s.mint = m.mint
@@ -227,10 +199,6 @@ class LifecycleQueries:
               AND m.created_at <=
                   CURRENT_TIMESTAMP
                   - (%(min_age_minutes)s * INTERVAL '1 minute')
-              AND m.last_polled_at IS NOT NULL
-              AND m.last_polled_at >=
-                  CURRENT_TIMESTAMP
-                  - (%(max_poll_lag_seconds)s * INTERVAL '1 second')
               AND scan.scanned_through IS NOT NULL
             ORDER BY m.mint
         """
@@ -241,7 +209,6 @@ class LifecycleQueries:
                 "field": field,
                 "threshold": threshold,
                 "min_age_minutes": min_age_minutes,
-                "max_poll_lag_seconds": max_poll_lag_seconds,
             },
         )
 
@@ -261,8 +228,15 @@ class LifecycleQueries:
                     %(scanned_through)s::timestamptz[]
                 ) AS p(mint, scanned_through)
             )
-            INSERT INTO lifecycle_rule_state (mint, rule_key, scanned_through)
-            SELECT p.mint, %(rule_key)s, p.scanned_through
+            INSERT INTO lifecycle_rule_state (
+                mint,
+                rule_key,
+                scanned_through
+            )
+            SELECT
+                p.mint,
+                %(rule_key)s,
+                p.scanned_through
             FROM progress p
             JOIN mints m ON m.mint = p.mint
             WHERE m.tracking_enabled = true
@@ -278,8 +252,14 @@ class LifecycleQueries:
                 query,
                 {
                     "rule_key": rule_key,
-                    "mints": [row["mint"] for row in rows],
-                    "scanned_through": [row["scanned_through"] for row in rows],
+                    "mints": [
+                        row["mint"]
+                        for row in rows
+                    ],
+                    "scanned_through": [
+                        row["scanned_through"]
+                        for row in rows
+                    ],
                 },
             )
             connection.commit()

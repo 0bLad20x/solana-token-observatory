@@ -85,6 +85,15 @@ class BatchCursor:
 
 
 class WriteQueue:
+    """Buffer observed Jupiter source versions, not redundant polls.
+
+    `(mint, updatedAt)` is the in-memory version key:
+    - repeated polls of the same source version collapse to one payload;
+    - every distinct source version survives the flush;
+    - `_observed_at` is when that version was first seen in this buffer;
+    - `_last_polled_at` is the newest successful poll of that version.
+    """
+
     def __init__(self, repository: MintRepository) -> None:
         self._repository = repository
         self._queue: asyncio.Queue[tuple[list[dict], datetime]] = asyncio.Queue(
@@ -95,8 +104,8 @@ class WriteQueue:
         await self._queue.put((tokens, observed_at))
 
     async def run(self) -> None:
-        buffer = []
-        buffered_items = 0
+        versions: dict[tuple[str, str], dict] = {}
+        buffered_polls = 0
         last_flush = time.monotonic()
 
         while True:
@@ -109,31 +118,40 @@ class WriteQueue:
                     self._queue.get(),
                     timeout=timeout,
                 )
-                buffer.append((tokens, observed_at))
-                buffered_items += len(tokens)
+                buffered_polls += len(tokens)
+
+                for token in tokens:
+                    key = (token["id"], token["updatedAt"])
+                    existing = versions.get(key)
+
+                    if existing is None:
+                        version = token.copy()
+                        version["_observed_at"] = observed_at
+                        version["_last_polled_at"] = observed_at
+                        versions[key] = version
+                    elif observed_at > existing["_last_polled_at"]:
+                        existing["_last_polled_at"] = observed_at
+
             except asyncio.TimeoutError:
                 pass
 
             by_time = time.monotonic() - last_flush >= FLUSH_INTERVAL_SECONDS
-            by_size = buffered_items >= FLUSH_SIZE_THRESHOLD
+            by_size = buffered_polls >= FLUSH_SIZE_THRESHOLD
 
-            if buffer and (by_time or by_size):
-                all_tokens = []
-                for tokens, observed_at in buffer:
-                    for token in tokens:
-                        token["_observed_at"] = observed_at
-                        all_tokens.append(token)
+            if versions and (by_time or by_size):
+                version_rows = list(versions.values())
 
                 try:
                     write_started = time.monotonic()
                     summary = await asyncio.to_thread(
                         self._repository.store_tokens_grouped,
-                        all_tokens,
+                        version_rows,
                     )
                     write_seconds = time.monotonic() - write_started
 
                     print(
-                        f"[write_queue] items={len(all_tokens)} "
+                        f"[write_queue] polls={buffered_polls} "
+                        f"versions={len(version_rows)} "
                         f"new_mints={summary.new_mints} "
                         f"new_snapshots={summary.new_snapshots} "
                         f"write_ms={write_seconds * 1000:.0f} "
@@ -142,8 +160,8 @@ class WriteQueue:
                 except Exception:
                     traceback.print_exc()
 
-                buffer = []
-                buffered_items = 0
+                versions = {}
+                buffered_polls = 0
                 last_flush = time.monotonic()
 
 

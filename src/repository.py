@@ -14,6 +14,16 @@ def _parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _payload(token: dict[str, Any]) -> Jsonb:
+    return Jsonb(
+        {
+            key: value
+            for key, value in token.items()
+            if key not in {"_observed_at", "_last_polled_at"}
+        }
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class StoreSummary:
     new_mints: int
@@ -62,32 +72,46 @@ class MintRepository:
         return inserted
 
     @retry_on_deadlock
-    def store_tokens_grouped(self, tokens: Sequence[dict[str, Any]]) -> StoreSummary:
-        """Persist one collector flush in one transaction.
+    def store_tokens_grouped(
+        self,
+        tokens: Sequence[dict[str, Any]],
+    ) -> StoreSummary:
+        """Persist every observed Jupiter source version in one transaction.
 
-        High-throughput behaviour is intentionally unchanged: if one mint is
-        returned more than once inside a writer flush, only its newest poll
-        participates in that flush.
+        WriteQueue already collapses identical `(mint, updatedAt)` versions.
+        This method advances each mint monotonically by Jupiter `updatedAt`,
+        persists every newer source version, and updates `last_polled_at`
+        independently from source changes.
         """
         if not tokens:
             return StoreSummary(new_mints=0, new_snapshots=0)
 
-        latest_by_mint: dict[str, dict[str, Any]] = {}
+        versions_by_mint: dict[
+            str,
+            list[tuple[datetime, dict[str, Any]]],
+        ] = {}
+        last_polled_by_mint: dict[str, datetime] = {}
+
         for token in tokens:
             mint = token["id"]
-            existing = latest_by_mint.get(mint)
-            if existing is None or token["_observed_at"] > existing["_observed_at"]:
-                latest_by_mint[mint] = token
+            source_time = _parse_datetime(token["updatedAt"])
+            versions_by_mint.setdefault(mint, []).append((source_time, token))
 
+            last_polled = token.get("_last_polled_at", token["_observed_at"])
+            previous_poll = last_polled_by_mint.get(mint)
+            if previous_poll is None or last_polled > previous_poll:
+                last_polled_by_mint[mint] = last_polled
+
+        for rows in versions_by_mint.values():
+            rows.sort(key=lambda row: row[0])
+
+        poll_mints = sorted(versions_by_mint)
+
+        # Descriptive mint facts come from the newest source version in this
+        # flush, never from whichever HTTP response happened to finish last.
         mint_rows = []
-        poll_mints: list[str] = []
-        poll_times: list[datetime] = []
-        poll_updated_at: list[str] = []
-        payloads: dict[str, tuple[datetime, Jsonb]] = {}
-
-        for token in latest_by_mint.values():
-            mint = token["id"]
-            observed_at = token["_observed_at"]
+        for mint in poll_mints:
+            token = versions_by_mint[mint][-1][1]
             first_pool = token.get("firstPool")
             audit = token.get("audit", {})
 
@@ -102,32 +126,39 @@ class MintRepository:
                     token.get("twitter"),
                     token.get("website"),
                     token["tokenProgram"],
-                    _parse_datetime(token["createdAt"]) if token.get("createdAt") else None,
+                    _parse_datetime(token["createdAt"])
+                    if token.get("createdAt")
+                    else None,
                     first_pool["id"] if first_pool else None,
-                    _parse_datetime(first_pool["createdAt"]) if first_pool else None,
+                    _parse_datetime(first_pool["createdAt"])
+                    if first_pool
+                    else None,
                     audit.get("mintAuthorityDisabled"),
                     audit.get("freezeAuthorityDisabled"),
                 )
             )
 
-            poll_mints.append(mint)
-            poll_times.append(observed_at)
-            poll_updated_at.append(token["updatedAt"])
-            payloads[mint] = (
-                observed_at,
-                Jsonb({key: value for key, value in token.items() if key != "_observed_at"}),
-            )
-
         with self._db.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT mint, name FROM mints WHERE mint = ANY(%s)",
+                    """
+                    SELECT mint, name, source_updated_at
+                    FROM mints
+                    WHERE mint = ANY(%s)
+                    """,
                     (poll_mints,),
                 )
-                existing_names = dict(cursor.fetchall())
+                existing_rows = {
+                    mint: (name, source_updated_at)
+                    for mint, name, source_updated_at in cursor.fetchall()
+                }
 
                 mint_rows_to_enrich = sorted(
-                    (row for row in mint_rows if existing_names.get(row[0]) is None),
+                    (
+                        row
+                        for row in mint_rows
+                        if existing_rows.get(row[0], (None, None))[0] is None
+                    ),
                     key=lambda row: row[0],
                 )
                 enriched = len(mint_rows_to_enrich)
@@ -160,62 +191,97 @@ class MintRepository:
                         mint_rows_to_enrich,
                     )
 
-                # One atomic poll-state update. `previous` sees the committed
-                # pre-update state, so change detection and snapshot creation
-                # cannot diverge through a rollback.
+                snapshot_rows: list[tuple[str, datetime, Jsonb]] = []
+                source_updates: dict[
+                    str,
+                    tuple[str | None, datetime | None, datetime | None],
+                ] = {}
+
+                for mint in poll_mints:
+                    previous_text = existing_rows.get(mint, (None, None))[1]
+                    previous_time = (
+                        _parse_datetime(previous_text)
+                        if previous_text
+                        else None
+                    )
+
+                    newer = [
+                        (source_time, token)
+                        for source_time, token in versions_by_mint[mint]
+                        if previous_time is None or source_time > previous_time
+                    ]
+
+                    for _source_time, token in newer:
+                        snapshot_rows.append(
+                            (
+                                mint,
+                                token["_observed_at"],
+                                _payload(token),
+                            )
+                        )
+
+                    if newer:
+                        newest_token = newer[-1][1]
+                        source_updates[mint] = (
+                            newest_token["updatedAt"],
+                            newest_token["_observed_at"],
+                            min(
+                                token["_observed_at"]
+                                for _source_time, token in newer
+                            ),
+                        )
+                    else:
+                        source_updates[mint] = (None, None, None)
+
                 cursor.execute(
                     """
                     WITH polled AS (
                         SELECT * FROM unnest(
                             %s::text[],
                             %s::timestamptz[],
-                            %s::text[]
-                        ) AS p(mint, observed_at, source_updated_at)
+                            %s::text[],
+                            %s::timestamptz[],
+                            %s::timestamptz[]
+                        ) AS p(
+                            mint,
+                            last_polled_at,
+                            source_updated_at,
+                            last_changed_at,
+                            first_observed_at
+                        )
                         ORDER BY mint
-                    ),
-                    previous AS (
-                        SELECT
-                            m.mint,
-                            m.source_updated_at AS previous_updated_at
-                        FROM mints m
-                        JOIN polled p ON p.mint = m.mint
                     )
                     UPDATE mints AS m
                     SET
-                        first_observed_at = CASE
-                            WHEN m.first_observed_at IS NULL
-                             AND prev.previous_updated_at
-                                 IS DISTINCT FROM p.source_updated_at
-                            THEN p.observed_at
-                            ELSE m.first_observed_at
+                        first_observed_at = COALESCE(
+                            m.first_observed_at,
+                            p.first_observed_at
+                        ),
+                        last_polled_at = CASE
+                            WHEN m.last_polled_at IS NULL
+                              OR p.last_polled_at > m.last_polled_at
+                            THEN p.last_polled_at
+                            ELSE m.last_polled_at
                         END,
-                        last_polled_at = p.observed_at,
-                        last_changed_at = CASE
-                            WHEN prev.previous_updated_at
-                                 IS DISTINCT FROM p.source_updated_at
-                            THEN p.observed_at
-                            ELSE m.last_changed_at
-                        END,
-                        source_updated_at = p.source_updated_at
+                        last_changed_at = COALESCE(
+                            p.last_changed_at,
+                            m.last_changed_at
+                        ),
+                        source_updated_at = COALESCE(
+                            p.source_updated_at,
+                            m.source_updated_at
+                        )
                     FROM polled AS p
-                    JOIN previous AS prev ON prev.mint = p.mint
                     WHERE m.mint = p.mint
-                    RETURNING
-                        m.mint,
-                        (
-                            prev.previous_updated_at
-                            IS DISTINCT FROM p.source_updated_at
-                        ) AS changed
                     """,
-                    (poll_mints, poll_times, poll_updated_at),
+                    (
+                        poll_mints,
+                        [last_polled_by_mint[mint] for mint in poll_mints],
+                        [source_updates[mint][0] for mint in poll_mints],
+                        [source_updates[mint][1] for mint in poll_mints],
+                        [source_updates[mint][2] for mint in poll_mints],
+                    ),
                 )
-                poll_results = cursor.fetchall()
-
-                snapshot_rows = [
-                    (mint, payloads[mint][0], payloads[mint][1])
-                    for mint, changed in poll_results
-                    if changed
-                ]
 
                 if snapshot_rows:
                     cursor.executemany(
