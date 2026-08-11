@@ -8,6 +8,10 @@ const changedCount = document.querySelector("#changed-count");
 const streamStatus = document.querySelector("#stream-status");
 const eventFeed = document.querySelector("#event-feed");
 const feedRate = document.querySelector("#feed-rate");
+const universeBack = document.querySelector("#universe-back");
+const universeContext = document.querySelector("#universe-context");
+const universeSummary = document.querySelector("#universe-summary");
+const universeSizeLegend = document.querySelector("#universe-size-legend");
 const emptyDetail = document.querySelector("#empty-detail");
 const tokenDetail = document.querySelector("#token-detail");
 
@@ -107,6 +111,16 @@ function selectToken(mint) {
   renderDetail(state.token(mint));
 }
 
+function updateUniverseView(view) {
+  const focused = view.mode === "focus";
+  universeBack.classList.toggle("hidden", !focused);
+  universeContext.textContent = focused ? view.groupKey : "All launchpads";
+  universeSizeLegend.textContent = focused ? "market cap area" : "active token count";
+  universeSummary.textContent = focused
+    ? `Showing ${integerFormat.format(view.shown)} of ${integerFormat.format(view.total)} · ranked by market cap`
+    : `${integerFormat.format(view.groups)} groups · ${integerFormat.format(view.total)} active tokens`;
+}
+
 function applyDelta(events) {
   for (const event of events) {
     state.applyEvent(event);
@@ -118,7 +132,10 @@ function applyDelta(events) {
 }
 
 async function bootstrap() {
-  universe = new TokenUniverse(stageElement, { onSelect: selectToken });
+  universe = new TokenUniverse(stageElement, {
+    onSelect: selectToken,
+    onViewChange: updateUniverseView,
+  });
   await universe.init();
 
   const response = await fetch("/api/universe");
@@ -143,6 +160,11 @@ async function bootstrap() {
     applyDelta(delta.events);
   });
 }
+
+universeBack.addEventListener("click", () => universe?.showOverview());
+window.addEventListener("keydown", event => {
+  if (event.key === "Escape") universe?.showOverview();
+});
 
 setInterval(updateStats, 1000);
 
