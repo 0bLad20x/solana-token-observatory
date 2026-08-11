@@ -2,7 +2,7 @@
 
 ## Zweck
 
-Dieses Dokument beschreibt knapp den aktuellen Projektstand und die nächste Entwicklungsrichtung. Es ist keine Authority für bereits implementierte Architektur oder konkrete Thresholds. Implementierter Zustand gehört in `README.md`, `docs/architecture.md`, `docs/LIFECYCLE_CONTRACT.md` und den Code.
+Dieses Dokument beschreibt knapp den aktuellen Projektstand und die nächste Entwicklungsrichtung. Es ist keine Authority für bereits implementierte Architektur oder konkrete Thresholds. Implementierter Zustand gehört in `README.md`, `docs/architecture.md`, `docs/LIFECYCLE_CONTRACT.md`, `docs/FRONTEND_OBSERVATORY.md` und den Code.
 
 ## Foundation — abgeschlossen
 
@@ -15,38 +15,84 @@ Die operative Basis steht:
 - Operational Lifecycle Rule 1–5;
 - eingefrorener Lifecycle Contract v0.1;
 - ausführbarer Equivalence Gate gegen die v0.1-Referenz;
-- Trennung des operativen Core von Diagnose-/GMGN-Research-Tooling.
+- Trennung des operativen Core von Research-Tooling.
 
 Diese Foundation wird nicht vorsorglich weiter refaktoriert. Änderungen benötigen ein konkretes Problem oder eine neue fachliche Grenze.
 
-## Aktiv — Frontend MVP
+## Frontend Observatory
 
-Ein lokales read-only Frontend wird aktuell separat in Draft PR #5 entwickelt.
+Die fachliche und architektonische Authority ist [`docs/FRONTEND_OBSERVATORY.md`](FRONTEND_OBSERVATORY.md).
 
-Ziel der ersten Version:
+Das Frontend wird in kurzen vertikalen Slices entwickelt. Jeder Slice soll in einem real laufenden Browser/API-Pfad sichtbar funktionieren, bevor der nächste beginnt.
 
-- aktuelle aktive Survivor-Population sichtbar machen;
-- Market Cap, Liquidity, Holder und aktuelle Aktivität darstellen;
-- neue, veränderte und deaktivierte Tokens live sichtbar machen;
-- Lifecycle-Deaktivierungsgründe anzeigen;
-- keine operative Mutation aus dem Frontend erlauben.
+Aktueller Stand:
 
-Der Draft ist bewusst additiv. Collector, Lifecycle, Repository und Schema werden durch die Frontend-Implementierung nicht verändert.
+```text
+V0  Observatory Contract                 DONE
+ ↓
+V1  Structural split + design system     DONE / VALIDATED
+ ↓
+V2  Stable Live Universe                 NEXT
+ ↓
+V3  Minimal ViewSpec                     LATER
+ ↓
+V4  Thin LLM analyst slice               LATER
+```
 
-Vor einem späteren Merge wird der Draft auf den dann aktuellen `main` synchronisiert und gegen dessen Schema-/Read-only-Vertrag geprüft.
+V1 wurde mit dem real laufenden Frontend validiert: unabhängiger Serverstart, statische Module, `/api/health`, `/api/universe`, SSE-Pfad und eine Universe-Population von mehr als 1,500 Tokens funktionieren.
 
-## Später — gemeinsame Read-only Query-Schicht
+PR #5 ist damit der erste Merge-Checkpoint `V0 + V1`. V2 und spätere Slices werden nicht künstlich an diesen PR gekoppelt, sondern bauen vertikal auf der gemergten Baseline weiter.
+
+## Nächster Slice — V2 Stable Live Universe
+
+Das nächste konkrete Problem ist die visuelle Instabilität unter Live-Deltas.
+
+Heute können einzelne Token-Änderungen die D3-Force-Simulation für eine größere Population erneut anstoßen. Bei großen Populationen wirkt dadurch eine lokale Änderung wie ein globaler Refresh.
+
+V2 soll deshalb erreichen:
+
+```text
+new token      -> local enter
+updated token  -> local visual change / one pulse
+retired token  -> explicit retirement transition
+unrelated      -> remain spatially stable
+```
+
+Der sichtbare Erfolg ist erreicht, wenn sich die räumliche Orientierung bei laufenden Deltas erhält und klar erkennbar bleibt, welcher Token tatsächlich geändert wurde.
+
+## Danach — vertikale Observatory-Erweiterungen
+
+Nach V2 werden neue Fähigkeiten nach realem Erkenntniswert ausgewählt und nicht vorsorglich als große horizontale Roadmap gebaut.
+
+Mögliche nächste Grenzen:
+
+```text
+Minimal ViewSpec / alternate projection
+Thin interactive LLM analyst
+Token history / timeline
+Graveyard
+Cohorts / population trees
+Discovery provenance + flow
+Freeflow analyst
+Lasso / pinning / command palette
+additional visualizations
+semantic zoom / density mode
+```
+
+Die konkrete Reihenfolge bleibt bewusst offen.
+
+## Read-only Query-Schicht — nur bei realem gemeinsamen Bedarf
 
 Eine eigene Query-Schicht wird nicht vorsorglich gebaut.
 
-Sie wird erst sinnvoll, wenn mindestens zwei reale Consumer dieselben fachlichen Queries benötigen, zum Beispiel Frontend und LLM-Tools.
+Sobald Frontend und LLM tatsächlich dieselben Datenprojektionen benötigen, darf `observatory/data.py` beziehungsweise eine daraus entstehende kleine read-only Query-Grenze diese gemeinsame Verantwortung übernehmen.
 
-Dann soll sie:
+Sie soll:
 
 - wenige klar definierte read-only Queries besitzen;
 - reproduzierbare strukturierte Rückgabewerte liefern;
 - keine freien operativen Writes ermöglichen;
-- PostgreSQL-Details dort kapseln, wo tatsächlich eine gemeinsame Consumer-Grenze entstanden ist.
+- PostgreSQL-Details nur dort kapseln, wo tatsächlich eine gemeinsame Consumer-Grenze entstanden ist.
 
 ## Zurückgestellt — OHLC / Time Buckets
 
@@ -65,38 +111,18 @@ Es existiert deshalb derzeit **kein OHLC-Contract** und kein vorab festgeschrieb
 
 Wenn dieser Milestone wieder aufgenommen wird, soll die Semantik zunächst an einem kleinen realen Datensatz validiert und anschließend als eigener Vertrag dokumentiert werden.
 
-## Später — LLM Tool Calling
-
-Ein Large Language Model soll später über wenige kontrollierte read-only Tools auf das System zugreifen können.
-
-Zielbild:
-
-```text
-User question
-    ↓
-LLM
-    ↓ tool call
-Read-only query/tool contract
-    ↓
-Structured result
-    ↓
-LLM analysis
-```
-
-Das LLM erhält keine direkte Authority für operative SQL-Writes oder Lifecycle-Mutationen.
-
 ## Aktuelle Reihenfolge
 
 ```text
-Foundation                         DONE
+Operational Foundation                  DONE
     ↓
-Frontend MVP                      ACTIVE — Draft PR #5
+Observatory V0 + V1                     DONE / MERGE CHECKPOINT PR #5
     ↓
-Shared Query Layer                WHEN NEEDED BY MULTIPLE CONSUMERS
+V2 Stable Live Universe                 NEXT
     ↓
-OHLC / Time Buckets / Retention   DEFERRED
-    ↓
-LLM Tool Calling                  LATER
+Next vertical slice chosen by value
+
+OHLC / Time Buckets / Retention          DEFERRED
 ```
 
-Die Reihenfolge ist keine Verpflichtung, künstliche Zwischenabstraktionen zu bauen. Neue Schichten werden erst eingeführt, wenn ein realer Consumer oder Datenvertrag sie benötigt.
+Die Reihenfolge ist keine Verpflichtung, künstliche Zwischenabstraktionen zu bauen. Neue Schichten werden erst eingeführt, wenn ein realer Consumer, eine sichtbare Interaktion oder ein Datenvertrag sie benötigt.
