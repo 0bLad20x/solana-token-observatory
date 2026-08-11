@@ -152,7 +152,13 @@ Er darf nicht:
 
 Diese Grenze gilt unabhängig davon, ob der Consumer ein Research-Skript, ein Frontend oder ein späteres LLM-Tool ist.
 
-Der aktuell offene Frontend-Draft ist bewusst als separater read-only Prozess konzipiert und verändert keine Core-Dateien. Er gehört erst nach einem späteren Merge zur implementierten Architektur von `main`.
+Das Observatory ist als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/` implementiert. Es liest aktuelle Projektionen und SSE-Deltas, verändert aber keine Core-Dateien oder operativen Zustände.
+
+`POST /api/analyst` ergänzt eine tokenbezogene externe Recherche. Das Backend lädt die
+bekannte Tokenidentität read-only, ruft serverseitig Mistrals Conversations API mit genau
+einem Built-in Web-Search-Tool auf und gibt Antwort sowie Quellen an den Browser zurück.
+API-Key und Tool-Modus bleiben im Backend. Rechercheergebnisse werden nicht persistiert
+und nicht zu System Truth oder Lifecycle Evidence.
 
 ## 7. Generierte Artefakte
 
@@ -176,7 +182,11 @@ Lifecycle v0.1
 Survivor Population
 ```
 
-Die aktive nächste Arbeit ist ein read-only Frontend. OHLC/Time-Buckets und Snapshot-Retention sind bewusst zurückgestellt. Eine gemeinsame Query-Schicht wird erst eingeführt, wenn mehrere Consumer tatsächlich dieselben Query-Verträge benötigen.
+Die aktive nächste Arbeit ist der kleinste LLM-Durchstich des read-only Observatory:
+ausgewählter Token, freie Frage, Mistral Web Search und belegte Antwort im Browser.
+Spatial-Arbeit, OHLC/Time-Buckets und Snapshot-Retention sind nicht Teil dieses Slices.
+Eine gemeinsame Query-Schicht wird erst eingeführt, wenn mehrere Consumer tatsächlich
+dieselben Query-Verträge benötigen.
 
 Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 
@@ -187,6 +197,8 @@ Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 | Was ist das Projekt und wie wird es benutzt? | `README.md` |
 | Wie fließen Daten und wer besitzt welche Verantwortung? | `docs/architecture.md` |
 | Wie funktioniert der operative Lifecycle fachlich exakt? | `docs/LIFECYCLE_CONTRACT.md` |
+| Welche Produktgrenzen gelten für das Observatory? | `docs/FRONTEND_OBSERVATORY.md` |
+| Wie funktioniert der aktive V3-Spatial-Vertrag? | `docs/FRONTEND_SPATIAL_MODEL.md` |
 | Wo steht das Projekt und was ist als Nächstes aktiv? | `docs/MILESTONES.md` |
 | Welche Regeln gelten für Repository-Änderungen? | `AGENTS.md` |
 

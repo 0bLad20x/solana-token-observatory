@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -13,7 +14,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
+from .analyst import AnalystError, research_token, validate_search_mode
 from .data import FrontendReader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -23,11 +26,22 @@ load_dotenv(PROJECT_ROOT / ".env")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STREAM_INTERVAL_SECONDS = float(os.getenv("FRONTEND_STREAM_INTERVAL_SECONDS", "2"))
 RECENT_DISABLED_MINUTES = int(os.getenv("FRONTEND_RECENT_DISABLED_MINUTES", "5"))
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
+MISTRAL_WEB_SEARCH_MODE = validate_search_mode(
+    os.getenv("MISTRAL_WEB_SEARCH_MODE", "web_search")
+)
 
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must be set in .env or the environment")
 
 reader = FrontendReader(DATABASE_URL, RECENT_DISABLED_MINUTES)
+logger = logging.getLogger(__name__)
+
+
+class AnalystRequest(BaseModel):
+    mint: str = Field(pattern=r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+    question: str = Field(min_length=1, max_length=1000)
 
 
 def _fingerprint(token: dict[str, Any]) -> tuple[Any, ...]:
@@ -99,6 +113,32 @@ async def token_detail(mint: str) -> dict[str, Any]:
     if token is None:
         raise HTTPException(status_code=404, detail="mint not found")
     return token
+
+
+@app.post("/api/analyst")
+async def analyst(request: AnalystRequest) -> dict[str, Any]:
+    if not MISTRAL_API_KEY:
+        raise HTTPException(status_code=503, detail="MISTRAL_API_KEY is not configured")
+
+    token = await asyncio.to_thread(reader.token, request.mint)
+    if token is None:
+        raise HTTPException(status_code=404, detail="mint not found")
+
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="question must not be empty")
+
+    try:
+        return await research_token(
+            api_key=MISTRAL_API_KEY,
+            model=MISTRAL_MODEL,
+            search_mode=MISTRAL_WEB_SEARCH_MODE,
+            token=token,
+            question=question,
+        )
+    except AnalystError as error:
+        logger.warning("Token web research failed: %s", error)
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
 
 @app.get("/api/events", response_class=EventSourceResponse)

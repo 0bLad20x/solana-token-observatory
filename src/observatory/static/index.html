@@ -84,6 +84,36 @@
           </div>
         </section>
 
+        <section class="analyst-card">
+          <div class="panel-heading">
+            <div>
+              <p class="toolbar-label">ANALYST</p>
+              <h2>Token web research</h2>
+            </div>
+            <span class="evidence-chip">EXTERNAL EVIDENCE</span>
+          </div>
+
+          <form id="analyst-form" class="analyst-form">
+            <label id="analyst-context" for="analyst-question">Select a token first</label>
+            <textarea
+              id="analyst-question"
+              name="question"
+              rows="3"
+              maxlength="1000"
+              placeholder="What can be verified about this token?"
+              disabled
+              required
+            ></textarea>
+            <button id="analyst-submit" type="submit" disabled>Research</button>
+          </form>
+
+          <p id="analyst-status" class="analyst-status" aria-live="polite"></p>
+          <div id="analyst-result" class="analyst-result hidden">
+            <p id="analyst-answer"></p>
+            <div id="analyst-sources" class="analyst-sources"></div>
+          </div>
+        </section>
+
         <section class="feed-card">
           <div class="feed-heading">
             <div>

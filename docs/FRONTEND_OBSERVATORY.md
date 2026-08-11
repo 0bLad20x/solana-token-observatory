@@ -4,7 +4,7 @@
 
 **Authority:** Frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of the operational token data  
-**Current checkpoint:** V1 validated for merge; V2 is the next vertical slice
+**Current checkpoint:** V0–V2 merged; spatial experiments stopped; WP1 token web research active
 
 This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
 
@@ -179,6 +179,12 @@ Interpretive analytical objects:
 
 LLM interpretation must never be rendered as system truth.
 
+### EXTERNAL EVIDENCE
+
+Web-search results retain their source URLs and remain external evidence. A cited web
+claim is neither persisted Jupiter truth nor Lifecycle Evidence. If no source connects a
+claim to the exact mint, the interface must show that no reliable evidence was found.
+
 ## 5. Design language
 
 The visual DNA combines:
@@ -349,6 +355,7 @@ src/
 ├── frontend.py
 └── observatory/
     ├── __init__.py
+    ├── analyst.py
     ├── app.py
     ├── data.py
     └── static/
@@ -367,6 +374,7 @@ Responsibilities:
 ```text
 frontend.py       tiny executable entry point
 app.py            FastAPI, HTTP and SSE boundary
+analyst.py        Mistral Conversations and web-reference parsing
 data.py           read-only PostgreSQL projections
 app.js            application bootstrap and wiring
 state.js          token state, selection, active view, deltas
@@ -375,15 +383,8 @@ view-spec.js      supported view mappings and presets
 theme.js          semantic visual tokens
 ```
 
-When LLM integration becomes real in the same draft, only then add:
-
-```text
-observatory/analyst.py
-observatory/tools.py
-static/js/analyst.js
-```
-
-No deeper directory hierarchy is justified yet.
+No generic tool registry or separate analyst frontend module is justified for one bounded
+research path.
 
 ## 9. Backend contract
 
@@ -394,6 +395,7 @@ GET /api/health
 GET /api/universe
 GET /api/token/{mint}
 GET /api/events
+POST /api/analyst
 ```
 
 `/api/universe` is bootstrap state.
@@ -410,107 +412,56 @@ token_retired
 
 The event payload may carry the complete current token projection for simplicity. The frontend must still apply the update locally rather than replacing the whole visual state.
 
-## 10. LLM analyst model
+## 10. Current LLM analyst contract
 
-The LLM is an analytical controller over read-only tools, not a database authority and not a generic chat widget.
-
-Two modes are planned.
-
-### Interactive Analyst
+WP1 proves only one interaction:
 
 ```text
-user question / visual selection
-            ↓
-          LLM
-            ↓
-     read-only tools
-            ↓
- structured analytical object
-            ↓
- answer + evidence + visual actions
+selected token + free question
+             ↓
+server-side Mistral Conversations API
+             ↓
+web_search | web_search_premium
+             ↓
+answer + source references
 ```
 
-### Freeflow Observer
+The selected token is grounded with its exact mint and existing name, symbol and
+launchpad. The mint is authoritative for web identity; matching names or symbols are not.
+The backend rejects a provider response that did not execute Web Search.
 
-A configurable periodic process may autonomously use the same read-only tools and emit findings without requiring an explicit user selection.
-
-The cadence is runtime configuration, not part of this contract.
-
-### Initial tool vocabulary
-
-Use a few general primitives rather than one tool per analysis:
-
-```text
-observe()
-query()
-compare()
-aggregate()
-```
-
-These tools must expose bounded, structured, read-only data.
-
-No arbitrary SQL tool and no arbitrary Python execution tool is part of the initial analyst contract.
-
-### LLM response shape
-
-The LLM should return analytical objects rather than only chat text.
-
-Conceptually:
+The current response is deliberately small:
 
 ```json
 {
   "answer": "...",
-  "facts": [],
-  "derived": [],
-  "hypotheses": [],
-  "visual_actions": []
+  "sources": [{"title": "...", "url": "..."}],
+  "search_mode": "web_search"
 }
 ```
 
-Possible visual actions include:
-
-```text
-highlight mints
-select cohort
-change ViewSpec
-open token
-request comparison
-```
-
-The browser decides how approved action types are rendered. The LLM does not manipulate Pixi, DOM or SQL directly.
+No internal database tool, arbitrary SQL, Python execution, conversation memory,
+provider framework or visual action belongs to WP1.
 
 ### Configuration
 
 LLM credentials remain server-side in environment configuration. No provider API key is exposed to JavaScript.
 
-The first implementation should prefer a small provider boundary configured through environment variables rather than coupling the frontend to one vendor SDK.
+`MISTRAL_WEB_SEARCH_MODE` selects `web_search` or `web_search_premium`. Both use the
+same Conversations endpoint. No provider SDK is required because the existing HTTP
+client is sufficient.
 
 ## 11. Analyst UI pattern
 
-The analyst should appear as an investigation layer, not as a ChatGPT-shaped sidebar.
-
-Preferred object:
-
-```text
-ANALYSIS
-
-Question
-Evidence
-Derived metrics
-Hypothesis
-Confidence
-Actions
-```
-
-The persistent inspector can later switch context between:
+The first analyst object is attached to the selected token and clearly marked as external
+evidence:
 
 ```text
-TOKEN
-COHORT
-ANALYST
+free question
+answer
+source links
+search mode
 ```
-
-Longer-term analyst history may become notebook-like rather than one endless message thread.
 
 ## 12. Selection and navigation direction
 
@@ -578,56 +529,28 @@ Visible result:
 - calmer, consistent visual chrome;
 - arbitrary launchpad hash palette is no longer the primary design system.
 
-### V2 — Stable Live Universe — NEXT
+### V2 — Stable Live Universe — DONE / MERGED
 
-Deliver:
+The current frontend displays the active population, current token state, live updates and
+retirements. Spatial redesign is not an active dependency for WP1.
 
-- bootstrap layout once;
-- stop global force reheating for ordinary live deltas;
-- local entry for new token;
-- local visual update for changed token;
-- explicit retirement animation;
-- stable visual selection;
-- preserve spatial memory with ~1,200+ active tokens.
+### WP1 — Token Web Research — ACTIVE
 
-Visible result:
+Deliver only:
 
-- the user can see which token changed without the whole universe contracting or expanding.
-
-### V3 — Minimal ViewSpec
-
-Deliver:
-
-- `ViewSpec` state;
-- current cluster map as a preset;
-- at least one true projection preset, preferably `Age × Market Cap` with `Liquidity` as size;
-- minimal visible controls or preset switcher.
-
-Visible result:
-
-- the same population can be viewed from two analytically distinct perspectives without rewriting the renderer.
-
-### V4 — First LLM vertical slice
-
-Deliver only after the preceding slices remain working.
-
-Minimum useful slice:
-
-- server-side analyst configuration;
+- free question for the selected token;
+- server-side Mistral configuration;
 - `POST /api/analyst`;
-- two or more bounded read-only tools from the general vocabulary;
-- one visible analyst object in the inspector;
-- one approved visual action such as highlight/select;
-- facts and hypotheses rendered as different truth levels.
+- one built-in Web Search tool;
+- answer and source links marked as external evidence;
+- backend-only switch between standard and premium search.
 
 Visible result:
 
-- user asks a question about current/selected tokens;
-- backend model performs at least one real tool call;
-- answer and evidence return to the frontend;
-- the frontend visibly highlights or selects the referenced token set.
-
-A minimal Freeflow Observer may follow immediately if this manual path is stable. It must reuse the same analyst/tool boundary rather than introduce a parallel mechanism.
+- select a token;
+- ask a question;
+- observe a real Web Search execution;
+- receive a sourced answer or an explicit lack of reliable evidence.
 
 ## 15. Merge checkpoints
 
@@ -653,11 +576,8 @@ This checkpoint is ready because:
 - responsibilities are separated without a speculative frontend framework;
 - the real browser/API path has been validated.
 
-### Later checkpoints
-
-V2, V3 and V4 should continue as subsequent vertical changes from the merged baseline. They do not need to remain coupled to PR #5.
-
-The success criterion for each checkpoint is a visible, working improvement with a clear responsibility boundary, not completion of the whole Observatory vision.
+WP1 is its own merge checkpoint. No following slice is planned before its real browser
+path has been validated.
 
 ## 16. Explicit non-goals of the foundation
 
@@ -667,7 +587,7 @@ The foundation does not require:
 - Graveyard explorer;
 - persisted LLM notebooks;
 - autonomous long-running analyst workflows;
-- arbitrary web search;
+- unbounded web search;
 - arbitrary SQL or Python execution;
 - radar charts;
 - population trees;

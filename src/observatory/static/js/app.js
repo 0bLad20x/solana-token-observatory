@@ -10,6 +10,14 @@ const eventFeed = document.querySelector("#event-feed");
 const feedRate = document.querySelector("#feed-rate");
 const emptyDetail = document.querySelector("#empty-detail");
 const tokenDetail = document.querySelector("#token-detail");
+const analystForm = document.querySelector("#analyst-form");
+const analystQuestion = document.querySelector("#analyst-question");
+const analystSubmit = document.querySelector("#analyst-submit");
+const analystContext = document.querySelector("#analyst-context");
+const analystStatus = document.querySelector("#analyst-status");
+const analystResult = document.querySelector("#analyst-result");
+const analystAnswer = document.querySelector("#analyst-answer");
+const analystSources = document.querySelector("#analyst-sources");
 
 const state = new ObservatoryState();
 const numberCompact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
@@ -64,6 +72,44 @@ function renderDetail(token) {
   document.querySelector("#detail-mint").textContent = token.mint;
 }
 
+function resetResearch(token) {
+  analystQuestion.disabled = !token;
+  analystSubmit.disabled = !token;
+  analystContext.textContent = token
+    ? `Researching ${token.symbol || token.name || token.mint.slice(0, 8)} · exact mint`
+    : "Select a token first";
+  analystStatus.textContent = "";
+  analystResult.classList.add("hidden");
+  analystAnswer.textContent = "";
+  analystSources.replaceChildren();
+}
+
+function renderResearch(payload) {
+  analystAnswer.textContent = payload.answer;
+  analystSources.replaceChildren();
+
+  if (payload.sources.length) {
+    const heading = document.createElement("strong");
+    heading.textContent = "Sources";
+    analystSources.append(heading);
+    for (const source of payload.sources) {
+      const link = document.createElement("a");
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = source.title || source.url;
+      analystSources.append(link);
+    }
+  } else {
+    analystSources.textContent = "No cited web sources returned.";
+  }
+
+  analystStatus.textContent = payload.search_mode === "web_search_premium"
+    ? "Premium web search completed"
+    : "Web search completed";
+  analystResult.classList.remove("hidden");
+}
+
 function eventSummary(event) {
   const token = event.token;
   if (event.type === "token_added") {
@@ -104,7 +150,9 @@ let universe = null;
 function selectToken(mint) {
   state.select(mint);
   universe.setSelectedMint(mint);
-  renderDetail(state.token(mint));
+  const token = state.token(mint);
+  renderDetail(token);
+  resetResearch(token);
 }
 
 function applyDelta(events) {
@@ -143,6 +191,33 @@ async function bootstrap() {
     applyDelta(delta.events);
   });
 }
+
+analystForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const question = analystQuestion.value.trim();
+  if (!state.selectedMint || !question) return;
+
+  analystSubmit.disabled = true;
+  analystSubmit.textContent = "Researching…";
+  analystStatus.textContent = "Searching the web…";
+  analystResult.classList.add("hidden");
+
+  try {
+    const response = await fetch("/api/analyst", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mint: state.selectedMint, question }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || `Research failed: ${response.status}`);
+    renderResearch(payload);
+  } catch (error) {
+    analystStatus.textContent = error.message;
+  } finally {
+    analystSubmit.disabled = false;
+    analystSubmit.textContent = "Research";
+  }
+});
 
 setInterval(updateStats, 1000);
 
