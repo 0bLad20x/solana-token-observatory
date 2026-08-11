@@ -1,6 +1,7 @@
 import { Application, Container, Graphics, Text, TextStyle } from "https://cdn.jsdelivr.net/npm/pixi.js@8.19.0/dist/pixi.min.mjs";
 import { forceCollide, forceManyBody, forceSimulation, forceX, forceY } from "https://cdn.jsdelivr.net/npm/d3-force@3.0.0/+esm";
 
+import { createBoundsForce, LocalClusterPhysics } from "./cluster-physics.js";
 import { normalizedLaunchpad } from "./state.js";
 import { COLORS, launchpadAccent } from "./theme.js";
 
@@ -10,7 +11,6 @@ const CLUSTER_GAP = 18;
 const PACKING_DENSITY = 0.72;
 const TARGET_NODE_AREA_SHARE = 0.48;
 const BOOTSTRAP_TICKS = 240;
-const LOCAL_SEARCH_ATTEMPTS = 1600;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 function clamp(value, minimum, maximum) {
@@ -62,6 +62,8 @@ export class TokenUniverse {
     this.sceneScale = 1;
     this.resizeTimer = null;
     this.resizeObserver = null;
+    this.physics = null;
+    this.draggedNode = null;
   }
 
   async init() {
@@ -80,6 +82,21 @@ export class TokenUniverse {
     this.tokenLayer = new Container();
     this.labelLayer = new Container();
     this.app.stage.addChild(this.clusterLayer, this.tokenLayer, this.labelLayer);
+    this.app.stage.eventMode = "static";
+    this.app.stage.hitArea = this.app.screen;
+    this.app.stage.on("globalpointermove", event => this._moveDrag(event));
+
+    this.physics = new LocalClusterPhysics({
+      getNodes: () => this._activeNodes(),
+      groupKeyFor: node => node.cluster,
+      centerFor: groupKey => this.clusterCenters.get(groupKey),
+      getBounds: () => ({
+        width: this.app.screen.width,
+        height: this.app.screen.height,
+        padding: VIEW_PADDING,
+      }),
+      gap: NODE_GAP,
+    });
     this.app.ticker.add(() => this._tick());
 
     this.resizeObserver = new ResizeObserver(() => {
@@ -105,11 +122,17 @@ export class TokenUniverse {
   }
 
   applyEvents(events) {
+    const relaxationPoints = [];
+    const anchors = [];
+    const movers = [];
+
     for (const event of events) {
       if (event.type === "token_added") {
         const node = this._addToken(event.token, true);
-        this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
-        this._placeNodeLocally(node, { preserveCurrent: false });
+        const center = this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
+        this._seedNode(node, center);
+        relaxationPoints.push(node);
+        anchors.push(node);
         continue;
       }
 
@@ -118,11 +141,18 @@ export class TokenUniverse {
         const node = result.node;
         if (!node) continue;
 
-        if (result.clusterChanged) {
-          this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
-          this._placeNodeLocally(node, { preserveCurrent: false });
+        if (result.wasAdded) {
+          const center = this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
+          this._seedNode(node, center);
+          relaxationPoints.push(node);
+          anchors.push(node);
+        } else if (result.clusterChanged) {
+          const center = this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
+          relaxationPoints.push(result.previousPosition, { ...center, radius: node.radius });
+          movers.push(node);
         } else if (result.geometryChanged) {
-          this._placeNodeLocally(node, { preserveCurrent: true });
+          relaxationPoints.push(node);
+          anchors.push(node);
         }
         continue;
       }
@@ -133,6 +163,9 @@ export class TokenUniverse {
     }
 
     this._refreshClusterVisuals();
+    if (relaxationPoints.length) {
+      this.physics.relax({ points: relaxationPoints, anchors, movers });
+    }
   }
 
   _activeNodes() {
@@ -150,9 +183,57 @@ export class TokenUniverse {
     node.view = view;
     view.eventMode = "static";
     view.cursor = "pointer";
-    view.on("pointertap", () => this.onSelect(node.token.mint));
+    view.on("pointerdown", event => this._beginDrag(node, event));
+    view.on("pointerup", () => this._endDrag(node));
+    view.on("pointerupoutside", () => this._endDrag(node));
+    view.on("pointertap", () => {
+      if (!node.dragMoved) this.onSelect(node.token.mint);
+    });
     this.tokenLayer.addChild(view);
     this._redrawNode(node);
+  }
+
+  _pointerPosition(node, event) {
+    return {
+      x: clamp(
+        event.global.x,
+        node.radius + VIEW_PADDING,
+        this.app.screen.width - node.radius - VIEW_PADDING,
+      ),
+      y: clamp(
+        event.global.y,
+        node.radius + VIEW_PADDING,
+        this.app.screen.height - node.radius - VIEW_PADDING,
+      ),
+    };
+  }
+
+  _beginDrag(node, event) {
+    if (node.retiringAt) return;
+    const point = this._pointerPosition(node, event);
+    this.draggedNode = node;
+    node.dragStartX = point.x;
+    node.dragStartY = point.y;
+    node.dragMoved = false;
+    node.view.cursor = "grabbing";
+    this.physics.beginDrag(node, point.x, point.y);
+  }
+
+  _moveDrag(event) {
+    const node = this.draggedNode;
+    if (!node) return;
+    const point = this._pointerPosition(node, event);
+    if (Math.hypot(point.x - node.dragStartX, point.y - node.dragStartY) > 3) {
+      node.dragMoved = true;
+    }
+    this.physics.moveDrag(node, point.x, point.y);
+  }
+
+  _endDrag(node) {
+    if (this.draggedNode !== node) return;
+    this.draggedNode = null;
+    node.view.cursor = "pointer";
+    this.physics.endDrag(node);
   }
 
   _redrawNode(node) {
@@ -210,11 +291,13 @@ export class TokenUniverse {
         node: added,
         clusterChanged: true,
         geometryChanged: true,
+        wasAdded: true,
       };
     }
 
     const previousCluster = node.cluster;
     const previousRadius = node.radius;
+    const previousPosition = { x: node.x, y: node.y, radius: previousRadius };
     node.token = token;
     this._updateNodeGeometry(node);
     this._redrawNode(node);
@@ -224,6 +307,8 @@ export class TokenUniverse {
       node,
       clusterChanged: previousCluster !== node.cluster,
       geometryChanged: Math.abs(previousRadius - node.radius) > 0.15,
+      previousPosition,
+      wasAdded: false,
     };
   }
 
@@ -396,69 +481,6 @@ export class TokenUniverse {
     return fallback;
   }
 
-  _nodePositionFree(node, x, y) {
-    for (const other of this.nodes.values()) {
-      if (other === node || other.retiringAt || other.cluster !== node.cluster) continue;
-      const dx = x - other.x;
-      const dy = y - other.y;
-      const minimum = node.radius + other.radius + NODE_GAP;
-      if (dx * dx + dy * dy < minimum * minimum) return false;
-    }
-    return true;
-  }
-
-  _placeNodeLocally(node, { preserveCurrent = true } = {}) {
-    const center = this.clusterCenters.get(node.cluster)
-      || this._ensureClusterCenter(node.cluster, Math.max(42, node.radius * 4));
-
-    if (preserveCurrent && this._nodePositionFree(node, node.x, node.y)) {
-      return;
-    }
-
-    const width = this.app.screen.width;
-    const height = this.app.screen.height;
-    const seed = hash(node.token.mint);
-    const angleOffset = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
-    const step = Math.max(8, (node.radius + NODE_GAP) * 1.8);
-    const maxDistance = Math.max(center.radius + node.radius + 24, step * 8);
-
-    for (let index = 0; index < LOCAL_SEARCH_ATTEMPTS; index += 1) {
-      const distance = Math.min(maxDistance, step * Math.sqrt(index));
-      const angle = angleOffset + index * GOLDEN_ANGLE;
-      const x = clamp(
-        center.x + Math.cos(angle) * distance,
-        node.radius + VIEW_PADDING,
-        width - node.radius - VIEW_PADDING,
-      );
-      const y = clamp(
-        center.y + Math.sin(angle) * distance,
-        node.radius + VIEW_PADDING,
-        height - node.radius - VIEW_PADDING,
-      );
-
-      if (!this._nodePositionFree(node, x, y)) continue;
-      node.x = x;
-      node.y = y;
-      node.vx = 0;
-      node.vy = 0;
-      return;
-    }
-
-    const fallbackDistance = Math.min(maxDistance, Math.max(24, center.radius * 0.8));
-    node.x = clamp(
-      center.x + Math.cos(angleOffset) * fallbackDistance,
-      node.radius + VIEW_PADDING,
-      width - node.radius - VIEW_PADDING,
-    );
-    node.y = clamp(
-      center.y + Math.sin(angleOffset) * fallbackDistance,
-      node.radius + VIEW_PADDING,
-      height - node.radius - VIEW_PADDING,
-    );
-    node.vx = 0;
-    node.vy = 0;
-  }
-
   _updateClusterViews(metrics) {
     for (const [name, view] of this.clusterViews.entries()) {
       if (metrics.has(name)) continue;
@@ -506,30 +528,6 @@ export class TokenUniverse {
     }
   }
 
-  _forceBounds(padding) {
-    let forceNodes = [];
-    const universe = this;
-
-    function force() {
-      const width = universe.app.screen.width;
-      const height = universe.app.screen.height;
-      for (const node of forceNodes) {
-        const radius = node.radius + padding;
-        const nextX = node.x + node.vx;
-        const nextY = node.y + node.vy;
-        if (nextX < radius) node.vx += (radius - nextX) * 0.45;
-        else if (nextX > width - radius) node.vx -= (nextX - (width - radius)) * 0.45;
-        if (nextY < radius) node.vy += (radius - nextY) * 0.45;
-        else if (nextY > height - radius) node.vy -= (nextY - (height - radius)) * 0.45;
-      }
-    }
-
-    force.initialize = items => {
-      forceNodes = items;
-    };
-    return force;
-  }
-
   _seedNode(node, center) {
     const value = hash(node.token.mint);
     const angle = ((value & 0xffff) / 0xffff) * Math.PI * 2;
@@ -552,7 +550,11 @@ export class TokenUniverse {
       .force("x", forceX(targetX).strength(0.115))
       .force("y", forceY(targetY).strength(0.115))
       .force("collide", forceCollide(node => node.radius + NODE_GAP).strength(0.94).iterations(2))
-      .force("bounds", this._forceBounds(VIEW_PADDING));
+      .force("bounds", createBoundsForce(() => ({
+        width: this.app.screen.width,
+        height: this.app.screen.height,
+        padding: VIEW_PADDING,
+      })));
 
     simulation.alpha(1);
     for (let index = 0; index < BOOTSTRAP_TICKS; index += 1) simulation.tick();
@@ -570,6 +572,7 @@ export class TokenUniverse {
   }
 
   _layoutScene({ refit = false } = {}) {
+    this.physics?.stop();
     const items = this._activeNodes();
     if (!items.length) return;
 
@@ -594,13 +597,16 @@ export class TokenUniverse {
   }
 
   _tick() {
+    this.physics?.step();
     const now = performance.now();
+    const retiredPoints = [];
     for (const [mint, node] of this.nodes.entries()) {
       if (node.retiringAt) {
         const progress = Math.min(1, (now - node.retiringAt) / 720);
         node.view.scale.set(Math.max(0.01, 1 - progress));
         node.view.alpha = 1 - progress;
         if (progress >= 1) {
+          retiredPoints.push({ x: node.x, y: node.y, radius: node.radius });
           node.view.removeFromParent();
           node.view.destroy();
           this.nodes.delete(mint);
@@ -621,6 +627,11 @@ export class TokenUniverse {
       }
 
       node.view.position.set(node.x, node.y);
+    }
+
+    if (retiredPoints.length) {
+      this._refreshClusterVisuals();
+      this.physics.relax({ points: retiredPoints });
     }
   }
 }

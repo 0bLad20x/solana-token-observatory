@@ -12,7 +12,7 @@ Vor jeder Änderung:
 2. [`docs/architecture.md`](docs/architecture.md) lesen.
 3. Die direkt betroffenen Dateien vollständig lesen.
 4. Bei Lifecycle-Arbeit zusätzlich [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) lesen.
-5. Bei Frontend-/Observatory-Arbeit zusätzlich [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md) lesen.
+5. Bei Frontend-/Observatory-Arbeit zusätzlich [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md) und für V3-Spatial-Arbeit [`docs/FRONTEND_SPATIAL_MODEL.md`](docs/FRONTEND_SPATIAL_MODEL.md) lesen.
 6. Bei Roadmap-/Scope-Fragen zusätzlich [`docs/MILESTONES.md`](docs/MILESTONES.md) lesen.
 
 Keine Annahmen über Verhalten treffen, das nicht im Code, in persistierten Datenverträgen oder in diesen Authorities belegt ist.
@@ -44,7 +44,7 @@ Diese Invarianten gelten, solange sie nicht ausdrücklich als Architekturänderu
 - Nur der ausdrücklich definierte Lifecycle-Pfad darf aufgrund von Lifecycle-Regeln `tracking_enabled=false` setzen.
 - Die fachliche Lifecycle-Semantik folgt `docs/LIFECYCLE_CONTRACT.md`.
 - Read-only Consumer dürfen operative Daten lesen, aber weder Tracking-, Priority-, Lifecycle- noch Collector-owned State verändern.
-- Frontend-Visualisierung und LLM-Analyse folgen `docs/FRONTEND_OBSERVATORY.md` und besitzen keine operative Mutation-Authority.
+- Frontend-Visualisierung und LLM-Analyse folgen `docs/FRONTEND_OBSERVATORY.md`; V3-Spatial-Verhalten folgt zusätzlich `docs/FRONTEND_SPATIAL_MODEL.md`. Beide besitzen keine operative Mutation-Authority.
 
 ## Datenbank- und Mutation-Ownership
 
@@ -96,7 +96,7 @@ Nur wenn pro Regel exakt dieselben `(mint, reason)`-Sets entstehen, ist die Änd
 
 ## Frontend-/Observatory-Änderungen
 
-`docs/FRONTEND_OBSERVATORY.md` ist die Authority für Produktgrenze, Truth Layers, Design-Semantik, Motion/Delta-Verhalten, ViewSpec und den aktiven vertikalen Frontend-Plan.
+`docs/FRONTEND_OBSERVATORY.md` ist die Authority für Produktgrenze, Truth Layers, Design-Semantik und den vertikalen Frontend-Plan. `docs/FRONTEND_SPATIAL_MODEL.md` ist die technische Authority für V3-ViewSpec- und Spatial-Verhalten.
 
 Frontend-Arbeit folgt diesen zusätzlichen Regeln:
 
@@ -160,6 +160,7 @@ Dauerhafte Dokumentation hat genau eine Authority pro Frage:
 - `docs/architecture.md`: implementierte Komponenten, Datenfluss und Systemgrenzen.
 - `docs/LIFECYCLE_CONTRACT.md`: fachliche Semantik und Version des operativen Lifecycle.
 - `docs/FRONTEND_OBSERVATORY.md`: Frontend-/Observatory-Produkt-, Design-, Interaktions- und Implementierungsvertrag.
+- `docs/FRONTEND_SPATIAL_MODEL.md`: technische Authority für den aktiven V3-Spatial-Vertrag.
 - `docs/MILESTONES.md`: aktueller Stand und nächste Entwicklungsrichtung; keine Authority für implementierten Zustand.
 - `AGENTS.md`: Änderungsregeln.
 

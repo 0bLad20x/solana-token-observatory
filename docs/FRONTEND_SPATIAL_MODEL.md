@@ -5,6 +5,7 @@
 **Authority scope:** generic Bubble Map physics and ViewSpec behavior for Observatory V3  
 **Parent authority:** `docs/FRONTEND_OBSERVATORY.md`  
 **Current branch:** `agent/generic-bubble-physics-v3`
+**Current checkpoint:** V3-A implemented; real-browser validation pending
 
 V2 solved one narrow problem: ordinary live deltas no longer reheat and repack the whole Universe. It intentionally did **not** define the final physics of a Bubble Map.
 
@@ -40,6 +41,8 @@ group = temporary LLM cohort
 ```
 
 The renderer must not contain separate physics implementations for these grouping modes.
+
+The cluster engine is generic only inside its domain. `ViewSpec.layout` selects the appropriate layout strategy; later projection, flow, tree or network views may use different constraints or established layout algorithms. V3 implements only `layout = cluster` and does not prebuild a strategy framework for unimplemented views.
 
 ## 2. Why V2 stops where it does
 
@@ -106,7 +109,7 @@ V3 keeps `ViewSpec` deliberately small.
   "layout": "cluster",
   "group": "launchpad",
   "size": "market_cap",
-  "color": "group",
+  "color": null,
   "x": null,
   "y": null
 }
@@ -218,9 +221,9 @@ minimum distance = radiusA + radiusB + gap
 
 Cluster layouts have weak attraction toward their group's spatial region. This provides cohesion without requiring fixed coordinates.
 
-### Local relaxation
+### Local relaxation scope
 
-A local geometry change affects only the neighborhood required to resolve that change.
+Local relaxation is not another force. It defines which nodes may move and how long the finite solver runs. A quadtree selects the affected neighborhood; distant nodes are temporarily fixed while collision and weak group attraction resolve the local change.
 
 ```text
 one bubble grows
@@ -262,7 +265,7 @@ Preferred model:
 ```text
 ViewSpec derives constraints
         +
-small set of generic forces
+layout-specific finite solver
         ↓
 layout behavior emerges
 ```
@@ -293,7 +296,8 @@ Cluster and projection layouts share the same node/state model but use different
 
 ```text
 position = emergent
-forces = group attraction + collision + local relaxation
+forces = group attraction + collision
+solver scope = local bounded relaxation
 ```
 
 ### Projection layout
@@ -304,7 +308,7 @@ y target = scale(token[y field])
 forces = target attraction + collision
 ```
 
-A `ViewSpec` switch therefore reuses the renderer and state while changing the constraint model.
+A `ViewSpec` switch reuses token state and the Pixi presentation boundary while selecting the appropriate layout strategy. Cluster presets share the same Cluster Engine. Later flow, tree or network layouts do not need to share cluster physics.
 
 ## 11. Research gate before implementation
 
@@ -355,13 +359,30 @@ This is a **research gate**, not a separate research project.
 
 ### Research decision
 
-Status: **PENDING V3-R**
+Status: **DONE**
 
-This section is filled only after the targeted research pass. It becomes the implementation premise for V3-A.
+Selected mechanism:
+
+```text
+d3-force       forceCollide + weak forceX / forceY
+d3-quadtree    affected neighborhood
+fx / fy        temporary fixed boundary and drag constraint
+finite ticks   frame-bounded local settling, then stop
+PixiJS events  pointer input and rendering
+```
+
+The existing PixiJS + D3 stack satisfies the V3-A contract without a new physics dependency. The local quadtree selects movable nodes; all other active nodes remain collision-visible but temporarily fixed, so immediate boundary collisions remain correct without global movement.
+
+Rejected alternatives:
+
+- persistent global force simulation: destroys spatial memory;
+- `findFreeCoordinate()` / explicit hole filling: event-specific special cases;
+- repeated circle packing: repacks the population and is unsuitable for live continuity;
+- new physics library or custom spatial index: no demonstrated gap.
 
 ## 12. Initial V3 vertical slice
 
-### V3-R — Physics research gate — FIRST
+### V3-R — Physics research gate — DONE
 
 Deliver:
 
@@ -373,7 +394,7 @@ Deliver:
 
 Visible result is not required for V3-R itself; it exists only to make V3-A smaller and more deliberate.
 
-### V3-A — generic cluster physics
+### V3-A — generic cluster physics — IMPLEMENTED / RUNTIME VALIDATION PENDING
 
 Deliver:
 

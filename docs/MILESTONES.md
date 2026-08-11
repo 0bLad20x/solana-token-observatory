@@ -108,7 +108,7 @@ group by temporary LLM cohort
 
 Die Physik selbst bleibt generisch.
 
-### V3-R — Physics Research Gate — zuerst
+### V3-R — Physics Research Gate — abgeschlossen
 
 Bevor V3-A implementiert wird, wird gezielt geprüft, ob etablierte Mechanismen unser gewünschtes Verhalten bereits einfacher abbilden.
 
@@ -127,7 +127,7 @@ Entscheidungsregel:
 
 > Bevorzuge den kleinsten etablierten Mechanismus, der den beobachtbaren V3-Vertrag erfüllt. Eigene Physik oder neue Dependencies erst bei einem nachgewiesenen Gap.
 
-Der Research-Pass bleibt kurz und implementierungsbezogen. Vor V3-A werden im Spatial Contract knapp festgehalten:
+Der Research-Pass ist im Spatial Contract festgehalten:
 
 ```text
 selected mechanism
@@ -138,7 +138,7 @@ new dependency required? yes/no + reason
 
 Kein separates Forschungsprojekt.
 
-### V3-A — Generic Cluster Physics
+### V3-A — Generic Cluster Physics — implementiert / Browservalidierung ausstehend
 
 Ziel:
 
@@ -162,16 +162,16 @@ group changes
 
 Keine Sonderfall-Architektur wie `findFreeCoordinate()`, `fillHole()`, `moveAfterResize()` pro Ereignistyp.
 
-Stattdessen wenige allgemeine Kräfte:
+Stattdessen wenige allgemeine Constraints mit lokal begrenzter Ausführung:
 
 ```text
 collision
 +
 weak group attraction
 +
-local relaxation
-+
 optional drag constraint
+
+local bounded relaxation scope
 ```
 
 ### V3-B — ViewSpec Proof
@@ -243,9 +243,9 @@ Observatory V0 + V1                     DONE / PR #5
     ↓
 V2 Stable Live Deltas                   DONE / PR #6
     ↓
-V3-R Physics Research Gate              ACTIVE / FIRST
+V3-R Physics Research Gate              DONE
     ↓
-V3-A Generic Cluster Physics
+V3-A Generic Cluster Physics            IMPLEMENTED / VALIDATION PENDING
     ↓
 V3-B ViewSpec Proof
     ↓

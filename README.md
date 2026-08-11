@@ -136,7 +136,7 @@ Der Verifier vergleicht die aktuelle Implementierung gegen die eingefrorene v0.1
 
 Read-only Consumer dürfen operative Daten lesen und eigene Projektionen erzeugen. Sie dürfen jedoch weder `tracking_enabled`, Priority noch Lifecycle-State verändern.
 
-Ein lokales Frontend wird aktuell separat in Draft PR #5 entwickelt. Es ist bewusst additiv und read-only und gehört erst nach einem späteren Merge zum implementierten `main`.
+Das lokale Frontend ist als separater read-only Prozess unter `src/observatory/` implementiert. V1 und V2 sind gemergt; die aktive V3-Arbeit entwickelt die lokale Bubble-Cluster-Physik und anschließend den ersten ausführbaren ViewSpec-Wechsel.
 
 OHLC/Time-Buckets und Snapshot-Retention sind derzeit bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
@@ -157,6 +157,8 @@ Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
 - [`README.md`](README.md): Zweck, Einstieg und Bedienung.
 - [`docs/architecture.md`](docs/architecture.md): implementierte Komponenten, Datenfluss und harte Systemgrenzen.
 - [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md): fachliche Semantik und Version des operativen Lifecycle.
+- [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md): Produkt-, Design- und Interaktionsvertrag des Observatory.
+- [`docs/FRONTEND_SPATIAL_MODEL.md`](docs/FRONTEND_SPATIAL_MODEL.md): aktiver technischer V3-Spatial-Vertrag.
 - [`docs/MILESTONES.md`](docs/MILESTONES.md): aktueller Stand und nächste Entwicklungsrichtung; keine Authority für bereits implementiertes Verhalten.
 - [`AGENTS.md`](AGENTS.md): verbindliche Regeln für Änderungen am Repository.
 

@@ -4,7 +4,7 @@
 
 **Authority:** frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of operational token data  
-**Current checkpoint:** V0–V2 merged; V3 Generic Bubble Physics + ViewSpec is active  
+**Current checkpoint:** V0–V2 merged; V3-A implementation awaits real-browser validation
 **V3 spatial authority:** `docs/FRONTEND_SPATIAL_MODEL.md`
 
 This document defines the durable product and architecture principles of the Token Observatory. Slice-specific spatial behavior is refined in the V3 spatial contract instead of accumulating special-case rules here.
@@ -311,7 +311,7 @@ Minimal conceptual contract:
   "layout": "cluster",
   "group": "launchpad",
   "size": "market_cap",
-  "color": "group",
+  "color": null,
   "x": null,
   "y": null
 }
@@ -347,6 +347,7 @@ src/
         ├── styles.css
         └── js/
             ├── app.js
+            ├── cluster-physics.js
             ├── state.js
             ├── universe.js
             ├── view-spec.js
@@ -360,8 +361,9 @@ frontend.py       tiny executable entry point
 app.py            FastAPI, HTTP and SSE boundary
 data.py           read-only PostgreSQL projections
 app.js            application bootstrap and wiring
+cluster-physics.js finite local D3 cluster relaxation
 state.js          token state, selection, active view, deltas
-universe.js       rendering and spatial behavior
+universe.js       Pixi rendering, animation and pointer interaction
 view-spec.js      supported mappings and presets
 theme.js          semantic visual tokens
 ```
@@ -571,7 +573,7 @@ Cluster != hard-coded renderer category
 Cluster = result of active ViewSpec
 ```
 
-V3 begins with a short **V3-R Physics Research Gate** before implementation. The purpose is to determine whether established D3/Pixi, force, packing or local-relaxation mechanisms already satisfy the required behavior more simply than another custom physics layer. The gate must remain concise and implementation-oriented; it is not a separate research project.
+V3-R selected the existing D3/Pixi stack for V3-A: `forceCollide`, weak positional forces, quadtree neighborhood selection, temporary `fx/fy` constraints and a finite frame-bounded simulation. No new physics dependency is required.
 
 V3 then establishes:
 
