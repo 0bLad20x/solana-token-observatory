@@ -8,7 +8,7 @@ from database import Database
 
 
 class LifecycleQueries:
-    """Read lifecycle evidence and persist only generic scan progress."""
+    """Read only the evidence needed by lifecycle rules."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
@@ -38,19 +38,11 @@ class LifecycleQueries:
         query = """
             SELECT
                 m.mint,
-                m.name,
-                m.symbol,
                 m.last_polled_at,
-                m.last_changed_at,
-                m.source_updated_at,
-                m.first_observed_at AS tracking_started_at,
-                m.first_observed_at
-                    + (%(observation_seconds)s * INTERVAL '1 second') AS decision_at,
-                latest.observed_at AS latest_snapshot_at,
-                latest.payload AS payload
+                latest.payload
             FROM mints m
             JOIN LATERAL (
-                SELECT s.observed_at, s.payload
+                SELECT s.payload
                 FROM mint_snapshots s
                 WHERE s.mint = m.mint
                 ORDER BY s.observed_at DESC
@@ -85,23 +77,10 @@ class LifecycleQueries:
         grace_seconds: float,
         max_poll_lag_seconds: float,
     ) -> list[dict[str, Any]]:
-        # The created_at bounds are algebraically identical to
-        #   now >= created_at + checkpoint
-        #   now <  created_at + checkpoint + grace
-        # but allow the active created_at index to serve the narrow window.
         query = """
             SELECT
                 m.mint,
-                m.name,
-                m.symbol,
-                m.created_at,
-                m.last_polled_at,
-                m.last_changed_at,
-                m.source_updated_at,
-                m.created_at
-                    + (%(checkpoint_minutes)s * INTERVAL '1 minute') AS decision_at,
-                decision.observed_at AS decision_snapshot_at,
-                decision.payload AS payload,
+                decision.payload,
                 (
                     SELECT COUNT(*)
                     FROM mint_snapshots x
@@ -115,7 +94,7 @@ class LifecycleQueries:
                 ) AS changes_in_window
             FROM mints m
             JOIN LATERAL (
-                SELECT s.observed_at, s.payload
+                SELECT s.payload
                 FROM mint_snapshots s
                 WHERE s.mint = m.mint
                   AND s.observed_at <=
@@ -165,19 +144,6 @@ class LifecycleQueries:
         query = """
             SELECT
                 m.mint,
-                m.name,
-                m.symbol,
-                m.created_at,
-                m.last_polled_at,
-                m.last_changed_at,
-                m.source_updated_at,
-                m.created_at
-                    + (%(checkpoint_minutes)s * INTERVAL '1 minute') AS decision_at,
-                (
-                    SELECT MAX(s.observed_at)
-                    FROM mint_snapshots s
-                    WHERE s.mint = m.mint
-                ) AS latest_snapshot_at,
                 EXISTS (
                     SELECT 1
                     FROM mint_snapshots x
@@ -229,15 +195,10 @@ class LifecycleQueries:
         min_age_minutes: int,
         max_poll_lag_seconds: float,
     ) -> list[dict[str, Any]]:
-        """Incrementally scan immutable snapshots for a threshold crossing."""
+        """Scan only snapshots newer than the rule's clean checkpoint."""
         query = """
             SELECT
                 m.mint,
-                m.name,
-                m.symbol,
-                m.last_polled_at,
-                m.last_changed_at,
-                m.source_updated_at,
                 scan.scanned_through,
                 scan.crossing_at
             FROM mints m
@@ -283,29 +244,6 @@ class LifecycleQueries:
                 "max_poll_lag_seconds": max_poll_lag_seconds,
             },
         )
-
-    def fetch_current_observation_state(
-        self,
-        mints: list[str],
-    ) -> dict[str, dict[str, Any]]:
-        """Temporary race diagnostic: current collector watermark per mint."""
-        if not mints:
-            return {}
-
-        rows = self._fetchall(
-            """
-            SELECT
-                mint,
-                tracking_enabled,
-                last_polled_at,
-                last_changed_at,
-                source_updated_at
-            FROM mints
-            WHERE mint = ANY(%(mints)s)
-            """,
-            {"mints": mints},
-        )
-        return {row["mint"]: row for row in rows}
 
     def advance_threshold_scan(
         self,

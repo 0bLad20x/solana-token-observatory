@@ -245,9 +245,8 @@ class MintRepository:
                 WITH candidates AS (
                     SELECT * FROM unnest(
                         %(mints)s::text[],
-                        %(last_polled_at)s::timestamptz[],
                         %(reasons)s::text[]
-                    ) AS c(mint, last_polled_at, reason)
+                    ) AS c(mint, reason)
                     ORDER BY mint
                 )
                 UPDATE mints AS m
@@ -258,14 +257,10 @@ class MintRepository:
                 FROM candidates AS c
                 WHERE m.mint = c.mint
                   AND m.tracking_enabled = true
-                  AND m.last_polled_at IS NOT DISTINCT FROM c.last_polled_at
                 RETURNING m.mint
                 """,
                 {
                     "mints": [candidate["mint"] for candidate in candidates],
-                    "last_polled_at": [
-                        candidate["last_polled_at"] for candidate in candidates
-                    ],
                     "reasons": [candidate["reason"] for candidate in candidates],
                 },
             ).fetchall()

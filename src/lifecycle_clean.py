@@ -68,41 +68,13 @@ def parse_args() -> argparse.Namespace:
 
 def _act(
     repository: MintRepository,
-    queries: LifecycleQueries,
     candidates: list[dict[str, Any]],
     apply: bool,
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    diagnostic = {
-        "raced_out": 0,
-        "poll_only": 0,
-        "evidence_changed": 0,
-        "inactive": 0,
-        "missing": 0,
-    }
+) -> list[dict[str, Any]]:
     if not apply:
-        return candidates, diagnostic
-
+        return candidates
     retired = repository.disable_mints(candidates)
-    acted = [candidate for candidate in candidates if candidate["mint"] in retired]
-    raced = [candidate for candidate in candidates if candidate["mint"] not in retired]
-    diagnostic["raced_out"] = len(raced)
-
-    if raced:
-        current = queries.fetch_current_observation_state(
-            [candidate["mint"] for candidate in raced]
-        )
-        for candidate in raced:
-            state = current.get(candidate["mint"])
-            if state is None:
-                diagnostic["missing"] += 1
-            elif not state["tracking_enabled"]:
-                diagnostic["inactive"] += 1
-            elif state["source_updated_at"] != candidate.get("source_updated_at"):
-                diagnostic["evidence_changed"] += 1
-            else:
-                diagnostic["poll_only"] += 1
-
-    return acted, diagnostic
+    return [candidate for candidate in candidates if candidate["mint"] in retired]
 
 
 def run_cycle(
@@ -115,16 +87,6 @@ def run_cycle(
     now = datetime.now(timezone.utc)
     already_flagged: set[str] = set()
     acted: dict[str, list[dict[str, Any]]] = {key: [] for key in RULE_KEYS}
-    race_diagnostics: dict[str, dict[str, int]] = {
-        key: {
-            "raced_out": 0,
-            "poll_only": 0,
-            "evidence_changed": 0,
-            "inactive": 0,
-            "missing": 0,
-        }
-        for key in RULE_KEYS
-    }
 
     # Preserve the current safety semantics exactly: the circuit-breaker
     # population is the same mature T+10 population used by Rule 1.
@@ -155,9 +117,7 @@ def run_cycle(
             if reason is not None:
                 candidates.append({**row, "reason": reason})
 
-        acted["rule1"], race_diagnostics["rule1"] = _act(
-            repository, queries, candidates, apply
-        )
+        acted["rule1"] = _act(repository, candidates, apply)
         already_flagged.update(row["mint"] for row in acted["rule1"])
 
         # Rule 2 -- same T+10 -> T+30 evidence and same T+30 + 60s trigger window.
@@ -175,9 +135,7 @@ def run_cycle(
             if reason is not None:
                 candidates.append({**row, "reason": reason})
 
-        acted["rule2"], race_diagnostics["rule2"] = _act(
-            repository, queries, candidates, apply
-        )
+        acted["rule2"] = _act(repository, candidates, apply)
         already_flagged.update(row["mint"] for row in acted["rule2"])
 
         # Rule 3 -- same T+5 + 60s window and same economic-absence evidence.
@@ -194,9 +152,7 @@ def run_cycle(
             if reason is not None:
                 candidates.append({**row, "reason": reason})
 
-        acted["rule3"], race_diagnostics["rule3"] = _act(
-            repository, queries, candidates, apply
-        )
+        acted["rule3"] = _act(repository, candidates, apply)
         already_flagged.update(row["mint"] for row in acted["rule3"])
 
         # Rule 4 / Rule 5 -- same permanent floor crossing after T+30.
@@ -216,9 +172,7 @@ def run_cycle(
                 if row["crossing_at"] is not None
                 and row["mint"] not in already_flagged
             ]
-            acted[rule.key], race_diagnostics[rule.key] = _act(
-                repository, queries, candidates, apply
-            )
+            acted[rule.key] = _act(repository, candidates, apply)
             already_flagged.update(row["mint"] for row in acted[rule.key])
 
             if apply:
@@ -239,7 +193,6 @@ def run_cycle(
         "fresh_coverage": fresh_coverage,
         "circuit_open": circuit_open,
         "breakdown": breakdown,
-        "race_diagnostics": race_diagnostics,
         "candidate_or_deactivated_count": sum(breakdown.values()),
         "active_remaining": active_remaining,
         "startup_health": startup_health,
@@ -278,17 +231,7 @@ def print_result(result: dict[str, Any]) -> None:
     label = "deactivated" if result["apply"] else "candidates"
     print(f"  {label}: {result['candidate_or_deactivated_count']}")
     for rule, count in result["breakdown"].items():
-        diag = result["race_diagnostics"][rule]
-        raced_note = ""
-        if result["apply"] and diag["raced_out"]:
-            raced_note = (
-                f" (raced_out: {diag['raced_out']}; "
-                f"poll_only={diag['poll_only']} "
-                f"evidence_changed={diag['evidence_changed']} "
-                f"inactive={diag['inactive']} "
-                f"missing={diag['missing']})"
-            )
-        print(f"    {rule}: {count}{raced_note}")
+        print(f"    {rule}: {count}")
     print(f"  active remaining: {result['active_remaining']}")
 
 
