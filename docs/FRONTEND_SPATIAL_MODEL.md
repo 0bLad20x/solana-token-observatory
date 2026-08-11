@@ -341,7 +341,23 @@ Decision rule:
 
 > Prefer the smallest established mechanism that satisfies the observable V3 contract. Reuse the current D3/Pixi stack if it is sufficient. Add a dependency or custom algorithm only when a concrete gap is demonstrated.
 
-The research output should be concise. Record the selected mechanism and the main rejected alternatives in this document or the PR before substantial V3-A implementation. This is a **research gate**, not a separate research project.
+The research output should be concise. Before substantial V3-A coding, record directly under **Research decision** below:
+
+```text
+selected mechanism
+why it satisfies the V3 contract
+main alternatives considered
+why those alternatives were rejected
+new dependency required? yes/no + reason
+```
+
+This is a **research gate**, not a separate research project.
+
+### Research decision
+
+Status: **PENDING V3-R**
+
+This section is filled only after the targeted research pass. It becomes the implementation premise for V3-A.
 
 ## 12. Initial V3 vertical slice
 
