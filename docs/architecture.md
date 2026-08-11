@@ -104,6 +104,8 @@ Fehlende Snapshots zwischen zwei Zustandsänderungen bedeuten nicht automatisch,
 
 Der operative Lifecycle ist ein eigenständiger Pfad und darf `tracking_enabled=false` setzen.
 
+Die fachliche Semantik von Rule 1–5 ist in [`LIFECYCLE_CONTRACT.md`](LIFECYCLE_CONTRACT.md) als Contract v0.1 eingefroren. Änderungen an Thresholds, Zeitfenstern, T0, Evidence-Auswahl, Missing-Semantik, Reasons oder Regelreihenfolge sind Contract-Änderungen und keine bloßen Refactorings.
+
 Die Verantwortung ist auf drei fachliche Module verteilt:
 
 ### `src/lifecycle_rules.py`
@@ -116,7 +118,7 @@ Liest die für Lifecycle-Regeln benötigte Evidence aus PostgreSQL. Diese Schich
 
 ### `src/lifecycle_clean.py`
 
-Orchestriert Regelreihenfolge, Freshness-Prüfung und Circuit Breaker. Ohne `--apply` ist der Lauf ein Dry-Run.
+Orchestriert Regelreihenfolge, Rule-1-Current-State-Freshness und Betriebsmodus. Ohne `--apply` ist der Lauf ein Dry-Run.
 
 Operative Deaktivierungen laufen ausschließlich über `MintRepository.disable_mints()`.
 
@@ -128,13 +130,15 @@ LifecycleQueries
 Lifecycle Rules
       ↓ reason
 lifecycle_clean.py
-      ↓ only with --apply and safety gates
+      ↓ contract-defined ordering / mode
 MintRepository.disable_mints()
       ↓
 tracking_enabled=false
 ```
 
 Research-Code darf diese Mutationskette nicht umgehen.
+
+Vor einer reinen Lifecycle-Simplification wird die aktuelle Implementierung mit `tools/verify_lifecycle_contract_v01.py` gegen die eingefrorene v0.1-Referenz auf demselben PostgreSQL-Snapshot verglichen.
 
 ## 6. Read-only Research
 
@@ -203,6 +207,7 @@ Diese Komponenten sind noch nicht Teil der implementierten Architektur. Ihr aktu
 |---|---|
 | Was ist das Projekt und wie wird es benutzt? | `README.md` |
 | Wie fließen Daten und wer besitzt welche Verantwortung? | `docs/architecture.md` |
+| Wie funktioniert der operative Lifecycle fachlich exakt? | `docs/LIFECYCLE_CONTRACT.md` |
 | Was bedeutet jede Phase des siebenphasigen Diagnose-Subsystems? | `docs/DIAGNOSTIC_PHASES.md` |
 | Was bedeuten die GMGN-Trenches-Felder? | `docs/GMGN_FIELDS_REFERENCE.md` |
 | Wo steht das Projekt und wohin soll es als Nächstes? | `docs/MILESTONES.md` |
@@ -214,6 +219,6 @@ Diese Komponenten sind noch nicht Teil der implementierten Architektur. Ihr aktu
 2. **Poll und Snapshot sind verschiedene Ereignisse.** Zeitabhängige Analysen dürfen diese Semantik nicht vermischen.
 3. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
 4. **Operational Lifecycle und Research bleiben getrennt.** Research erzeugt Evidence; operative Mutationen benötigen einen ausdrücklich implementierten Lifecycle-Pfad.
-5. **Mutationen bleiben explizit.** DB-Writes auf operative Mint-Zustände laufen über definierte Ownership und Safety Gates.
+5. **Mutationen bleiben explizit.** DB-Writes auf operative Mint-Zustände laufen über definierte Ownership und den eingefrorenen Lifecycle-Contract.
 6. **Generierte Daten sind Evidence, nicht Architektur.** Methodik bleibt nachvollziehbar im Code und in den benannten Authorities.
 7. **Roadmap ist keine Implementation.** `MILESTONES.md` beschreibt Richtung, nicht bereits vorhandenes Verhalten.
