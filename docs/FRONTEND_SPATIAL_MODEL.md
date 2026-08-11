@@ -2,106 +2,45 @@
 
 ## Status
 
-**Authority scope:** generic Bubble Map physics and ViewSpec behavior for Observatory V3  
+**Authority:** V3 Bubble-Cluster-Layout und `ViewSpec`-Verhalten  
 **Parent authority:** `docs/FRONTEND_OBSERVATORY.md`  
-**Current branch:** `agent/generic-bubble-physics-v3`
-**Current checkpoint:** V3-A implemented; real-browser validation pending
+**Branch:** `agent/generic-bubble-physics-v3`  
+**Checkpoint:** V3-A nach fehlgeschlagener Browservalidierung neu implementiert; erneute Browservalidierung erforderlich
 
-V2 solved one narrow problem: ordinary live deltas no longer reheat and repack the whole Universe. It intentionally did **not** define the final physics of a Bubble Map.
-
-V3 defines that reusable physics together with the first real `ViewSpec` contract.
+V2 verhinderte globale Repaints durch normale SSE-Deltas. V3 definiert darauf aufbauend eine wiederverwendbare räumliche Grammatik.
 
 ## 1. First principle
 
-A cluster is **not** a hard-coded property of the renderer.
-
-A cluster is the result of the active view.
-
 ```text
-Token data
-   +
-ViewSpec
-   ↓
-group membership
-radius / position constraints
-visual semantics
-   ↓
-generic spatial model
+Token data + ViewSpec
+        ↓
+groupKey / radius / optional targets
+        ↓
+layout-specific spatial model
+        ↓
+Pixi rendering
 ```
 
-Valid grouping rules may later include:
+Der Renderer besitzt keine Launchpad-Physik. `ViewSpec.group` erzeugt `groupKey`; die Cluster Engine verarbeitet beliebige `groupKey`-Werte gleich.
+
+Die Engine ist nur innerhalb von `layout = cluster` generisch. Projection, Flow, Tree und Network dürfen später eigene etablierte Layouts verwenden.
+
+## 2. Minimaler Node-Vertrag
 
 ```text
-group = launchpad
-group = market-cap bucket
-group = age bucket
-group = lifecycle state
-group = deterministic cohort
-group = temporary LLM cohort
+mint
+token
+groupKey
+radius
+x / y
+selection state
+enter / retire state
+temporary drag state
 ```
 
-The renderer must not contain separate physics implementations for these grouping modes.
+Business Truth bleibt außerhalb des Renderers. V3 führt keine freie Expression-Sprache ein.
 
-The cluster engine is generic only inside its domain. `ViewSpec.layout` selects the appropriate layout strategy; later projection, flow, tree or network views may use different constraints or established layout algorithms. V3 implements only `layout = cluster` and does not prebuild a strategy framework for unimplemented views.
-
-## 2. Why V2 stops where it does
-
-Two undesirable extremes have already been observed.
-
-### Global force field
-
-```text
-one live delta
-   ↓
-large force reheat
-   ↓
-many unrelated tokens move
-```
-
-Result: spatial memory is lost.
-
-### Fully fixed coordinates
-
-```text
-one live delta
-   ↓
-only one token changes
-   ↓
-no local physical response
-```
-
-Result: the scene becomes rigid, vacancies remain open and bubbles no longer feel related.
-
-V3 targets the middle ground:
-
-```text
-GLOBAL STABILITY
-      +
-LOCAL ELASTICITY
-```
-
-## 3. Node model
-
-Every rendered token node carries only spatial state required by the active view.
-
-```text
-Node
-├── mint                 stable identity
-├── token                current read-only projection
-├── groupKey             result of ViewSpec grouping
-├── radius               result of ViewSpec size mapping
-├── x / y                current rendered position
-├── targetX / targetY    optional semantic target
-├── selected             UI state
-├── pinned               optional user constraint
-└── lifecycle animation  enter / retire / pulse state
-```
-
-The node does not own business truth. `groupKey`, `radius` and positional targets are derived from the active `ViewSpec`.
-
-## 4. ViewSpec contract
-
-V3 keeps `ViewSpec` deliberately small.
+Aktives V3-A-Preset:
 
 ```json
 {
@@ -109,387 +48,181 @@ V3 keeps `ViewSpec` deliberately small.
   "layout": "cluster",
   "group": "launchpad",
   "size": "market_cap",
-  "color": null,
+  "color": "launchpad",
   "x": null,
   "y": null
 }
 ```
 
-A projection view may instead define axes:
+## 3. Bewegungssemantik
 
-```json
-{
-  "type": "bubble",
-  "layout": "projection",
-  "group": null,
-  "size": "liquidity",
-  "color": "lifecycle_state",
-  "x": "age_seconds",
-  "y": "market_cap"
-}
-```
+Ein Node darf sich nur bewegen wegen:
 
-V3 does **not** introduce an arbitrary expression language. Supported mappings remain explicit and finite in `view-spec.js` and expand only when a real view requires them.
+1. sichtbarer Änderung einer gemappten Geometrie;
+2. echtem `groupKey`-Wechsel;
+3. User-Drag;
+4. Populationseintritt oder -austritt;
+5. explizitem View-Wechsel oder Resize-Refit.
 
-## 5. Grouping semantics
+Ein normales SSE-Update allein ist kein Bewegungsgrund. Subpixel-Änderungen werden akkumuliert, bis sie im aktuellen Screen Space sichtbar sind.
 
-`group` answers one question:
+## 4. Cluster-Invarianten
 
-> Which population is this token currently attracted to in this view?
+### Zugehörigkeit
 
-Initial useful groupings may include:
+Jeder Node besitzt genau eine aktive Cluster Domain:
 
 ```text
-launchpad
-market_cap_tier
-age_tier
+domain = group center + group radius
 ```
 
-Example tiers belong to presets, not to the renderer:
+Drag verändert niemals `groupKey`. Die Node-Mitte wird auf die eigene Domain begrenzt. Ein Node kann deshalb weder lose außerhalb liegen noch in ein fremdes Cluster abgelegt werden.
+
+### Isolation
+
+Collision und lokale Relaxation betrachten ausschließlich Nodes desselben `groupKey`. Cluster beeinflussen einander nicht im Live-Solver. Ihre Domains werden nur beim Bootstrap oder expliziten globalen Refit gemeinsam gepackt.
+
+### Abstand
 
 ```text
-Market Cap
-< 10k
-10k–100k
->= 100k
-
-Age
-fresh
-< 24h
-24h–48h
->= 48h
+minimum distance = radiusA + radiusB + collision gap
 ```
 
-Exact thresholds are view configuration.
+Der Bootstrap verwendet zusätzlich einen größeren Pack-Abstand. Dieser sichtbare und physische Spielraum verhindert, dass jede kleine Radiusänderung eine Kontaktkette durch den gesamten Cluster auslöst.
 
-## 6. The only reasons a token should move
+## 5. Zwei räumliche Zustände
 
-A token should not move merely because new data arrived.
+### Packed rest state
 
-### 6.1 Radius changed
-
-If the mapped size value changes:
+Bootstrap, Resize und expliziter View-Wechsel verwenden `d3.packSiblings` und `d3.packEnclose`:
 
 ```text
-same group
-same semantic position
-radius grows or shrinks in place
-nearby nodes yield locally
-```
-
-The token is not assigned an unrelated free coordinate.
-
-### 6.2 Group changed
-
-If the active grouping rule changes the token's `groupKey`:
-
-```text
-old group
-   ↓
-visible transition
-   ↓
-new group
-```
-
-This is legitimate A → B movement because represented population membership actually changed.
-
-### 6.3 Projection value changed
-
-If `x` or `y` maps a value that changed, the positional target changes. Movement is analytically meaningful because position itself encodes data.
-
-### 6.4 User drag
-
-Dragging is an explicit temporary user constraint. It must not silently change `groupKey` or business state.
-
-### 6.5 Explicit global refit
-
-Viewport resize, ViewSpec change or a deliberate reset may perform a controlled global refit. Ordinary SSE deltas may not.
-
-## 7. Generic physics
-
-The desired behavior should emerge from a few general constraints rather than special-case relocation rules.
-
-### Collision
-
-Bubbles may not overlap beyond an allowed visual tolerance.
-
-```text
-minimum distance = radiusA + radiusB + gap
-```
-
-### Group attraction
-
-Cluster layouts have weak attraction toward their group's spatial region. This provides cohesion without requiring fixed coordinates.
-
-### Local relaxation scope
-
-Local relaxation is not another force. It defines which nodes may move and how long the finite solver runs. A quadtree selects the affected neighborhood; distant nodes are temporarily fixed while collision and weak group attraction resolve the local change.
-
-```text
-one bubble grows
-   ↓
-near neighbors yield
-   ↓
-local equilibrium
-```
-
-Far-away nodes retain spatial memory.
-
-### Vacancy closing
-
-When a bubble shrinks or retires, the same local attraction should naturally close nearby vacancy. There is no separate `fillHole()` business rule.
-
-### Drag constraint
-
-```text
-dragged node follows pointer
-nearby nodes obey collision
-far-away population stays stable
-```
-
-After release, the node settles according to the active view.
-
-## 8. Avoid special-case relocation
-
-V3 rejects architectures such as:
-
-```text
-if radius grew      -> search free coordinate
-if token retired    -> run hole filler
-if token added      -> search another free coordinate
-if group changed    -> custom relocation rule
-```
-
-Preferred model:
-
-```text
-ViewSpec derives constraints
-        +
-layout-specific finite solver
+Nodes pro groupKey packen
         ↓
-layout behavior emerges
+enclosing cluster circles berechnen
+        ↓
+cluster circles packen
+        ↓
+einmal rendern und ruhen
 ```
 
-## 9. Cluster centers are view state
+Das Ergebnis ist kompakt, deterministisch, überlappungsfrei und besitzt explizite Cluster Domains.
 
-Cluster centers are not durable token truth. They are temporary spatial anchors belonging to the active view.
+### Bounded interaction state
 
-Changing from:
+Live-Interaktion verwendet keine Velocity-Simulation. Nur die betroffene Gruppe und deren geweckte Nachbarschaft werden positional aufgelöst:
+
+```text
+finite center compaction
++ quadtree collision resolution
++ circular domain constraint
+```
+
+Positionen werden direkt korrigiert. Es gibt keine Geschwindigkeit, Trägheit, Force-Reheizung oder Oszillation. Wenn keine räumliche Arbeit aktiv ist, läuft kein Layout-Code über die Population.
+
+## 6. Ereignisse
+
+### Radiusänderung
+
+Der neue Radius entsteht an derselben Position. Der Node bleibt während der Relaxation verankert; ausschließlich notwendige Nachbarn weichen aus.
+
+### Drag
+
+Der Pointer bewegt den Node nur innerhalb seiner Domain. Kollision weckt ausschließlich berührte Nodes derselben Gruppe. Vor dem Drag werden die Restpositionen der betroffenen Nachbarschaft gespeichert; nach Release kehren Node und Nachbarn dorthin zurück. Drag ist damit vollständig temporär und zerstört keine räumliche Erinnerung.
+
+### Retirement
+
+Der Node signalisiert den fachlichen Austritt kurz in `destructive`, kollabiert und wird danach entfernt. Erst dann kompaktieren nahe Nodes die Vacancy in Richtung Clusterzentrum.
+
+### Neuer Node
+
+Ein neuer Node wird deterministisch am freien Domain-Rand seines `groupKey` geseedet und durch dieselben Collision-/Compaction-Constraints integriert.
+
+### `groupKey`-Wechsel
+
+Die alte Gruppe schließt die Vacancy. Der Node tritt in die neue Domain ein. Das ist die einzige Live-Interaktion, die einen fachlichen A→B-Wechsel darstellt.
+
+## 7. Visuelle Semantik in V3-A
+
+```text
+radius       = market_cap
+fill color   = groupKey / launchpad
+cyan stroke  = selection
+red          = retirement
+motion       = ausschließlich räumliches Ereignis
+```
+
+Freshness, Liquidity und allgemeine SSE-Aktivität sind im aktiven `ViewSpec` nicht gemappt und verändern deshalb weder Alpha, Stroke noch Scale.
+
+Die Bubble selbst pulsiert bei Updates nicht. Ein geometrisches Update ist an der tatsächlichen Radiusänderung erkennbar; der Event Feed liefert die präzise Delta-Evidence.
+
+## 8. Research decision
+
+### Fehlgeschlagener Ansatz
+
+Die erste V3-A-Implementierung verwendete eine lokale `d3-force`-Simulation mit `forceX`, `forceY`, `forceCollide`, `fx/fy` und einer 96-Pixel-Quadtree-Nachbarschaft.
+
+Die Browservalidierung widerlegte die Annahme, dass dieser Mechanismus den Vertrag erfüllt:
+
+- Drag war nur am Viewport begrenzt, nicht an der Cluster Domain;
+- Nachbarschaften waren nicht nach `groupKey` isoliert;
+- mehrere Live-Deltas konnten fast den gesamten Großcluster reaktivieren;
+- Velocity und erneutes Alpha-Heating erzeugten sichtbare Nervosität;
+- ein Scale-Pulse verfälschte Collision-Radius und Größenwahrnehmung;
+- der Cluster besaß keinen stabilen gepackten Restzustand.
+
+Dieser Ansatz ist verworfen und wurde nicht weiter parametrisch getunt.
+
+### Gewählter Mechanismus
+
+```text
+d3-hierarchy   exact initial/refit packing
+d3-quadtree    same-group collision lookup
+direct constraints without velocity
+finite active neighborhoods
+PixiJS         rendering and pointer input
+```
+
+Keine neue Physics Dependency ist erforderlich.
+
+### Verworfene Alternativen
+
+- dauerhafte `d3-force`-Simulation: bleibt velocity-basiert und muss wiederholt reheated werden;
+- Matter.js: liefert Sleeping und Rigid Bodies, benötigt für diesen Vertrag aber zusätzliche Springs, Group Filtering und Domain Constraints;
+- wiederholtes Full Packing bei jedem Delta: kompakt, zerstört aber Live-Spatial-Continuity;
+- event-spezifische `findFreeCoordinate()`- oder `fillHole()`-Algorithmen: duplizieren räumliche Verantwortung.
+
+## 9. V3-A-Akzeptanz
+
+V3-A ist erst bestanden, wenn im realen Browser alle Punkte gleichzeitig gelten:
+
+```text
+bootstrap        → kompakte, getrennte Cluster
+idle             → vollständig ruhig
+ordinary update  → keine räumliche Reaktion
+radius growth    → verankertes Wachstum, lokale Verdrängung
+radius shrink    → lokale Kompaktierung
+drag             → eigene Domain, gleiche Gruppe, temporäre Nachbarreaktion
+release          → Rückkehr zum stabilen Restzustand
+retirement       → sichtbarer Exit, danach Vacancy Closing
+other groups     → exakt keine Live-Bewegung
+```
+
+V3-B beginnt vorher nicht.
+
+## 10. V3-B und spätere Grenzen
+
+V3-B beweist dieselbe Cluster Engine mit mindestens zwei Presets:
 
 ```text
 group = launchpad
+group = market_cap_tier oder age_tier
 ```
 
-to:
+Semantic Zoom oder Density Aggregation ist kein V3-A-Fix. Es ist eine spätere eigene Grenze, falls die stabile Übersicht mit wachsender Population nicht mehr lesbar ist. Dabei dürfen Nodes nicht zufällig ausgeblendet werden; Overview, Cluster-Zoom und Detail-Zoom benötigen einen deterministischen View-Vertrag.
 
-```text
-group = market_cap_tier
-```
+Flow, Tree, Network, Projection, LLM Cohorts und Discovery Provenance bleiben außerhalb V3-A.
 
-may replace cluster centers completely because the represented populations changed. That global rearrangement is legitimate because the **view changed**, not because one token received an SSE update.
+## 11. Systemgrenzen
 
-## 10. Projection layouts
-
-Cluster and projection layouts share the same node/state model but use different positional constraints.
-
-### Cluster layout
-
-```text
-position = emergent
-forces = group attraction + collision
-solver scope = local bounded relaxation
-```
-
-### Projection layout
-
-```text
-x target = scale(token[x field])
-y target = scale(token[y field])
-forces = target attraction + collision
-```
-
-A `ViewSpec` switch reuses token state and the Pixi presentation boundary while selecting the appropriate layout strategy. Cluster presets share the same Cluster Engine. Later flow, tree or network layouts do not need to share cluster physics.
-
-## 11. Research gate before implementation
-
-V3-A must **not** begin by inventing another custom physics engine from scratch.
-
-Before implementation, perform a short targeted research pass to determine whether established layout/physics mechanisms already provide the required behavior more simply and robustly.
-
-Research should answer only implementation-relevant questions:
-
-```text
-1. Can the existing D3 force primitives express local elasticity without global reheating?
-2. Can fixed / partially fixed nodes and bounded simulations preserve spatial memory?
-3. What is the simplest reliable way to select a local neighborhood at ~1.5k+ nodes?
-4. Do quadtree / spatial-grid approaches materially simplify local collision work?
-5. Which circle-packing / overlap-removal approaches naturally support growth and vacancy closing?
-6. How should drag constraints interact with collision and weak group attraction?
-7. Can the current Pixi + D3 stack solve this cleanly without another dependency?
-```
-
-Evaluate candidate approaches against the actual V3 behavior, not against theoretical completeness:
-
-```text
-local delta       -> no global movement
-radius growth     -> grow in place; neighbors yield
-radius shrink     -> local vacancy can close
-retirement        -> local population settles naturally
-drag              -> local physical response
-view/group change -> semantic transition allowed
-population        -> remains practical around current 1.5k+ tokens
-implementation    -> minimal state, minimal code, minimal dependencies
-```
-
-Decision rule:
-
-> Prefer the smallest established mechanism that satisfies the observable V3 contract. Reuse the current D3/Pixi stack if it is sufficient. Add a dependency or custom algorithm only when a concrete gap is demonstrated.
-
-The research output should be concise. Before substantial V3-A coding, record directly under **Research decision** below:
-
-```text
-selected mechanism
-why it satisfies the V3 contract
-main alternatives considered
-why those alternatives were rejected
-new dependency required? yes/no + reason
-```
-
-This is a **research gate**, not a separate research project.
-
-### Research decision
-
-Status: **DONE**
-
-Selected mechanism:
-
-```text
-d3-force       forceCollide + weak forceX / forceY
-d3-quadtree    affected neighborhood
-fx / fy        temporary fixed boundary and drag constraint
-finite ticks   frame-bounded local settling, then stop
-PixiJS events  pointer input and rendering
-```
-
-The existing PixiJS + D3 stack satisfies the V3-A contract without a new physics dependency. The local quadtree selects movable nodes; all other active nodes remain collision-visible but temporarily fixed, so immediate boundary collisions remain correct without global movement.
-
-Rejected alternatives:
-
-- persistent global force simulation: destroys spatial memory;
-- `findFreeCoordinate()` / explicit hole filling: event-specific special cases;
-- repeated circle packing: repacks the population and is unsuitable for live continuity;
-- new physics library or custom spatial index: no demonstrated gap.
-
-## 12. Initial V3 vertical slice
-
-### V3-R — Physics research gate — DONE
-
-Deliver:
-
-- review established force, packing and local-relaxation options;
-- identify the smallest viable mechanism for the V3 contract;
-- prefer existing D3/Pixi capabilities where sufficient;
-- document the selected approach and why obvious alternatives were rejected;
-- no speculative framework or dependency expansion.
-
-Visible result is not required for V3-R itself; it exists only to make V3-A smaller and more deliberate.
-
-### V3-A — generic cluster physics — IMPLEMENTED / RUNTIME VALIDATION PENDING
-
-Deliver:
-
-- one generic local-elastic cluster model;
-- radius changes grow/shrink in place;
-- nearby collision response;
-- vacancy closing through local attraction;
-- drag support with local response;
-- group transition only when `groupKey` actually changes;
-- no return of global live breathing.
-
-Visible success:
-
-- the current Launchpad view feels physically connected without losing global spatial memory.
-
-### V3-B — ViewSpec proof
-
-Deliver:
-
-- current Launchpad grouping as one preset;
-- one genuinely different grouping preset, preferably `market_cap_tier` or `age_tier`;
-- minimal visible preset switch;
-- same renderer and physics engine for both.
-
-Visible success:
-
-- switching the view creates different populations without adding a second Bubble Map implementation.
-
-A projection preset such as `Age × Market Cap` may follow in the same PR only if V3-A and V3-B are already stable. It is not required to prove the generic cluster model.
-
-## 13. V3 acceptance criteria
-
-V3 is successful when all of the following are observable:
-
-```text
-ordinary update
-→ no global repack
-
-radius growth
-→ bubble grows where it is
-→ immediate neighbors yield
-
-radius shrink / retirement
-→ local neighborhood closes vacancy naturally
-
-drag
-→ dragged bubble follows pointer
-→ nearby bubbles react
-→ far-away population remains stable
-
-group change
-→ visible movement toward the new group
-→ only because membership actually changed
-
-ViewSpec switch
-→ different grouping population
-→ same renderer / same generic physics
-```
-
-In addition, the implementation must trace back to the V3-R research decision rather than an accumulated set of event-specific relocation rules.
-
-## 14. Boundaries
-
-V3 changes frontend spatial semantics only.
-
-It must not change:
-
-- PostgreSQL schema;
-- collector behavior;
-- Lifecycle v0.1;
-- operational token state;
-- backend write permissions.
-
-No arbitrary SQL, arbitrary Python execution or LLM-controlled physics enters this slice.
-
-## 15. Consequences for later work
-
-Once V3 exists, later capabilities become simpler:
-
-```text
-Cohort view
-→ produces groupKey
-→ existing physics renders it
-
-LLM temporary cohort
-→ produces bounded temporary group membership
-→ existing physics renders it
-
-Lifecycle populations
-→ produce groupKey
-→ existing physics renders it
-
-projection view
-→ provides x/y targets
-→ existing renderer transitions semantically
-```
-
-The objective is not to perfect one Launchpad Bubble Map. It is to create one small spatial grammar that many later Observatory views can reuse.
+V3 verändert nur die read-only räumliche Projektion. Es verändert weder PostgreSQL-Schema, Collector, Lifecycle v0.1 noch operative Token-Zustände.
