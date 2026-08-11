@@ -18,8 +18,12 @@ const analystStatus = document.querySelector("#analyst-status");
 const analystResult = document.querySelector("#analyst-result");
 const analystAnswer = document.querySelector("#analyst-answer");
 const analystSources = document.querySelector("#analyst-sources");
+const analystTitle = document.querySelector("#analyst-title");
+const analystChip = document.querySelector("#analyst-chip");
+const analystModes = [...document.querySelectorAll("[data-analyst-scope]")];
 
 const state = new ObservatoryState();
+let analystScope = "current_data";
 const numberCompact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const integerFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
@@ -72,23 +76,79 @@ function renderDetail(token) {
   document.querySelector("#detail-mint").textContent = token.mint;
 }
 
-function resetResearch(token) {
-  analystQuestion.disabled = !token;
-  analystSubmit.disabled = !token;
-  analystContext.textContent = token
-    ? `Researching ${token.symbol || token.name || token.mint.slice(0, 8)} · exact mint`
-    : "Select a token first";
+function clearAnalystResult() {
   analystStatus.textContent = "";
   analystResult.classList.add("hidden");
   analystAnswer.textContent = "";
   analystSources.replaceChildren();
 }
 
-function renderResearch(payload) {
+function syncAnalyst(clearResult = true) {
+  const token = state.selectedToken();
+  const isWeb = analystScope === "web";
+  analystTitle.textContent = isWeb ? "Token web research" : "Current token data";
+  analystChip.textContent = isWeb ? "EXTERNAL EVIDENCE" : "CURRENT DATA";
+  analystChip.classList.toggle("current", !isWeb);
+  for (const button of analystModes) {
+    button.classList.toggle("active", button.dataset.analystScope === analystScope);
+  }
+
+  analystQuestion.disabled = isWeb && !token;
+  analystSubmit.disabled = isWeb && !token;
+  analystSubmit.textContent = isWeb ? "Research" : "Ask";
+  analystQuestion.placeholder = isWeb
+    ? "What can be verified about this token?"
+    : "Which five tokens have the highest market cap?";
+  analystContext.textContent = isWeb
+    ? token
+      ? `Researching ${token.symbol || token.name || token.mint.slice(0, 8)} · exact mint`
+      : "Select a token first"
+    : `Ask about ${integerFormat.format(state.stats().active)} active tokens`;
+  if (clearResult) clearAnalystResult();
+}
+
+function renderCapabilities(capabilities) {
+  const heading = document.createElement("strong");
+  heading.textContent = "Available current queries";
+  analystSources.append(heading);
+
+  const fields = document.createElement("span");
+  fields.textContent = `Sort by: ${capabilities.fields.map(field => field.label).join(", ")}`;
+  analystSources.append(fields);
+
+  const orders = document.createElement("span");
+  orders.textContent = "Order: highest / top or lowest / bottom";
+  analystSources.append(orders);
+
+  const launchpads = document.createElement("span");
+  launchpads.textContent = `Launchpads: ${capabilities.launchpads.map(item => item.value).join(", ")}`;
+  analystSources.append(launchpads);
+
+  const limit = document.createElement("span");
+  limit.textContent = `Results: default ${capabilities.default_limit}, maximum ${capabilities.maximum_limit}`;
+  analystSources.append(limit);
+
+  const example = document.createElement("span");
+  const launchpad = capabilities.launchpads[0]?.value;
+  example.textContent = launchpad
+    ? `Example: Which five ${launchpad} tokens have the highest 5m volume?`
+    : "Example: Which five tokens have the highest 5m volume?";
+  analystSources.append(example);
+}
+
+function renderAnalyst(payload) {
   analystAnswer.textContent = payload.answer;
   analystSources.replaceChildren();
 
-  if (payload.sources.length) {
+  if (payload.scope === "current_data") {
+    if (payload.tool) {
+      analystSources.textContent = `query_tokens · ${integerFormat.format(payload.tool.matched_count)} matched · ${integerFormat.format(payload.tool.returned_count)} returned`;
+      analystStatus.textContent = "Current data query completed";
+    } else {
+      renderCapabilities(payload.capabilities);
+      analystStatus.textContent = "No unambiguous supported query was found";
+    }
+  } else if (payload.sources.length) {
     const heading = document.createElement("strong");
     heading.textContent = "Sources";
     analystSources.append(heading);
@@ -100,13 +160,16 @@ function renderResearch(payload) {
       link.textContent = source.title || source.url;
       analystSources.append(link);
     }
+    analystStatus.textContent = payload.search_mode === "web_search_premium"
+      ? "Premium web search completed"
+      : "Web search completed";
   } else {
     analystSources.textContent = "No cited web sources returned.";
+    analystStatus.textContent = payload.search_mode === "web_search_premium"
+      ? "Premium web search completed"
+      : "Web search completed";
   }
 
-  analystStatus.textContent = payload.search_mode === "web_search_premium"
-    ? "Premium web search completed"
-    : "Web search completed";
   analystResult.classList.remove("hidden");
 }
 
@@ -152,7 +215,7 @@ function selectToken(mint) {
   universe.setSelectedMint(mint);
   const token = state.token(mint);
   renderDetail(token);
-  resetResearch(token);
+  syncAnalyst(analystScope === "web");
 }
 
 function applyDelta(events) {
@@ -176,6 +239,7 @@ async function bootstrap() {
   state.load(payload.tokens);
   universe.load(payload.tokens);
   updateStats();
+  syncAnalyst(false);
 
   const stream = new EventSource("/api/events");
   stream.addEventListener("open", () => {
@@ -195,29 +259,41 @@ async function bootstrap() {
 analystForm.addEventListener("submit", async event => {
   event.preventDefault();
   const question = analystQuestion.value.trim();
-  if (!state.selectedMint || !question) return;
+  const requestScope = analystScope;
+  const mint = state.selectedMint;
+  if (!question || (requestScope === "web" && !mint)) return;
 
   analystSubmit.disabled = true;
-  analystSubmit.textContent = "Researching…";
-  analystStatus.textContent = "Searching the web…";
+  analystSubmit.textContent = requestScope === "web" ? "Researching…" : "Querying…";
+  analystStatus.textContent = requestScope === "web"
+    ? "Searching the web…"
+    : "Translating question into query_tokens…";
   analystResult.classList.add("hidden");
 
   try {
+    const body = { scope: requestScope, question };
+    if (requestScope === "web") body.mint = mint;
     const response = await fetch("/api/analyst", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mint: state.selectedMint, question }),
+      body: JSON.stringify(body),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || `Research failed: ${response.status}`);
-    renderResearch(payload);
+    if (analystScope === requestScope) renderAnalyst(payload);
   } catch (error) {
     analystStatus.textContent = error.message;
   } finally {
-    analystSubmit.disabled = false;
-    analystSubmit.textContent = "Research";
+    syncAnalyst(false);
   }
 });
+
+for (const button of analystModes) {
+  button.addEventListener("click", () => {
+    analystScope = button.dataset.analystScope;
+    syncAnalyst();
+  });
+}
 
 setInterval(updateStats, 1000);
 

@@ -154,11 +154,21 @@ Diese Grenze gilt unabhängig davon, ob der Consumer ein Research-Skript, ein Fr
 
 Das Observatory ist als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/` implementiert. Es liest aktuelle Projektionen und SSE-Deltas, verändert aber keine Core-Dateien oder operativen Zustände.
 
-`POST /api/analyst` ergänzt eine tokenbezogene externe Recherche. Das Backend lädt die
-bekannte Tokenidentität read-only, ruft serverseitig Mistrals Conversations API mit genau
-einem Built-in Web-Search-Tool auf und gibt Antwort sowie Quellen an den Browser zurück.
-API-Key und Tool-Modus bleiben im Backend. Rechercheergebnisse werden nicht persistiert
-und nicht zu System Truth oder Lifecycle Evidence.
+`POST /api/analyst` besitzt zwei explizite read-only Scopes:
+
+- `web` lädt die bekannte Tokenidentität und ruft Mistrals Conversations API mit genau
+  einem Built-in Web-Search-Tool auf;
+- `current_data` lässt Mistral eine freie Frage in genau einen strukturierten
+  `query_tokens`-Aufruf übersetzen.
+
+`src/observatory/tools.py` besitzt den realen internen Tool-Vertrag. `query_tokens`
+filtert und sortiert ausschließlich die aktuelle aktive `FrontendReader`-Projektion. Die
+zentrale Feldbeschreibung erzeugt Tool-Schema, LLM-Vokabular und den sichtbaren
+Capabilities-Hinweis. Die kanonischen Launchpad-Werte werden pro Anfrage aus der aktiven
+Population ergänzt. Der Default sind fünf und das harte Maximum zwanzig Ergebnisse. Das
+Modell erhält weder SQL noch Datenbankzugriff und darf kein fehlendes Feld durch eine
+andere Metrik ersetzen. Tool Calls und Webrecherche bleiben read-only, werden nicht
+persistiert und besitzen keine Lifecycle-Authority.
 
 ## 7. Generierte Artefakte
 
@@ -182,11 +192,11 @@ Lifecycle v0.1
 Survivor Population
 ```
 
-Die aktive nächste Arbeit ist der kleinste LLM-Durchstich des read-only Observatory:
-ausgewählter Token, freie Frage, Mistral Web Search und belegte Antwort im Browser.
-Spatial-Arbeit, OHLC/Time-Buckets und Snapshot-Retention sind nicht Teil dieses Slices.
-Eine gemeinsame Query-Schicht wird erst eingeführt, wenn mehrere Consumer tatsächlich
-dieselben Query-Verträge benötigen.
+Die aktive nächste Arbeit ist WP2: freie Fragen zur aktuellen aktiven Population werden
+über den festen `query_tokens`-Vertrag beantwortet. Spatial-Arbeit, historische Analyse,
+OHLC/Time-Buckets und Snapshot-Retention sind nicht Teil dieses Slices. Eine gemeinsame
+Query-Schicht außerhalb des Observatory wird erst eingeführt, wenn mehrere Consumer
+tatsächlich dieselben Query-Verträge benötigen.
 
 Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 

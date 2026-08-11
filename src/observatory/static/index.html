@@ -88,23 +88,29 @@
           <div class="panel-heading">
             <div>
               <p class="toolbar-label">ANALYST</p>
-              <h2>Token web research</h2>
+              <h2 id="analyst-title">Current token data</h2>
             </div>
-            <span class="evidence-chip">EXTERNAL EVIDENCE</span>
+            <span id="analyst-chip" class="evidence-chip current">CURRENT DATA</span>
+          </div>
+
+          <div class="analyst-modes" aria-label="Analyst scope">
+            <button type="button" class="active" data-analyst-scope="current_data">
+              Current data
+            </button>
+            <button type="button" data-analyst-scope="web">Web research</button>
           </div>
 
           <form id="analyst-form" class="analyst-form">
-            <label id="analyst-context" for="analyst-question">Select a token first</label>
+            <label id="analyst-context" for="analyst-question">Ask about active tokens</label>
             <textarea
               id="analyst-question"
               name="question"
               rows="3"
               maxlength="1000"
-              placeholder="What can be verified about this token?"
-              disabled
+              placeholder="Which five tokens have the highest market cap?"
               required
             ></textarea>
-            <button id="analyst-submit" type="submit" disabled>Research</button>
+            <button id="analyst-submit" type="submit">Ask</button>
           </form>
 
           <p id="analyst-status" class="analyst-status" aria-live="polite"></p>

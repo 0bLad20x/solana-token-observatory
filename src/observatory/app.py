@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -16,7 +16,12 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .analyst import AnalystError, research_token, validate_search_mode
+from .analyst import (
+    AnalystError,
+    query_current_tokens,
+    research_token,
+    validate_search_mode,
+)
 from .data import FrontendReader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 
 class AnalystRequest(BaseModel):
-    mint: str = Field(pattern=r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+    scope: Literal["current_data", "web"] = "current_data"
+    mint: str | None = Field(default=None, pattern=r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     question: str = Field(min_length=1, max_length=1000)
 
 
@@ -120,15 +126,28 @@ async def analyst(request: AnalystRequest) -> dict[str, Any]:
     if not MISTRAL_API_KEY:
         raise HTTPException(status_code=503, detail="MISTRAL_API_KEY is not configured")
 
-    token = await asyncio.to_thread(reader.token, request.mint)
-    if token is None:
-        raise HTTPException(status_code=404, detail="mint not found")
-
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="question must not be empty")
 
     try:
+        if request.scope == "current_data":
+            tokens = await asyncio.to_thread(reader.snapshot)
+            return await query_current_tokens(
+                api_key=MISTRAL_API_KEY,
+                model=MISTRAL_MODEL,
+                tokens=tokens,
+                question=question,
+            )
+
+        if request.mint is None:
+            raise HTTPException(
+                status_code=422,
+                detail="mint is required for web research",
+            )
+        token = await asyncio.to_thread(reader.token, request.mint)
+        if token is None:
+            raise HTTPException(status_code=404, detail="mint not found")
         return await research_token(
             api_key=MISTRAL_API_KEY,
             model=MISTRAL_MODEL,
@@ -137,7 +156,7 @@ async def analyst(request: AnalystRequest) -> dict[str, Any]:
             question=question,
         )
     except AnalystError as error:
-        logger.warning("Token web research failed: %s", error)
+        logger.warning("Analyst request failed: %s", error)
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 
