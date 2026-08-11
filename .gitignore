@@ -7,3 +7,6 @@ __pycache__/
 build/
 dist/
 data/
+Archive/
+src/upload_gmgn.py
+src/gmgn.mjs
