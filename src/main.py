@@ -5,7 +5,13 @@ import asyncio
 import logging
 
 from config import Settings
-from discovery import jupiter_recent_loop, meteora_damm_v2_loop, meteora_dlmm_loop, pump_loop
+from database import Database
+from discovery import (
+    jupiter_recent_loop,
+    meteora_damm_v2_loop,
+    meteora_dlmm_loop,
+    pump_loop,
+)
 from refresh import refresh_system
 from repository import MintRepository
 
@@ -18,10 +24,7 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-async def run() -> None:
-    settings = Settings.from_env()
-    repository = MintRepository(settings.database_url)
-    repository.load_last_updated_at()
+async def run(settings: Settings, repository: MintRepository) -> None:
     await asyncio.gather(
         pump_loop(settings, repository),
         jupiter_recent_loop(settings, repository),
@@ -32,17 +35,25 @@ async def run() -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
     args = parser().parse_args()
-    if args.command == "init-schema":
-        settings = Settings.from_env()
-        MintRepository(settings.database_url).initialize_schema()
-        return
-    try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        pass
+    settings = Settings.from_env()
+
+    with Database(settings.database_url) as database:
+        if args.command == "init-schema":
+            database.initialize_schema()
+            return
+
+        repository = MintRepository(database)
+        try:
+            asyncio.run(run(settings, repository))
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

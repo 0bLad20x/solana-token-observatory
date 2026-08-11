@@ -13,14 +13,27 @@ CREATE TABLE IF NOT EXISTS mints (
     first_pool_created_at TIMESTAMPTZ,
     mint_authority_disabled BOOLEAN,
     freeze_authority_disabled BOOLEAN,
+
     tracking_enabled BOOLEAN NOT NULL DEFAULT true,
     priority INTEGER NOT NULL DEFAULT 1,
+
+    -- Collector facts. No lifecycle-rule state is stored here.
+    first_observed_at TIMESTAMPTZ,
     last_polled_at TIMESTAMPTZ,
-    unchanged_since TIMESTAMPTZ
+    last_changed_at TIMESTAMPTZ,
+    source_updated_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS ix_mints_priority_tracking_mint
     ON mints (priority, mint)
+    WHERE tracking_enabled = true;
+
+CREATE INDEX IF NOT EXISTS ix_mints_first_observed_tracking
+    ON mints (first_observed_at)
+    WHERE tracking_enabled = true;
+
+CREATE INDEX IF NOT EXISTS ix_mints_created_at_tracking
+    ON mints (created_at)
     WHERE tracking_enabled = true;
 
 CREATE TABLE IF NOT EXISTS mint_snapshots (
@@ -30,10 +43,17 @@ CREATE TABLE IF NOT EXISTS mint_snapshots (
     PRIMARY KEY (mint, observed_at)
 );
 
-CREATE INDEX IF NOT EXISTS ix_mint_snapshots_mint_observed
-    ON mint_snapshots (mint, observed_at DESC);
+-- The primary key (mint, observed_at) already supports both forward and
+-- backward B-tree scans for per-mint history. No duplicate DESC index.
 
+CREATE TABLE IF NOT EXISTS lifecycle_rule_state (
+    mint TEXT NOT NULL REFERENCES mints(mint) ON DELETE CASCADE,
+    rule_key TEXT NOT NULL,
+    scanned_through TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (mint, rule_key)
+);
 
+-- Optional GMGN data remains physically separate from lifecycle state.
 CREATE TABLE IF NOT EXISTS gmgn_mint_observations (
     run_id TIMESTAMPTZ NOT NULL,
     mint TEXT NOT NULL,
