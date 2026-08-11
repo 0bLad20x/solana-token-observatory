@@ -18,11 +18,12 @@ from .data import FrontendReader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).with_name("static")
-STREAM_INTERVAL_SECONDS = float(os.getenv("FRONTEND_STREAM_INTERVAL_SECONDS", "2"))
-RECENT_DISABLED_MINUTES = int(os.getenv("FRONTEND_RECENT_DISABLED_MINUTES", "5"))
 
 load_dotenv(PROJECT_ROOT / ".env")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+STREAM_INTERVAL_SECONDS = float(os.getenv("FRONTEND_STREAM_INTERVAL_SECONDS", "2"))
+RECENT_DISABLED_MINUTES = int(os.getenv("FRONTEND_RECENT_DISABLED_MINUTES", "5"))
+
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must be set in .env or the environment")
 
