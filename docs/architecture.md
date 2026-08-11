@@ -2,48 +2,46 @@
 
 ## Zweck
 
-`jupiter-data-transform` trennt operative Datensammlung von analytischer Bewertung.
+`jupiter-data-transform` trennt operative Datensammlung, operative Lifecycle-Entscheidungen und read-only Research.
 
-Der Collector soll Solana-Mints möglichst vollständig beobachten und deren Jupiter-Zustände historisieren. Das Diagnose-Framework wertet diese Beobachtungen anschließend aus, um belastbare Hypothesen für Polling-Priorisierung oder spätere Deaktivierung zu erzeugen.
+Der Collector soll Solana-Mints entdecken und deren Jupiter-Zustände effizient beobachten. Der Lifecycle reduziert diese operative Population anhand expliziter wirtschaftlicher Regeln. Analytische Systeme untersuchen anschließend die verbleibenden Tokens, ohne selbst operative Mutationen auszuführen.
 
-Die Diagnose darf den Collector nicht stillschweigend in eine Lifecycle-Engine verwandeln.
-
-## Systemgrenzen
+## Systemübersicht
 
 ```text
-OPERATIVE DATA COLLECTION
-
-Discovery sources
-    │
-    ▼
+DISCOVERY
+PumpPortal / Jupiter Recent / Meteora
+        ↓
 PostgreSQL: mints
-    │
-    ▼
-MintCache -> BatchCursor -> Jupiter Search lanes -> WriteQueue
-    │                                      │
-    │                                      ▼
-    │                              PostgreSQL:
-    │                              mint_snapshots
-    │
-    └──────────────────────────────────────┐
-                                           │
-                                           ▼
-READ-ONLY DIAGNOSTICS                     
-
-current state -> regions -> flow -> cohorts -> shadow policy -> outcomes
-                                           │
-                              ┌────────────┴────────────┐
-                              ▼                         ▼
-                           dashboard                AI bundle
-
-OPTIONAL SUPPLEMENTAL EVIDENCE
-
-GMGN observations -----------------------> diagnostics / analysis
+        ↓
+JUPITER MONITORING
+Search lanes -> WriteQueue -> Repository
+        ↓
+Poll state + changed snapshots
+        │
+        ├──────────────────────────────┐
+        ↓                              ↓
+OPERATIONAL LIFECYCLE             READ-ONLY RESEARCH
+lifecycle_clean.py                diagnostics/
+lifecycle_queries.py              anomaly analysis
+lifecycle_rules.py                GMGN comparison
+        │                              │
+        ↓                              ↓
+tracking_enabled=false            reports / tags / AI data
+for validated rule hits           no operational mutation
 ```
 
-Die drei Bereiche haben unterschiedliche Authorities und dürfen nicht vermischt werden.
+Die beiden unteren Pfade verwenden dieselbe Beobachtungsbasis, haben aber unterschiedliche Rechte und Verantwortungen.
 
-## 1. Discovery
+## 1. Datenbank-Infrastruktur
+
+`src/database.py` besitzt den process-wide PostgreSQL-ConnectionPool.
+
+Diese Schicht stellt Verbindungen bereit, enthält aber keine fachliche Collector-, Lifecycle- oder Research-Logik.
+
+Persistente Schemaänderungen erfolgen ausschließlich explizit in `src/schema.sql`.
+
+## 2. Discovery
 
 `src/discovery.py` entdeckt Mint-Adressen über externe Quellen wie:
 
@@ -54,156 +52,168 @@ Die drei Bereiche haben unterschiedliche Authorities und dürfen nicht vermischt
 
 Discovery liefert Kandidaten-Mints. Sie entscheidet nicht, ob ein Token wirtschaftlich gut, schlecht oder terminal ist.
 
-Neue beziehungsweise erneut entdeckte Mints werden über `MintRepository` in die zentrale Registry überführt.
+Neue Mints werden über `MintRepository` in die zentrale Registry aufgenommen.
 
-## 2. Operativer Jupiter-Refresh
+## 3. Operativer Jupiter-Refresh
 
 `src/refresh.py` überwacht die aktiven Mints einer Priority.
 
-### MintCache
+Die Refresh-Schicht trennt Netzwerk-I/O von blockierender Datenbankarbeit. Jupiter Search liefert die operative Tokenbeobachtung; Antworten werden gebündelt an `MintRepository` übergeben.
 
-`MintCache` lädt die aktuell aktiven Mints regelmäßig aus PostgreSQL und hält nur die für den Refresh benötigte Mint-Liste im Speicher.
+Ein Search-Request kann maximal 100 Mint-Adressen enthalten. Mehrere API-Key-Lanes teilen sich die aktive Population.
 
-### BatchCursor
+## 4. Persistenz und Beobachtungssemantik
 
-`BatchCursor` rotiert deterministisch durch die sortierte Mint-Liste. Ein Batch enthält maximal 100 Mints. Änderungen der Population führen nicht zu einem vollständigen Neustart des Cursors.
-
-### Search lanes
-
-Für jeden konfigurierten Jupiter-Search-API-Key läuft eine eigene Lane. Alle Lanes teilen denselben Cursor und beziehen ihre Batches unabhängig voneinander.
-
-Jede Lane fragt:
-
-```text
-GET /tokens/v2/search?query=<comma-separated mints>
-```
-
-ab.
-
-### WriteQueue
-
-Erfolgreiche Antworten landen zunächst in einer begrenzten asynchronen Queue. `WriteQueue` bündelt die Ergebnisse und führt blockierende PostgreSQL-Arbeit außerhalb des Event-Loops aus.
-
-Damit sind Netzwerkabfragen und Datenbankwrites entkoppelt, ohne eine zweite persistente Queue einzuführen.
-
-## 3. Persistenz und Beobachtungssemantik
-
-`src/repository.py` ist die PostgreSQL-Grenze des Python-Collectors. Das dauerhafte Schema liegt explizit in `src/schema.sql`.
+`src/repository.py` besitzt Collector-Persistenz und ausdrücklich erlaubte operative Mint-Mutationen.
 
 ### `mints`
 
-`mints` ist die operative Registry der bekannten Mint-Adressen und enthält unter anderem den aktuellen Tracking-/Priority-Zustand sowie Poll-Metadaten.
+`mints` ist die operative Registry. Neben Identität und Tracking-Zustand hält sie die aktuelle Beobachtungssemantik:
 
-Ein erfolgreicher Jupiter-Poll ist selbst dann relevante Beobachtungsevidenz, wenn der Payload gegenüber dem vorherigen Poll unverändert bleibt.
+- `first_observed_at`: erster Search-Poll, der einen neuen fachlichen Zustand erzeugt hat;
+- `last_polled_at`: letzter erfolgreicher Search-Poll;
+- `last_changed_at`: letzter lokaler Zeitpunkt, an dem sich Jupiters fachlicher Zustand geändert hat;
+- `source_updated_at`: zuletzt beobachteter Jupiter-`updatedAt`-Wert;
+- `tracking_enabled`: ob der Mint weiter operativ überwacht wird.
 
 ### `mint_snapshots`
 
-`mint_snapshots` historisiert fachlich veränderte Jupiter-Zustände.
+`mint_snapshots` historisiert ausschließlich fachlich veränderte Jupiter-Zustände.
 
 ```text
-Jupiter-Poll erfolgreich
+Jupiter Search erfolgreich
         │
-        ├─ Zustand unverändert -> Poll-Freshness fortschreiben
+        ├─ source updatedAt unverändert
+        │      -> last_polled_at fortschreiben
+        │      -> kein redundanter Snapshot
         │
-        └─ Zustand verändert   -> neuen Snapshot speichern
+        └─ source updatedAt verändert
+               -> last_polled_at fortschreiben
+               -> last_changed_at aktualisieren
+               -> source_updated_at aktualisieren
+               -> Snapshot speichern
 ```
 
-Deshalb dürfen Snapshot-Abstände nicht als direkte Poll-Abstände interpretiert werden.
+Daraus folgt eine harte Interpretationsgrenze:
 
-## 4. Diagnose-Framework
+**Snapshot-Abstände sind keine Poll-Abstände.**
 
-Der Einstiegspunkt ist `src/diagnose_inactivity.py`. Die Module unter `src/diagnostics/` trennen die fachlichen Verantwortungen der Analyse.
+Fehlende Snapshots zwischen zwei Zustandsänderungen bedeuten nicht automatisch, dass der Collector nicht gepollt hat.
 
-Wesentliche Bereiche sind:
+## 5. Operational Lifecycle
 
-- Datenaufbereitung und Collector Health;
-- aktuelle semantische Regionen;
-- longitudinale Region-History und Transitionen;
-- Incident-Kohorten und Outcomes;
-- Activity- und Launchpad-Segmentierung;
-- Shadow-Policy-Auswertung;
-- Policy-Outcomes und Recovery;
-- Reporting, Dashboard und AI-Export.
+Der operative Lifecycle ist ein eigenständiger Pfad und darf `tracking_enabled=false` setzen.
 
-Die vollständige methodische Definition der sieben Phasen steht ausschließlich in [`DIAGNOSTIC_PHASES.md`](DIAGNOSTIC_PHASES.md).
+Die Verantwortung ist auf drei fachliche Module verteilt:
 
-## 5. One-Shot gegen Monitor
+### `src/lifecycle_rules.py`
 
-Ein manueller One-Shot:
+Enthält reine Regelentscheidungen und Thresholds. Keine DB-Zugriffe und keine Writes.
 
-```powershell
-python src/diagnose_inactivity.py
+### `src/lifecycle_queries.py`
+
+Liest die für Lifecycle-Regeln benötigte Evidence aus PostgreSQL. Diese Schicht führt keine Mint-Mutationen aus.
+
+### `src/lifecycle_clean.py`
+
+Orchestriert Regelreihenfolge, Freshness-Prüfung und Circuit Breaker. Ohne `--apply` ist der Lauf ein Dry-Run.
+
+Operative Deaktivierungen laufen ausschließlich über `MintRepository.disable_mints()`.
+
+Damit bleibt die Mutationskette explizit:
+
+```text
+LifecycleQueries
+      ↓ evidence
+Lifecycle Rules
+      ↓ reason
+lifecycle_clean.py
+      ↓ only with --apply and safety gates
+MintRepository.disable_mints()
+      ↓
+tracking_enabled=false
 ```
 
-analysiert den aktuellen Zustand und erzeugt die aktuellen abgeleiteten Artefakte.
+Research-Code darf diese Mutationskette nicht umgehen.
 
-Er schreibt die longitudinale Region-History standardmäßig **nicht** fort. Zwischen manuellen Läufen können beliebig große Lücken liegen; würden diese wie reguläre Monitorintervalle behandelt, entstünden falsche Dwell-Zeiten und GONE-Events.
+## 6. Read-only Research
 
-Kontinuierliche Transition-, Cohort- und Policy-Evidenz entsteht im Monitorbetrieb:
+Research beginnt auf gespeicherten Beobachtungen und verändert keine operative Mint-Population.
 
-```powershell
-python src/diagnose_inactivity.py --monitor --interval-seconds 60
+### Diagnose-/Shadow-Policy-Subsystem
+
+`src/diagnose_inactivity.py` und `src/diagnostics/` bilden das separate siebenphasige Diagnose- und Shadow-Policy-System.
+
+Dort verwendete Actions wie `p2`, `p3` oder `retire` bleiben innerhalb dieses Subsystems Shadow-Empfehlungen. Sie sind nicht identisch mit den separat implementierten operativen Lifecycle-Regeln.
+
+Die methodische Authority dieses Subsystems ist [`DIAGNOSTIC_PHASES.md`](DIAGNOSTIC_PHASES.md).
+
+### Anomaly-/Archetype-Research
+
+Die versionierten Bot-/Anomaly-Skripte analysieren die aktuelle Survivor-Population auf transparente mathematische Strukturen, bekannte Archetypen und neue Anomalien.
+
+Dieser Pfad darf:
+
+- Features und Normalisierungen berechnen;
+- Tokens taggen und Review-Populationen erzeugen;
+- manuelle Labels und Kalibrierung auswerten;
+- AI-/Research-Bundles erzeugen.
+
+Er darf nicht:
+
+- `tracking_enabled` ändern;
+- operative Priority ändern;
+- Research-Signale automatisch in Lifecycle-Regeln umwandeln.
+
+Die konkreten Detector-Schwellen bleiben im versionierten Code statt in einer zweiten Markdown-Authority.
+
+## 7. GMGN
+
+`src/gmgn.mjs` bildet einen separaten optionalen Research-Pfad.
+
+GMGN kann Jupiter-basierte Analysen ergänzen, ersetzt aber keine fehlenden Jupiter-Felder und besitzt keine operative Lifecycle-Authority.
+
+Die ausführliche Trenches-Feldsemantik steht in [`GMGN_FIELDS_REFERENCE.md`](GMGN_FIELDS_REFERENCE.md).
+
+## 8. Generierte Artefakte
+
+`data/` und `analysis/` enthalten Laufzeit- und Research-Artefakte.
+
+Diese Dateien sind Evidence und keine zweite Source of Truth für Architektur oder Methodik. Dauerhafte Regeln und Verträge gehören in Code oder die dafür benannte Dokumentations-Authority.
+
+## 9. Nächste Architekturgrenze
+
+Die geplante nächste Stufe beginnt **nach** dem operativen Lifecycle:
+
+```text
+Lifecycle survivors
+      ↓
+OHLC / Time Buckets
+      ↓
+Read-only Query Layer
+      ├─ Frontend
+      └─ LLM Tool Calling
 ```
 
-Nur kontinuierlich beobachtbare Zeiträume dürfen als entsprechende longitudinale Evidence interpretiert werden.
+Diese Komponenten sind noch nicht Teil der implementierten Architektur. Ihr aktueller Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 
-## 6. Shadow-Policy
-
-Phase 6 bewertet Regeln über aktuelle und historische Features. Sie kann Actions wie `p2`, `p3` oder `retire` empfehlen.
-
-Diese Actions sind ausschließlich Shadow-Zustände.
-
-Das Framework:
-
-- führt keine operative Retire-Entscheidung aus;
-- ändert `tracking_enabled` nicht;
-- schreibt keine neue Collector-Priority als Folge einer Diagnose;
-- hält Regelversionen und Outcomes getrennt, damit alte und neue Regelstände nicht statistisch vermischt werden.
-
-Phase 7 prüft nachgelagerte Recovery. Erst solche Outcomes können zeigen, ob eine Shadow-Entscheidung wahrscheinlich sicher oder zu aggressiv war.
-
-## 7. Diagnose-Artefakte
-
-Lokale Laufzeit- und Diagnoseartefakte liegen unter `data/`. Dazu gehören je nach Lauf unter anderem:
-
-- aktueller Investigation Report;
-- Region Snapshot und Region Flow;
-- Population-/Transition-History;
-- Cohort Outcomes;
-- Policy Runs, Decision Events und Policy State;
-- Policy Outcomes.
-
-Diese Dateien sind erzeugte Evidenz und keine zweite methodische Source of Truth.
-
-Das AI-Bundle unter `analysis/diagnostics_ai_bundle.json` verdichtet die bereits erzeugten Diagnoseartefakte für externe KI-Analyse. Der Exporter liest nicht direkt aus PostgreSQL.
-
-## 8. GMGN
-
-`src/gmgn.mjs` bildet einen separaten, optionalen Datenpfad für zusätzliche GMGN-Beobachtungen.
-
-GMGN-Daten können Diagnose und Analyse ergänzen, aber ihre Abwesenheit darf eine Jupiter-basierte Beobachtung nicht automatisch invalidieren und ihre Felder dürfen nicht stillschweigend Jupiter-Felder ersetzen.
-
-Die vollständige Feldsemantik ist absichtlich separat und ausführlich in [`GMGN_FIELDS_REFERENCE.md`](GMGN_FIELDS_REFERENCE.md) dokumentiert.
-
-## 9. Authority-Modell
-
-Für jede dauerhaft dokumentierte Frage existiert genau eine Authority:
+## 10. Authority-Modell
 
 | Frage | Authority |
 |---|---|
 | Was ist das Projekt und wie wird es benutzt? | `README.md` |
-| Wie fließen Daten und wo liegen Systemgrenzen? | `docs/architecture.md` |
-| Was bedeutet jede Diagnosephase statistisch? | `docs/DIAGNOSTIC_PHASES.md` |
-| Was bedeuten die GMGN-Felder? | `docs/GMGN_FIELDS_REFERENCE.md` |
+| Wie fließen Daten und wer besitzt welche Verantwortung? | `docs/architecture.md` |
+| Was bedeutet jede Phase des siebenphasigen Diagnose-Subsystems? | `docs/DIAGNOSTIC_PHASES.md` |
+| Was bedeuten die GMGN-Trenches-Felder? | `docs/GMGN_FIELDS_REFERENCE.md` |
+| Wo steht das Projekt und wohin soll es als Nächstes? | `docs/MILESTONES.md` |
 | Welche Regeln gelten für Repository-Änderungen? | `AGENTS.md` |
 
-Git hält die Änderungshistorie. Generierte Artefakte halten Laufzeitevidenz. Keines von beiden wird durch zusätzliche Markdown-Kopien dupliziert.
+## 11. Architekturprinzipien
 
-## 10. Architekturprinzipien
-
-1. **Eine Verantwortung, eine Authority.** Keine parallelen Implementierungen oder Dokumentationskopien.
-2. **Observation vor Policy.** Erst messen, dann bewerten, erst nach validierten Outcomes operativ handeln.
-3. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null umgedeutet.
-4. **Poll und Snapshot sind verschiedene Ereignisse.** Zeitabhängige Regeln dürfen diese Semantik nicht vermischen.
-5. **Read-only Diagnose bleibt read-only.** Produktionsmutationen brauchen eine ausdrückliche eigene Änderung.
-6. **Generierte Daten sind Evidenz, nicht Architektur.** Methodik bleibt nachvollziehbar im Code und in den benannten Authorities.
+1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Datenverantwortung.
+2. **Poll und Snapshot sind verschiedene Ereignisse.** Zeitabhängige Analysen dürfen diese Semantik nicht vermischen.
+3. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
+4. **Operational Lifecycle und Research bleiben getrennt.** Research erzeugt Evidence; operative Mutationen benötigen einen ausdrücklich implementierten Lifecycle-Pfad.
+5. **Mutationen bleiben explizit.** DB-Writes auf operative Mint-Zustände laufen über definierte Ownership und Safety Gates.
+6. **Generierte Daten sind Evidence, nicht Architektur.** Methodik bleibt nachvollziehbar im Code und in den benannten Authorities.
+7. **Roadmap ist keine Implementation.** `MILESTONES.md` beschreibt Richtung, nicht bereits vorhandenes Verhalten.
