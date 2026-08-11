@@ -127,7 +127,16 @@ Entscheidungsregel:
 
 > Bevorzuge den kleinsten etablierten Mechanismus, der den beobachtbaren V3-Vertrag erfüllt. Eigene Physik oder neue Dependencies erst bei einem nachgewiesenen Gap.
 
-Der Research-Pass bleibt kurz und implementierungsbezogen. Ergebnis ist eine knappe Entscheidung im V3-Vertrag bzw. PR, kein separates Forschungsprojekt.
+Der Research-Pass bleibt kurz und implementierungsbezogen. Vor V3-A werden im Spatial Contract knapp festgehalten:
+
+```text
+selected mechanism
+main alternatives considered
+why rejected
+new dependency required? yes/no + reason
+```
+
+Kein separates Forschungsprojekt.
 
 ### V3-A — Generic Cluster Physics
 
