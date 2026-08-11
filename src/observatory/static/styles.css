@@ -358,13 +358,14 @@ h2 { margin-bottom: 0; font-size: 17px; letter-spacing: -.02em; }
 .feed-heading .toolbar-label { margin-bottom: 3px; }
 .feed-heading > span { color: var(--text-muted); font-size: 9px; }
 .event-feed { list-style: none; margin: 0; padding: 4px 10px 10px; overflow: auto; min-height: 0; }
-.event-item { display: grid; grid-template-columns: 56px 1fr; gap: 8px; padding: 9px 3px; border-bottom: 1px solid rgba(146,155,173,.07); }
+.event-item { display: grid; grid-template-columns: 64px 1fr; gap: 8px; padding: 9px 3px; border-bottom: 1px solid rgba(146,155,173,.07); }
+.event-meta { display: flex; flex-direction: column; gap: 4px; }
 .event-type { font-size: 8px; font-weight: 800; letter-spacing: .08em; color: var(--positive); }
-.event-type.retired { color: var(--destructive); }
-.event-type.updated { color: var(--warning); }
+.event-meta time { color: var(--text-muted); font-size: 8px; }
 .event-copy { min-width: 0; }
 .event-copy strong { display: block; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .event-copy span { display: block; margin-top: 3px; color: var(--text-muted); font-size: 9px; line-height: 1.35; }
+.event-empty { padding: 14px 3px; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
 
 @media (max-width: 1050px) {
   .topbar { align-items: flex-start; flex-direction: column; }

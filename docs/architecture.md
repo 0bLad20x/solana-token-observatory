@@ -175,6 +175,13 @@ Token Search läuft ausschließlich über die bereits geladene aktuelle
 durchsucht. Direkte Suchtreffer und `query_tokens`-Treffer verwenden dieselbe Selection;
 diese aktualisiert Inspector und Web-Research-Kontext, ohne operativen State zu ändern.
 
+Der SSE-Vertrag enthält für `token_updated` neben den bestehenden Felddeltas auch die
+Änderung von `volume_5m`. `state.js` rekonstruiert daraus die beobachteten Vorher-/Nachher-
+Werte und hält ausschließlich die letzten 60 Sekunden im Browser. Pro Mint werden diese
+Beobachtungen aggregiert und nach der positiven Zunahme von
+`volume_5m / market_cap` gerankt. Das Ergebnis ist eine flüchtige read-only Projektion;
+es ist weder persistierte Historie noch eine operative Metrik.
+
 ## 7. Generierte Artefakte
 
 Lokale Runtime- oder Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
@@ -197,11 +204,10 @@ Lifecycle v0.1
 Survivor Population
 ```
 
-Die aktive nächste Arbeit ist WP3: Jeder aktive Token wird unabhängig von der
-Visualisierung über Mint, Symbol oder Name erreichbar und auswählbar. Die bestehende
-Browser-Projektion bleibt dafür ausreichend; es entsteht weder ein neuer Datenbankpfad
-noch eine zweite Selection. Spatial-Arbeit, historische Analyse, OHLC/Time-Buckets und
-Snapshot-Retention sind nicht Teil dieses Slices.
+Die aktive nächste Arbeit ist WP4: Aus den bestehenden SSE-Snapshots wird ein kompakter
+Top-5-Feed für positive Änderungen des rollierenden 5-Minuten-Volumens relativ zur
+Market Cap abgeleitet. Dafür entsteht weder ein neuer Datenbankpfad noch historische
+Analyse. Spatial-Arbeit, Node-Geometrie und Animation sind nicht Teil dieses Slices.
 
 Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 
