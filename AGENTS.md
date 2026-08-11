@@ -11,9 +11,10 @@ Vor jeder Änderung:
 1. [`README.md`](README.md) lesen.
 2. [`docs/architecture.md`](docs/architecture.md) lesen.
 3. Die direkt betroffenen Dateien vollständig lesen.
-4. Bei Diagnose-/Shadow-Policy-Arbeit zusätzlich [`docs/DIAGNOSTIC_PHASES.md`](docs/DIAGNOSTIC_PHASES.md) lesen.
-5. Bei GMGN-Arbeit zusätzlich [`docs/GMGN_FIELDS_REFERENCE.md`](docs/GMGN_FIELDS_REFERENCE.md) lesen.
-6. Bei Roadmap-/Scope-Fragen zusätzlich [`docs/MILESTONES.md`](docs/MILESTONES.md) lesen.
+4. Bei Lifecycle-Arbeit zusätzlich [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) lesen.
+5. Bei Diagnose-/Shadow-Policy-Arbeit zusätzlich [`docs/DIAGNOSTIC_PHASES.md`](docs/DIAGNOSTIC_PHASES.md) lesen.
+6. Bei GMGN-Arbeit zusätzlich [`docs/GMGN_FIELDS_REFERENCE.md`](docs/GMGN_FIELDS_REFERENCE.md) lesen.
+7. Bei Roadmap-/Scope-Fragen zusätzlich [`docs/MILESTONES.md`](docs/MILESTONES.md) lesen.
 
 Keine Annahmen über Verhalten treffen, das nicht im Code, in persistierten Datenverträgen oder in diesen Authorities belegt ist.
 
@@ -43,6 +44,7 @@ Diese Invarianten gelten, solange sie nicht ausdrücklich als Architekturänderu
 - GMGN ist zusätzliche Research-Evidenz und darf fehlende Jupiter-Daten nicht stillschweigend ersetzen.
 - Das operative Lifecycle-System und read-only Research sind getrennte Verantwortungen.
 - Nur der ausdrücklich definierte Lifecycle-Pfad darf aufgrund von Lifecycle-Regeln `tracking_enabled=false` setzen.
+- Die fachliche Lifecycle-Semantik folgt `docs/LIFECYCLE_CONTRACT.md`.
 - Diagnose-, Anomaly- und AI-Research dürfen keine operative Priority oder `tracking_enabled` verändern.
 - `p2`, `p3` und `retire` im siebenphasigen Diagnose-Subsystem bleiben Shadow-Actions; sie sind nicht identisch mit den separat implementierten operativen Lifecycle-Regeln.
 - Diagnosephasen behalten ihre eigenen Populationen und Nenner; Cross-Phase-Vergleiche folgen `docs/DIAGNOSTIC_PHASES.md`.
@@ -71,6 +73,29 @@ Die folgenden Zustände dürfen nicht vermischt werden:
 
 Snapshot-Abstände sind deshalb keine Poll-Abstände. Fehlende Zwischen-Snapshots dürfen nicht künstlich interpoliert werden, sofern die jeweilige Methodik dies nicht ausdrücklich und nachvollziehbar definiert.
 
+## Lifecycle-Änderungen
+
+`docs/LIFECYCLE_CONTRACT.md` ist die fachliche Authority für Rule 1–5.
+
+Eine reine Simplification darf SQL, Python-Struktur, Datenzugriff oder Orchestrierung ändern, aber nicht:
+
+- T0;
+- Zeitfenster;
+- Thresholds;
+- Evidence-Auswahl;
+- Missing-Value-Semantik;
+- Disable-Reasons;
+- Regelreihenfolge;
+- First-match-Verhalten.
+
+Vor einer reinen Lifecycle-Simplification muss der Equivalence-Verifier ausgeführt werden:
+
+```powershell
+python tools/verify_lifecycle_contract_v01.py
+```
+
+Nur wenn pro Regel exakt dieselben `(mint, reason)`-Sets entstehen, ist die Änderung gegenüber Contract v0.1 semantisch äquivalent.
+
 ## Fehlerbehandlung
 
 Fehler müssen sichtbar bleiben.
@@ -79,7 +104,7 @@ Keine stillen `except`-Blöcke und keine Fallbacks, die Datenverlust, fehlgeschl
 
 Lang laufende Loops dürfen einzelne externe Fehler überleben, müssen sie aber eindeutig loggen.
 
-Operative Lifecycle-Writes benötigen belastbare aktuelle Collector-Evidence und dürfen bestehende Freshness-/Circuit-Breaker-Sicherheiten nicht stillschweigend umgehen.
+Operative Lifecycle-Writes müssen die im Lifecycle-Contract definierte Evidence erfüllen. Zusätzliche Safety-Layer dürfen diese Semantik nicht stillschweigend verändern oder einen zweiten fachlichen Vertrag erzeugen.
 
 ## Scope
 
@@ -98,6 +123,12 @@ python -m compileall -q src
 python -m unittest discover -s tests -v
 ```
 
+Für Lifecycle-Simplifications zusätzlich:
+
+```powershell
+python tools/verify_lifecycle_contract_v01.py
+```
+
 Für CLI- oder Entry-Point-Änderungen zusätzlich den betroffenen `--help`-Aufruf prüfen.
 
 Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf validieren.
@@ -108,6 +139,7 @@ Dauerhafte Dokumentation hat genau eine Authority pro Frage:
 
 - `README.md`: Zweck, Einstieg und Bedienung.
 - `docs/architecture.md`: implementierte Komponenten, Datenfluss und Systemgrenzen.
+- `docs/LIFECYCLE_CONTRACT.md`: fachliche Semantik und Version des operativen Lifecycle.
 - `docs/DIAGNOSTIC_PHASES.md`: Methodik des siebenphasigen Diagnose-/Shadow-Policy-Subsystems.
 - `docs/GMGN_FIELDS_REFERENCE.md`: GMGN-Trenches-Felder und deren Semantik.
 - `docs/MILESTONES.md`: aktueller Stand und nächste Entwicklungsrichtung; keine Authority für implementierten Zustand.
