@@ -170,6 +170,11 @@ Modell erhält weder SQL noch Datenbankzugriff und darf kein fehlendes Feld durc
 andere Metrik ersetzen. Tool Calls und Webrecherche bleiben read-only, werden nicht
 persistiert und besitzen keine Lifecycle-Authority.
 
+Token Search läuft ausschließlich über die bereits geladene aktuelle
+`/api/universe`-Projektion. Mint, Symbol und Name werden im bestehenden Frontend-State
+durchsucht. Direkte Suchtreffer und `query_tokens`-Treffer verwenden dieselbe Selection;
+diese aktualisiert Inspector und Web-Research-Kontext, ohne operativen State zu ändern.
+
 ## 7. Generierte Artefakte
 
 Lokale Runtime- oder Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
@@ -192,11 +197,11 @@ Lifecycle v0.1
 Survivor Population
 ```
 
-Die aktive nächste Arbeit ist WP2: freie Fragen zur aktuellen aktiven Population werden
-über den festen `query_tokens`-Vertrag beantwortet. Spatial-Arbeit, historische Analyse,
-OHLC/Time-Buckets und Snapshot-Retention sind nicht Teil dieses Slices. Eine gemeinsame
-Query-Schicht außerhalb des Observatory wird erst eingeführt, wenn mehrere Consumer
-tatsächlich dieselben Query-Verträge benötigen.
+Die aktive nächste Arbeit ist WP3: Jeder aktive Token wird unabhängig von der
+Visualisierung über Mint, Symbol oder Name erreichbar und auswählbar. Die bestehende
+Browser-Projektion bleibt dafür ausreichend; es entsteht weder ein neuer Datenbankpfad
+noch eine zweite Selection. Spatial-Arbeit, historische Analyse, OHLC/Time-Buckets und
+Snapshot-Retention sind nicht Teil dieses Slices.
 
 Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 

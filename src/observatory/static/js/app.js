@@ -21,6 +21,10 @@ const analystSources = document.querySelector("#analyst-sources");
 const analystTitle = document.querySelector("#analyst-title");
 const analystChip = document.querySelector("#analyst-chip");
 const analystModes = [...document.querySelectorAll("[data-analyst-scope]")];
+const tokenSearch = document.querySelector(".token-search");
+const tokenSearchForm = document.querySelector("#token-search-form");
+const tokenSearchInput = document.querySelector("#token-search-input");
+const tokenSearchResults = document.querySelector("#token-search-results");
 
 const state = new ObservatoryState();
 let analystScope = "current_data";
@@ -136,13 +140,90 @@ function renderCapabilities(capabilities) {
   analystSources.append(example);
 }
 
+function closeTokenSearch() {
+  tokenSearchResults.classList.add("hidden");
+  tokenSearchInput.setAttribute("aria-expanded", "false");
+}
+
+function tokenIdentity(token) {
+  return token.symbol || token.name || token.mint.slice(0, 8);
+}
+
+function tokenChoice(token, className, showMetrics = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+
+  const identity = document.createElement("strong");
+  identity.textContent = tokenIdentity(token);
+  const detail = document.createElement("span");
+  detail.textContent = `${token.name || "Unnamed token"} · ${normalizedLaunchpad(token)}`;
+  const mint = document.createElement("small");
+  mint.textContent = token.mint;
+  button.append(identity, detail);
+  if (showMetrics) {
+    const metrics = document.createElement("span");
+    metrics.className = "token-choice-metrics";
+    metrics.textContent = `MC ${money(token.market_cap)} · LIQ ${money(token.liquidity)} · ${count(token.holders)} holders`;
+    button.append(metrics);
+  }
+  button.append(mint);
+  button.addEventListener("click", () => {
+    if (!selectToken(token.mint)) return;
+    tokenSearchInput.value = tokenIdentity(token);
+    closeTokenSearch();
+  });
+  return button;
+}
+
+function renderTokenSearch() {
+  const query = tokenSearchInput.value.trim();
+  tokenSearchResults.replaceChildren();
+  if (!query) {
+    closeTokenSearch();
+    return [];
+  }
+
+  const matches = state.searchTokens(query);
+  if (!matches.length) {
+    const empty = document.createElement("li");
+    empty.className = "token-search-empty";
+    empty.textContent = "No active token found";
+    tokenSearchResults.append(empty);
+  } else {
+    for (const token of matches) {
+      const item = document.createElement("li");
+      item.append(tokenChoice(token, "token-search-choice", true));
+      tokenSearchResults.append(item);
+    }
+  }
+
+  tokenSearchResults.classList.remove("hidden");
+  tokenSearchInput.setAttribute("aria-expanded", "true");
+  return matches;
+}
+
+function renderAnalystTokens(tool) {
+  const trace = document.createElement("span");
+  trace.textContent = `query_tokens · ${integerFormat.format(tool.matched_count)} matched · ${integerFormat.format(tool.returned_count)} returned`;
+  analystSources.append(trace);
+
+  if (!tool.tokens.length) return;
+  const list = document.createElement("div");
+  list.className = "analyst-token-list";
+  for (const token of tool.tokens) {
+    list.append(tokenChoice(token, "analyst-token-choice"));
+  }
+  analystSources.append(list);
+}
+
 function renderAnalyst(payload) {
   analystAnswer.textContent = payload.answer;
   analystSources.replaceChildren();
 
   if (payload.scope === "current_data") {
     if (payload.tool) {
-      analystSources.textContent = `query_tokens · ${integerFormat.format(payload.tool.matched_count)} matched · ${integerFormat.format(payload.tool.returned_count)} returned`;
+      renderAnalystTokens(payload.tool);
       analystStatus.textContent = "Current data query completed";
     } else {
       renderCapabilities(payload.capabilities);
@@ -211,11 +292,13 @@ function pushFeed(event) {
 let universe = null;
 
 function selectToken(mint) {
+  const token = state.token(mint);
+  if (!token) return false;
   state.select(mint);
   universe.setSelectedMint(mint);
-  const token = state.token(mint);
   renderDetail(token);
   syncAnalyst(analystScope === "web");
+  return true;
 }
 
 function applyDelta(events) {
@@ -225,6 +308,7 @@ function applyDelta(events) {
     if (state.selectedMint === event.token?.mint) renderDetail(state.selectedToken());
   }
   universe.applyEvents(events);
+  if (!tokenSearchResults.classList.contains("hidden")) renderTokenSearch();
   updateStats();
 }
 
@@ -238,6 +322,7 @@ async function bootstrap() {
   const payload = await response.json();
   state.load(payload.tokens);
   universe.load(payload.tokens);
+  tokenSearchInput.disabled = false;
   updateStats();
   syncAnalyst(false);
 
@@ -294,6 +379,23 @@ for (const button of analystModes) {
     syncAnalyst();
   });
 }
+
+tokenSearchInput.addEventListener("input", renderTokenSearch);
+tokenSearchInput.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  tokenSearchInput.value = "";
+  closeTokenSearch();
+});
+tokenSearchForm.addEventListener("submit", event => {
+  event.preventDefault();
+  const [first] = renderTokenSearch();
+  if (!first || !selectToken(first.mint)) return;
+  tokenSearchInput.value = tokenIdentity(first);
+  closeTokenSearch();
+});
+document.addEventListener("pointerdown", event => {
+  if (!tokenSearch.contains(event.target)) closeTokenSearch();
+});
 
 setInterval(updateStats, 1000);
 
