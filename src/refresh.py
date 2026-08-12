@@ -11,6 +11,7 @@ import httpx
 
 from config import Settings
 from repository import MintRepository
+from telemetry import TelemetryEmitter
 
 BATCH_SIZE = 100
 CACHE_REFRESH_SECONDS = 5.0
@@ -94,8 +95,13 @@ class WriteQueue:
     - `_last_polled_at` is the newest successful poll of that version.
     """
 
-    def __init__(self, repository: MintRepository) -> None:
+    def __init__(
+        self,
+        repository: MintRepository,
+        telemetry: TelemetryEmitter | None = None,
+    ) -> None:
         self._repository = repository
+        self._telemetry = telemetry
         self._queue: asyncio.Queue[tuple[list[dict], datetime]] = asyncio.Queue(
             maxsize=QUEUE_MAX_SIZE
         )
@@ -148,6 +154,7 @@ class WriteQueue:
                         version_rows,
                     )
                     write_seconds = time.monotonic() - write_started
+                    queue_size = self._queue.qsize()
 
                     print(
                         f"[write_queue] polls={buffered_polls} "
@@ -155,8 +162,17 @@ class WriteQueue:
                         f"new_mints={summary.new_mints} "
                         f"new_snapshots={summary.new_snapshots} "
                         f"write_ms={write_seconds * 1000:.0f} "
-                        f"qsize={self._queue.qsize()}"
+                        f"qsize={queue_size}"
                     )
+                    if self._telemetry is not None:
+                        self._telemetry.emit(
+                            "search_flush",
+                            polled_tokens=buffered_polls,
+                            source_versions=len(version_rows),
+                            new_snapshots=summary.new_snapshots,
+                            write_ms=round(write_seconds * 1000),
+                            queue_size=queue_size,
+                        )
                 except Exception:
                     traceback.print_exc()
 
@@ -172,6 +188,7 @@ async def key_lane(
     settings: Settings,
     writer: WriteQueue,
     startup_delay_seconds: float,
+    telemetry: TelemetryEmitter | None = None,
 ) -> None:
     request_times: deque[float] = deque()
 
@@ -202,6 +219,7 @@ async def key_lane(
                         params={"query": ",".join(batch)},
                         headers={"x-api-key": api_key},
                     )
+                    latency_ms = (time.monotonic() - request_started) * 1000
 
                     if response.status_code == 200:
                         tokens = response.json()
@@ -210,10 +228,6 @@ async def key_lane(
                             datetime.now(timezone.utc),
                         )
 
-                        latency_ms = (
-                            time.monotonic() - request_started
-                        ) * 1000
-
                         print(
                             f"[{label}] "
                             f"requested={len(batch)} "
@@ -221,6 +235,16 @@ async def key_lane(
                             f"rpm60={len(request_times)} "
                             f"latency={latency_ms:.0f}ms"
                         )
+                        if telemetry is not None:
+                            telemetry.emit(
+                                "search_lane_tick",
+                                lane=label,
+                                status=response.status_code,
+                                requested=len(batch),
+                                received=len(tokens),
+                                rpm60=len(request_times),
+                                latency_ms=round(latency_ms),
+                            )
                     else:
                         retry_after = response.headers.get("retry-after", "?")
                         print(
@@ -230,6 +254,16 @@ async def key_lane(
                             f"retry_after={retry_after} "
                             f"body={response.text[:200]!r}"
                         )
+                        if telemetry is not None:
+                            telemetry.emit(
+                                "search_lane_tick",
+                                lane=label,
+                                status=response.status_code,
+                                requested=len(batch),
+                                received=0,
+                                rpm60=len(request_times),
+                                latency_ms=round(latency_ms),
+                            )
 
             except Exception:
                 traceback.print_exc()
@@ -250,6 +284,7 @@ async def refresh_system(
     repository: MintRepository,
     priority: int = 1,
     api_keys: Sequence[str] | None = None,
+    telemetry: TelemetryEmitter | None = None,
 ) -> None:
     keys = list(
         settings.jupiter_search_api_keys
@@ -261,7 +296,7 @@ async def refresh_system(
 
     cache = MintCache(repository, priority)
     cursor = BatchCursor(cache)
-    writer = WriteQueue(repository)
+    writer = WriteQueue(repository, telemetry=telemetry)
 
     # Same throughput as starting all keys at once, but spread evenly over one
     # per-key interval. With K keys the aggregate request spacing approaches
@@ -276,6 +311,7 @@ async def refresh_system(
             settings,
             writer,
             startup_delay_seconds=i * phase_step,
+            telemetry=telemetry,
         )
         for i, key in enumerate(keys)
     ]
