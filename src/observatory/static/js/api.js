@@ -29,10 +29,18 @@ export async function requestAnalyst(body) {
   return readJson(response, "Analyst request failed");
 }
 
-export function connectUniverseStream({ onOpen, onError, onDelta }) {
+export function connectUniverseStream({ onOpen, onError, onSnapshot, onDelta }) {
   const stream = new EventSource("/api/events");
   stream.addEventListener("open", () => onOpen?.());
   stream.addEventListener("error", event => onError?.(event));
+  stream.addEventListener("universe_snapshot", message => {
+    try {
+      const snapshot = JSON.parse(message.data);
+      onSnapshot?.(snapshot);
+    } catch (error) {
+      console.warn("Invalid universe snapshot", error);
+    }
+  });
   stream.addEventListener("universe_delta", message => {
     try {
       const delta = JSON.parse(message.data);

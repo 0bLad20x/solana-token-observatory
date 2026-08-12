@@ -4,6 +4,11 @@ export class ActivityTracker {
     this.volumeEvents = [];
   }
 
+  reset() {
+    this.recentChanges = [];
+    this.volumeEvents = [];
+  }
+
   applyEvent(event, timestamp = Date.now()) {
     const token = event?.token;
     if (!token?.mint) return;
