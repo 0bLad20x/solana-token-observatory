@@ -4,7 +4,7 @@
 
 `jupiter-data-transform` trennt operative Datensammlung, persistierte Beobachtung, operative Lifecycle-Entscheidungen und read-only Downstream-Nutzung.
 
-Der Core soll Solana-Mints entdecken, deren Jupiter-Zustände effizient beobachten, tatsächlich beobachtete Source-Versionen nachvollziehbar persistieren und die aktive Population anhand eines expliziten Lifecycle-Contracts reduzieren.
+Der operative Core entdeckt Solana-Mints, beobachtet deren Jupiter-Zustände, persistiert tatsächlich beobachtete Source-Versionen und reduziert die aktive Population anhand eines expliziten Lifecycle-Contracts. Observatory, Analyst und Research lesen diese Daten, besitzen aber keine operative Mutation-Authority.
 
 ## Systemübersicht
 
@@ -25,17 +25,16 @@ lifecycle_queries.py
 lifecycle_rules.py
         ↓
 tracking_enabled=false
+        ↓
+READ-ONLY DOWNSTREAM
+Observatory / Analyst / Research
 ```
-
-Read-only Consumer wie Research, Frontend oder spätere LLM-Tools dürfen diese persistierten Daten lesen, gehören aber nicht zur operativen Mutationskette.
 
 ## 1. Datenbank-Infrastruktur
 
-`src/database.py` besitzt den process-wide PostgreSQL-ConnectionPool.
+`src/database.py` besitzt den process-wide PostgreSQL-ConnectionPool. Persistente Schemaänderungen erfolgen ausschließlich explizit in `src/schema.sql`.
 
-Diese Schicht stellt Verbindungen bereit, enthält aber keine fachliche Discovery-, Collector-, Lifecycle- oder Downstream-Logik.
-
-Persistente Schemaänderungen erfolgen ausschließlich explizit in `src/schema.sql`.
+Diese Schicht stellt Verbindungen bereit, enthält aber keine Discovery-, Collector-, Lifecycle- oder Downstream-Fachlogik.
 
 ## 2. Discovery
 
@@ -46,35 +45,33 @@ Persistente Schemaänderungen erfolgen ausschließlich explizit in `src/schema.s
 - Meteora DAMM v2;
 - Meteora DLMM.
 
-Discovery liefert Kandidaten-Mints. Sie bewertet keine wirtschaftliche Qualität und trifft keine Lifecycle-Entscheidungen.
+Discovery liefert Kandidaten-Mints. Sie bewertet keine wirtschaftliche Qualität und trifft keine Lifecycle-Entscheidungen. Neue Mints werden über `MintRepository` in die zentrale Registry aufgenommen.
 
-Neue Mints werden über `MintRepository` in die zentrale Registry aufgenommen.
+**Discovery Provenance als dauerhaft nutzbare Relation ist derzeit kein abgeschlossener Architekturvertrag.** Eine spätere Darstellung von `Discovery Source -> Mint -> Observation` darf deshalb erst implementiert werden, wenn diese Relation tatsächlich persistiert oder anderweitig read-only beweisbar ist.
 
 ## 3. Operativer Jupiter-Refresh
 
-`src/refresh.py` überwacht aktive Mints einer Priority.
-
-Mehrere API-Key-Lanes arbeiten unabhängig mit Jupiter Search. Ein Request kann maximal 100 Mint-Adressen enthalten. Die aktive Population wird über einen gemeinsamen Batch-Cursor verteilt.
+`src/refresh.py` überwacht aktive Mints einer Priority. Mehrere API-Key-Lanes arbeiten mit Jupiter Search; ein Request umfasst maximal 100 Mint-Adressen.
 
 Netzwerk-I/O und blockierende PostgreSQL-Writes sind getrennt. Erfolgreiche Search-Antworten werden über die `WriteQueue` an `MintRepository` übergeben.
 
-Die Queue darf identische `(mint, updatedAt)`-Antworten innerhalb ihres Buffers zusammenfassen, aber keine unterschiedlichen Jupiter-Source-Versionen eines Mints verwerfen.
+Die Queue darf identische `(mint, updatedAt)`-Antworten innerhalb ihres Buffers zusammenfassen, aber keine unterschiedlichen tatsächlich beobachteten Jupiter-Source-Versionen eines Mints verwerfen.
 
 ## 4. Persistenz und Beobachtungssemantik
 
-`src/repository.py` besitzt Collector-Persistenz und die ausdrücklich erlaubten operativen Datenbank-Mutationen des Core.
+`src/repository.py` besitzt Collector-Persistenz und ausdrücklich erlaubte operative Datenbank-Mutationen.
 
 ### `mints`
 
-`mints` ist die operative Registry. Sie hält langlebige Mint-Fakten sowie den aktuellen Collector- und Lifecycle-Zustand:
+Die operative Registry hält langlebige Mint-Fakten sowie Collector-/Lifecycle-Zustand:
 
 - `first_observed_at`: erste vom Collector persistierte Jupiter-Source-Version;
 - `last_polled_at`: letzter erfolgreicher Search-Poll;
 - `last_changed_at`: lokale Beobachtungszeit der jüngsten neuen Source-Version;
 - `source_updated_at`: jüngster persistierter Jupiter-`updatedAt`-Wert;
-- `tracking_enabled`: ob der Mint operativ weiter überwacht wird;
-- `disabled_at`: Zeitpunkt der operativen Lifecycle-Deaktivierung;
-- `disabled_reason`: Lifecycle-Reason der Deaktivierung.
+- `tracking_enabled`: ob der Mint weiter beobachtet wird;
+- `disabled_at`: Zeitpunkt einer Lifecycle-Deaktivierung;
+- `disabled_reason`: persistierter Disable-Reason.
 
 ### `mint_snapshots`
 
@@ -88,43 +85,21 @@ Jupiter Search erfolgreich
         │      -> kein redundanter Snapshot
         │
         └─ neue updatedAt-Version(en)
-               -> jede beobachtete neue Version persistieren
+               -> jede beobachtete Version persistieren
                -> source_updated_at fortschreiben
                -> last_changed_at aktualisieren
                -> last_polled_at fortschreiben
 ```
 
-Daraus folgt eine harte Interpretationsgrenze:
+**Snapshot-Abstände sind keine Poll-Abstände.** Fehlende Zwischen-Snapshots bedeuten nicht, dass der Collector nicht gepollt hat.
 
-**Snapshot-Abstände sind keine Poll-Abstände.**
-
-Fehlende Zwischen-Snapshots bedeuten nicht automatisch, dass der Collector nicht gepollt hat.
-
-`mint_snapshots` ist kein unbegrenztes Langzeitarchiv. Die Tabelle ist ein 24-Stunden-Raw-Working-Buffer. `src/maintenance.py` führt beim Start des normalen Collectors und danach stündlich gebatchte Cleanup-Läufe aus; `MintRepository.delete_expired_snapshots()` löscht ausschließlich Rows mit `observed_at` vor dem globalen 24h-Cutoff. Es gibt keine per-Mint- oder Lifecycle-Sonderlogik in der Retention.
-
-Für den globalen Retention-Cutoff existiert zusätzlich zum Primärschlüssel `(mint, observed_at)` ein Index mit `observed_at` als führendem Key.
+`mint_snapshots` ist ein 24-Stunden-Raw-Working-Buffer und kein unbegrenztes Langzeitarchiv. `src/maintenance.py` führt beim Collector-Start und danach stündlich gebatchte Cleanup-Läufe aus. Gelöscht werden ausschließlich Rows vor dem globalen `observed_at`-Cutoff; Retention besitzt keine per-Mint- oder Lifecycle-Sonderlogik.
 
 ## 5. Operational Lifecycle
 
-Der operative Lifecycle ist ein eigenständiger Pfad und darf `tracking_enabled=false` setzen.
+Der operative Lifecycle ist ein eigenständiger Mutationspfad und darf `tracking_enabled=false` setzen.
 
-Die fachliche Semantik von Rule 1–5 ist in [`LIFECYCLE_CONTRACT.md`](LIFECYCLE_CONTRACT.md) als Contract v0.1 eingefroren. Änderungen an Thresholds, Zeitfenstern, T0, Evidence-Auswahl, Missing-Semantik, Reasons oder Regelreihenfolge sind Contract-Änderungen und keine bloßen Refactorings.
-
-Die Verantwortung ist auf drei Module verteilt:
-
-### `src/lifecycle_rules.py`
-
-Enthält reine Regelentscheidungen und Thresholds. Keine DB-Zugriffe und keine Writes.
-
-### `src/lifecycle_queries.py`
-
-Liest die für Lifecycle-Regeln benötigte Evidence aus PostgreSQL. Diese Schicht führt keine Mint-Mutationen aus.
-
-### `src/lifecycle_clean.py`
-
-Orchestriert Regelreihenfolge, Rule-1-Current-State-Freshness und Betriebsmodus. Ohne `--apply` ist der Lauf ein Dry-Run.
-
-Operative Deaktivierungen laufen ausschließlich über `MintRepository.disable_mints()`.
+Die fachliche Semantik von Rule 1–5 ist in [`LIFECYCLE_CONTRACT.md`](LIFECYCLE_CONTRACT.md) als Contract v0.1 eingefroren. Änderungen an Thresholds, Zeitfenstern, T0, Evidence-Auswahl, Missing-Semantik, Reasons oder Regelreihenfolge sind Contract-Änderungen.
 
 ```text
 LifecycleQueries
@@ -140,67 +115,229 @@ tracking_enabled=false
 + disabled_reason
 ```
 
-Vor einer reinen Lifecycle-Simplification wird die aktuelle Implementierung mit `tools/verify_lifecycle_contract_v01.py` gegen die eingefrorene v0.1-Referenz auf demselben PostgreSQL-Snapshot verglichen.
+- `src/lifecycle_queries.py`: read-only Lifecycle-Evidence;
+- `src/lifecycle_rules.py`: reine Regelentscheidungen;
+- `src/lifecycle_clean.py`: Orchestrierung und Dry-Run/Apply-Modus;
+- `MintRepository.disable_mints()`: operative Deaktivierung.
 
-## 6. Read-only Downstream
+Vor einer reinen Lifecycle-Simplification vergleicht `tools/verify_lifecycle_contract_v01.py` aktuelle Implementierung und eingefrorene v0.1-Referenz auf demselben PostgreSQL-Snapshot.
 
-Downstream-Code darf operative Daten lesen und daraus eigene Projektionen, Visualisierungen oder Analysen erzeugen.
+## 6. Read-only Downstream Boundary
+
+Downstream-Code darf operative Daten lesen und eigene Projektionen, Visualisierungen oder Analysen erzeugen.
 
 Er darf nicht:
 
 - `tracking_enabled` verändern;
 - operative Priority verändern;
-- `lifecycle_rule_state` verändern;
+- Lifecycle-State oder Thresholds verändern;
 - Collector-owned Observation State überschreiben;
-- Research- oder UI-Signale stillschweigend zu Lifecycle-Regeln machen.
+- Research-, UI- oder externe Evidence stillschweigend zu Lifecycle-Regeln machen.
 
-Diese Grenze gilt unabhängig davon, ob der Consumer ein Research-Skript, ein Frontend oder ein späteres LLM-Tool ist.
+Diese Grenze gilt für Research-Skripte, Browser, Analyst und externe Evidence-Adapter gleichermaßen.
 
-`tools/inspect_token_history.py` ist der aktuelle read-only Research-Consumer für WP5. Er projiziert aus dem maximal 24h großen Raw-Buffer nur den vereinbarten LLM-Grundvertrag und erzeugt genau einen zeitlichen Kontext: bei höchstens sechs Stunden verfügbarer History 1-Minuten-Buckets, sonst 5-Minuten-Buckets. Jede Bucket-Metrik enthält die tatsächlich beobachteten Werte innerhalb des Fensters; es gibt kein Zero-Fill und keine Interpolation.
+## 7. Observatory Functional Core
 
-Der Inspector ergänzt diese Serie um einen deterministischen `summary`-Block. Er beschreibt unter anderem Market-Cap-Verlauf und Drawdown, Liquidity einschließlich `liquidity / market_cap`, Holder-Entwicklung, Ownership-Konzentration, rollierende `stats1h`-Aktivität und Organic Evidence. Rollierende `stats1h`-Werte werden nicht über Buckets summiert; Median- und Ratio-Metriken verwenden zeitlich gleichmäßig verteilte Bucket-Werte. `summary` ist Derived Analysis und kein Ersatz für die historische Evidence.
+Das Observatory läuft als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/`.
 
-Eine spätere LLM-Integration muss deshalb im System Prompt ausdrücklich verlangen, dass das Modell `temporal_history` selbst prüft und den Summary nur zur Orientierung verwendet. Ein Urteil ausschließlich aus dem Summary ist nicht Teil des Contracts. `llm_context.json` und `report.json` sind weiterhin Research-Evidence und noch kein produktiver Observatory-Endpunkt.
+Der Functional Core ist nach der Konsolidierung in Issue #20 / PR #21 und der finalen Synchronisationskorrektur in PR #24 abgeschlossen.
 
-Das Observatory ist als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/` implementiert. Es liest aktuelle Projektionen und SSE-Deltas, verändert aber keine Core-Dateien oder operativen Zustände.
+```text
+PostgreSQL
+    ↓
+FrontendReader
+    ↓
+Browser IO
+    ↓
+Population State + selected Mint
+    ├── Search
+    ├── Inspector
+    ├── Derived Activity
+    ├── Analyst
+    └── concrete View
+```
 
-`POST /api/analyst` besitzt zwei explizite read-only Scopes:
+### Browser-Verantwortungen
 
-- `web` lädt die bekannte Tokenidentität und ruft Mistrals Conversations API mit genau
-  einem Built-in Web-Search-Tool auf;
-- `current_data` lässt Mistral eine freie Frage in genau einen strukturierten
-  `query_tokens`-Aufruf übersetzen.
+```text
+static/js/
+├── app.js                 composition / wiring
+├── api.js                 HTTP + SSE
+├── state.js               population + selection + event application
+├── search.js              pure search/ranking
+├── activity.js            derived live signals
+├── token-ui.js            Search + Inspector DOM
+├── activity-ui.js         Activity DOM
+├── analyst-ui.js          Analyst interaction
+└── views/
+    └── simple-token-view.js
+```
 
-`src/observatory/tools.py` besitzt den realen internen Tool-Vertrag. `query_tokens`
-filtert und sortiert ausschließlich die aktuelle aktive `FrontendReader`-Projektion. Die
-zentrale Feldbeschreibung erzeugt Tool-Schema, LLM-Vokabular und den sichtbaren
-Capabilities-Hinweis. Die kanonischen Launchpad-Werte werden pro Anfrage aus der aktiven
-Population ergänzt. Der Default sind fünf und das harte Maximum zwanzig Ergebnisse. Das
-Modell erhält weder SQL noch Datenbankzugriff und darf kein fehlendes Feld durch eine
-andere Metrik ersetzen. Tool Calls und Webrecherche bleiben read-only, werden nicht
-persistiert und besitzen keine Lifecycle-Authority.
+`state.js` besitzt die Domain-Population und `selectedMint`. Search, Activity und Presentation State gehören nicht hinein.
 
-Token Search läuft ausschließlich über die bereits geladene aktuelle
-`/api/universe`-Projektion. Mint, Symbol und Name werden im bestehenden Frontend-State
-durchsucht. Direkte Suchtreffer und `query_tokens`-Treffer verwenden dieselbe Selection;
-diese aktualisiert Inspector und Web-Research-Kontext, ohne operativen State zu ändern.
+Die aktuelle `SimpleTokenView` ist ein austauschbarer funktionaler Proof und kein Designvertrag. Presentation-Werte wie `x/y`, Radius, Farbe, Opacity, D3/Pixi-State oder Clusterpositionen sind keine Functional-Core-Truth.
 
-Der SSE-Vertrag enthält für `token_updated` neben den bestehenden Felddeltas auch die
-Änderung von `volume_5m`. `state.js` rekonstruiert daraus die beobachteten Vorher-/Nachher-
-Werte und hält ausschließlich die letzten 60 Sekunden im Browser. Pro Mint werden diese
-Beobachtungen aggregiert und nach der positiven Zunahme von
-`volume_5m / market_cap` gerankt. Das Ergebnis ist eine flüchtige read-only Projektion;
-es ist weder persistierte Historie noch eine operative Metrik.
+### Selection
 
-## 7. Generierte Artefakte
+Die Selection ist ausschließlich der Mint. Search, View, Activity und Analyst dürfen Selection anfordern; keiner dieser Consumer besitzt sie.
 
-Lokale Runtime- oder Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
+Ein kürzlich retired Token kann als selected-token Context erhalten bleiben, ohne wieder Teil der aktiven Population zu werden.
 
-Dauerhafte Regeln und Verträge gehören in Code oder die dafür benannte Dokumentations-Authority.
+## 8. Observatory Synchronisationsvertrag
 
-## 8. Nächste Architekturgrenze
+`/api/events` besitzt eine explizite Synchronisationsgrenze:
 
-Die aktuelle Foundation ist:
+```text
+connect / reconnect
+      ↓
+universe_snapshot
+      ↓
+universe_delta*
+```
+
+Jede SSE-Verbindung sendet zuerst einen vollständigen `universe_snapshot`. **Genau derselbe Snapshot ist die Server-Baseline für nachfolgende Deltas.** Damit gibt es keine undefinierte Lücke zwischen Browserzustand und Stream-Baseline.
+
+Deltas verwenden:
+
+```text
+token_added
+token_updated
+token_retired
+```
+
+`src/observatory/delta.py` besitzt den kanonischen numerischen Change-Vertrag für:
+
+```text
+market_cap
+liquidity
+holders
+trades_5m
+traders_5m
+volume_5m
+```
+
+Fingerprint und numerische Changes werden aus demselben Contract abgeleitet. Missing bleibt unknown.
+
+`GET /api/token/{mint}` ist ein Selected-Detail-Read. Seine Antwort wird **nicht** als zweiter beliebiger Update-Pfad in die Population geschrieben.
+
+Der heutige SSE-Producer erzeugt Deltas weiterhin durch per-Connection Snapshot/Diff-Polling. Das ist bewusst akzeptierte Skalierungsschuld, kein dauerhafter Event-Infrastrukturvertrag. Ein gemeinsamer Broadcaster oder Event Replay wird erst eingeführt, wenn reale Messungen oder neue Anforderungen ihn rechtfertigen.
+
+## 9. Observatory Backend-Endpunkte
+
+```text
+GET  /api/health
+GET  /api/universe
+GET  /api/token/{mint}
+GET  /api/events
+GET  /api/evidence/rugcheck/{mint}
+POST /api/analyst
+```
+
+`FrontendReader` verwendet read-only PostgreSQL-Verbindungen. Observatory-Endpunkte besitzen keine operative Mutation.
+
+## 10. Analyst und Model Policy
+
+Der Analyst besitzt vier explizite Use Cases. Modellwahl ist serverseitige Use-Case-Policy und keine UI-Verantwortung.
+
+Aktuelle Defaults:
+
+```text
+current_data -> FAST   -> ministral-14b-latest
+web          -> STRONG -> mistral-large-latest
+temporal     -> STRONG -> mistral-large-latest
+rugcheck     -> STRONG -> mistral-large-latest
+```
+
+Konfiguration:
+
+```text
+MISTRAL_MODEL_FAST
+MISTRAL_MODEL_STRONG
+MISTRAL_WEB_SEARCH_MODE
+```
+
+### Current Data
+
+```text
+free population question
+      ↓
+FAST model
+      ↓
+bounded query_tokens arguments
+      ↓
+current active rows
+      ↓
+grounded answer
+```
+
+`src/observatory/tools.py` besitzt den internen Tool-Vertrag. Das Modell erhält weder SQL noch Datenbankzugriff. Unsupported oder mehrdeutige Fragen dürfen keine nicht vorhandene Metrik durch einen Proxy ersetzen.
+
+Der aktuelle FAST-Default `ministral-14b-latest` wurde gegen den realen `query_tokens`-Regressionsvertrag ausgewählt; der Tool-Vertrag wurde dafür nicht abgeschwächt.
+
+### Web Research
+
+```text
+selected exact Mint + question
+      ↓
+Mistral Web Search
+      ↓
+answer + external references
+```
+
+Exact Mint ist die Identitätsgrenze. Web-Ergebnisse bleiben externe Evidence.
+
+### Temporal Summary
+
+```text
+selected exact Mint
+      ↓
+deterministic <=24h summary
+      ↓
+ONE STRONG-model request
+      ↓
+interpretation
+```
+
+Der produktive Temporal-Pfad sendet keine Raw-History und keine 1m/5m/15m-Time-Buckets an das LLM. `tools/inspect_token_history.py` bleibt ein read-only Research-/Diagnosewerkzeug und ist nicht der produktive Analyst-Vertrag.
+
+### RugCheck
+
+```text
+selected exact Mint
+      ↓
+direct RugCheck Token Report fetch
+      ↓
+deterministic rugcheck_analysis_v4 projection
+      ↓
+ONE STRONG-model request
+      ↓
+grounded safety-evidence interpretation
+```
+
+Der Fetch selbst benötigt keinen LLM Tool Call. Der vollständige Provider-Report bleibt am direkten Evidence-Endpunkt verfügbar. Die LLM-Projektion reduziert große repetitive Holder-/Market-Strukturen auf definierte Safety-Metadaten und sendet keine Wallet-Adressen.
+
+RugCheck bleibt externe Provider-Evidence. Es gibt keine Persistence, keinen internen Safety Score und keine Lifecycle-Mutation.
+
+## 11. Truth Layers
+
+Das Observatory unterscheidet vier Ebenen:
+
+1. **System Truth:** persistierte oder direkt gelesene operative Fakten.
+2. **Deterministic Analysis:** reproduzierbare Derived Values wie Rankings, Activity oder Temporal Summary.
+3. **External Evidence:** Web Search und RugCheck.
+4. **LLM Interpretation:** probabilistische Interpretation ohne operative Authority.
+
+Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden.
+
+## 12. Generierte Artefakte
+
+Lokale oder eingecheckte Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
+
+Dauerhafte Regeln und Verträge gehören in Code oder die benannte Dokumentations-Authority. Große historische Analysis-Artefakte werden separat bewertet; dieser Architekturvertrag erklärt sie nicht automatisch zu dauerhaft benötigten Repository-Bestandteilen.
+
+## 13. Aktuelle Architekturgrenze
+
+Die operative und funktionale Foundation steht:
 
 ```text
 Discovery
@@ -212,32 +349,42 @@ Monitoring
 Lifecycle v0.1
    ↓
 Survivor Population
+   ↓
+Read-only Functional Observatory
+   ├── Current Data
+   ├── Web Evidence
+   ├── Temporal Summary
+   └── RugCheck Evidence
 ```
 
-Die aktive nächste Arbeit ist weiterhin WP5. Der History Inspector ist dafür ausschließlich ein empirisches Research-Werkzeug und legt noch keinen produktiven Temporal-Projection- oder LLM-Tool-Vertrag fest. Spatial-Arbeit, persistierte OHLC/Time-Buckets, Prognosen und operative Mutationen bleiben davon getrennt.
+Vor neuem Visual-/Spatial-Design wird entschieden, ob noch fachliche Evidence-/Relation-Grenzen fehlen. Kandidaten sind insbesondere Discovery Provenance, bounded Multi-Mint Comparison oder ein späterer Unified AI Router. Diese Kandidaten sind **keine implizite Implementierungsfreigabe**.
 
-Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
+Issue #9 bleibt der separate Visual-/Spatial-Research-Schritt und beginnt erst mit einer konkreten analytischen Frage und einem expliziten Data-to-Visual-Vertrag.
 
-## 9. Authority-Modell
+Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
+
+## 14. Authority-Modell
 
 | Frage | Authority |
 |---|---|
 | Was ist das Projekt und wie wird es benutzt? | `README.md` |
 | Wie fließen Daten und wer besitzt welche Verantwortung? | `docs/architecture.md` |
 | Wie funktioniert der operative Lifecycle fachlich exakt? | `docs/LIFECYCLE_CONTRACT.md` |
-| Welche Produktgrenzen gelten für das Observatory? | `docs/FRONTEND_OBSERVATORY.md` |
-| Wie funktioniert der aktive V3-Spatial-Vertrag? | `docs/FRONTEND_SPATIAL_MODEL.md` |
-| Wo steht das Projekt und was ist als Nächstes aktiv? | `docs/MILESTONES.md` |
+| Welche funktionalen Produkt-/Truth-Grenzen gelten für das Observatory? | `docs/FRONTEND_OBSERVATORY.md` |
+| Wo steht das Projekt und welche Entscheidung ist als Nächstes offen? | `docs/MILESTONES.md` |
 | Welche Regeln gelten für Repository-Änderungen? | `AGENTS.md` |
 
-## 10. Architekturprinzipien
+## 15. Architekturprinzipien
 
-1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Datenverantwortung.
-2. **Poll und Snapshot sind verschiedene Ereignisse.** Zeitabhängige Analysen dürfen diese Semantik nicht vermischen.
-3. **Source-Versionen gehen nicht durch Writer-Coalescing verloren.** Unterschiedliche beobachtete `updatedAt`-Versionen bleiben erhalten.
-4. **Raw-Auflösung ist temporär.** `mint_snapshots` ist auf die letzten 24 Stunden begrenzt.
+1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Domain-Wahrheit.
+2. **Poll und Snapshot sind verschiedene Ereignisse.**
+3. **Source-Versionen gehen nicht durch Writer-Coalescing verloren.**
+4. **Raw-Auflösung ist temporär.** `mint_snapshots` ist auf 24 Stunden begrenzt.
 5. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
 6. **Lifecycle-Semantik ist versioniert.** Retention ist Storage-Maintenance und keine Lifecycle-Regel.
-7. **Downstream ist read-only gegenüber operativem State.** Frontend, Research und spätere Tools lesen; Lifecycle mutiert.
-8. **Generierte Daten sind Evidence, nicht Architektur.**
-9. **Roadmap ist keine Implementation.** `MILESTONES.md` beschreibt Richtung, nicht bereits vorhandenes Verhalten.
+7. **Downstream ist read-only gegenüber operativem State.**
+8. **Presentation ist keine Functional-Core-Truth.**
+9. **External Evidence ist keine Jupiter- oder Lifecycle-Truth.**
+10. **LLM-Interpretation besitzt keine operative Authority.**
+11. **Generierte Daten sind Evidence, nicht Architektur.**
+12. **Roadmap ist keine Implementation.**
