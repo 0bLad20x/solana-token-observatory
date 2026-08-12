@@ -108,35 +108,57 @@ korrekt gerankt werden, Mehrfachupdates pro Mint zu einer Zeile führen und Eint
 Der Feed verwendet dieselbe Selection wie Suche und Bubble. Der Slice wurde nach realer
 Browservalidierung als PR #13 gemergt.
 
-## Aktiv — WP5 Recent Token Context
+## Aktiv — WP5 Temporal Token Context
 
-WP5 beantwortet für den ausgewählten Token genau eine neue Art von Frage:
+WP5 untersucht zuerst den kleinsten belastbaren LLM-Kontext für die Frage:
 
 ```text
-selected Mint
-      ↓
-five latest immutable snapshots
-      ↓
-bounded get_token_snapshots Tool Call
-      ↓
-grounded answer about recent change
+Wie ist dieser Token in seinem verfügbaren Beobachtungsfenster
+zu seinem aktuellen Zustand gekommen?
 ```
 
-Die fünf Snapshots enthalten ausschließlich Zeitstempel, Market Cap, Liquidity, Holders,
-Trades 5m, Traders 5m und Volume 5m. Missing bleibt Missing. Vollständige Historien,
-freie Zeiträume, Charts, Prognosen und Cross-Token-Vergleiche gehören nicht zu WP5.
+Der aktuelle Research-Proof ist `tools/inspect_token_history.py`:
 
-WP5 ist abgeschlossen, wenn der reale Browser für einen ausgewählten Token genau diesen
-read-only Tool Call ausführt und eine Antwort ausschließlich aus den maximal fünf
-gelieferten Snapshots erzeugt.
+```text
+maximal 24h mint_snapshots
+        ↓
+LLM-Grundvertrag
+        ↓
+History <= 6h -> 1m Buckets
+History >  6h -> 5m Buckets
+        ↓
+deterministic summary + temporal_history
+        ↓
+llm_context.json
+```
+
+Der Summary verdichtet deterministisch Market Cap inklusive Peak und Drawdown,
+Liquidity inklusive `liquidity / market_cap`, Holder-Entwicklung,
+Ownership-Konzentration, rollierende `stats1h`-Aktivität und Organic Evidence. Rolling
+`stats1h` wird nicht über Buckets summiert. Missing bleibt Missing; es gibt kein
+Zero-Fill und keine Interpolation.
+
+Raw-Payload-, unaggregierte Full- und 15m-Repräsentationen gehören nicht mehr zum
+aktiven Proof. Der Inspector erzeugt genau einen LLM-Kontext plus `report.json`.
+
+Wichtige LLM-Grenze für die spätere Integration: Der System Prompt muss das Modell
+zwingen, `temporal_history` selbst zu untersuchen und den Summary nur als deterministische
+Orientierung zu verwenden. Ein Urteil ausschließlich aus dem Summary ist nicht zulässig;
+die Zeitreihe muss die Zusammenfassung bestätigen, qualifizieren oder in Frage stellen.
+
+Der aktuelle Stop ist noch bewusst vor der Observatory-Integration: Zuerst muss der reale
+Inspector-Lauf für lange und kurze Token-Historien zeigen, dass Projektion, Summary und
+Context-Größe sinnvoll sind. Erst danach wird daraus der konkrete read-only WP5-Tool- und
+Browser-Vertrag abgeleitet.
 
 ## Nicht Teil der funktionalen Foundation
 
 - Bubble Map oder Designumbau;
-- vollständige historische Analyse und freie Zeiträume;
+- persistierte OHLC- oder Langzeit-History-Plattform;
 - Bubble-Größe, Pulsieren, Farbe, Layout oder Physics;
 - Price-Change-Proxies;
-- Datenbank-, Collector- oder Lifecycle-Änderungen.
+- Datenbank-, Collector- oder Lifecycle-Änderungen;
+- automatischer Good/Bad-Score als operative Wahrheit.
 
 Nach WP5 ist kein WP6 vorab definiert. Visual Redesign, zusätzliche interne Tools und
 Discovery Provenance werden erst nach der Browservalidierung neu bewertet.

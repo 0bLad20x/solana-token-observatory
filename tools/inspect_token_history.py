@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -15,15 +14,14 @@ import psycopg
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
-BUCKET_MINUTES = (1, 5, 15)
-_MISSING = object()
+ONE_MINUTE_MAX_HISTORY_HOURS = 6.0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Inspect one mint_snapshots history and compare the raw Jupiter "
-            "payload size with the current LLM-oriented temporal contract."
+            "Build one LLM-ready token history context: 1m buckets for up to 6h, "
+            "otherwise 5m buckets, plus a deterministic derived summary."
         )
     )
     parser.add_argument("mint", help="Solana mint address")
@@ -37,98 +35,14 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Output directory. Default: history_inspection_<mint-prefix>",
     )
-    parser.add_argument(
-        "--profile-fields",
-        action="store_true",
-        help=(
-            "Fetch full raw payloads and profile every JSON path. This is "
-            "intentionally expensive and is disabled by default."
-        ),
-    )
-    parser.add_argument(
-        "--write-raw",
-        action="store_true",
-        help="Fetch and write raw.json. Disabled by default because it is large.",
-    )
-    parser.add_argument(
-        "--top-fields",
-        type=int,
-        default=30,
-        help="Number of changing raw payload paths to print with --profile-fields.",
-    )
     return parser.parse_args()
 
 
-def iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
+def iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
-def json_default(value: Any) -> Any:
-    if isinstance(value, datetime):
-        return iso(value)
-    raise TypeError(f"Cannot JSON-serialize {type(value).__name__}")
-
-
-def compact_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        default=json_default,
-    )
-
-
-def size_metrics(value: Any) -> dict[str, int]:
-    text = compact_json(value)
-    return {
-        "characters": len(text),
-        "utf8_bytes": len(text.encode("utf-8")),
-        "estimated_llm_tokens_chars_div_4": math.ceil(len(text) / 4),
-    }
-
-
-def human_bytes(value: int) -> str:
-    size = float(value)
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024 or unit == "GB":
-            return f"{size:.2f} {unit}"
-        size /= 1024
-    return f"{size:.2f} GB"
-
-
-def human_duration(seconds: float | None) -> str:
-    if seconds is None:
-        return "n/a"
-    seconds = max(0.0, seconds)
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes = seconds / 60
-    if minutes < 60:
-        return f"{minutes:.2f}m"
-    hours = minutes / 60
-    if hours < 24:
-        return f"{hours:.2f}h"
-    return f"{hours / 24:.2f}d"
-
-
-def percentile(values: list[float], q: float) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    position = (len(ordered) - 1) * q
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return ordered[lower]
-    weight = position - lower
-    return ordered[lower] * (1 - weight) + ordered[upper] * weight
-
-
-def numeric(value: Any) -> int | float | None:
+def numeric(value: Any) -> float | int | None:
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -139,33 +53,35 @@ def numeric(value: Any) -> int | float | None:
         return None
 
 
+def rounded(value: float | int | None, digits: int = 6) -> float | int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    return round(float(value), digits)
+
+
 def snake_case(value: str) -> str:
     value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
     value = re.sub(r"[^a-zA-Z0-9]+", "_", value)
     return value.strip("_").lower()
 
 
-def value_fingerprint(value: Any) -> str:
-    return hashlib.sha1(compact_json(value).encode("utf-8")).hexdigest()
-
-
-def reduction_pct(raw_bytes: int, candidate_bytes: int) -> float:
-    if raw_bytes <= 0:
-        return 0.0
-    return round((1 - candidate_bytes / raw_bytes) * 100, 4)
-
-
-def write_json(path: Path, value: Any) -> int:
-    path.write_text(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            indent=2,
-            default=json_default,
-        ),
-        encoding="utf-8",
-    )
-    return path.stat().st_size
+def numeric_object(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for key, child in value.items():
+        key = snake_case(str(key))
+        if isinstance(child, dict):
+            nested = numeric_object(child)
+            if nested:
+                result[key] = nested
+        else:
+            number = numeric(child)
+            if number is not None:
+                result[key] = number
+    return result
 
 
 def get_path(value: dict[str, Any], *path: str) -> Any:
@@ -177,7 +93,7 @@ def get_path(value: dict[str, Any], *path: str) -> Any:
     return current
 
 
-def last_non_null(payloads: list[dict[str, Any]], *path: str) -> Any:
+def last_present(payloads: list[dict[str, Any]], *path: str) -> Any:
     for payload in reversed(payloads):
         value = get_path(payload, *path)
         if value is not None:
@@ -185,161 +101,93 @@ def last_non_null(payloads: list[dict[str, Any]], *path: str) -> Any:
     return None
 
 
-def distinct_non_null_values(
-    payloads: list[dict[str, Any]],
-    *path: str,
-) -> dict[str, Any]:
-    fingerprints: dict[str, Any] = {}
-    present = 0
+def distinct_present(payloads: list[dict[str, Any]], *path: str) -> list[Any]:
+    values: list[Any] = []
+    seen: set[str] = set()
     for payload in payloads:
         value = get_path(payload, *path)
         if value is None:
             continue
-        present += 1
-        fingerprints.setdefault(value_fingerprint(value), value)
-    return {
-        "present": present,
-        "missing": len(payloads) - present,
-        "unique_count": len(fingerprints),
-        "values": list(fingerprints.values()),
-    }
-
-
-def compact_dict(value: dict[str, Any]) -> dict[str, Any]:
-    return {key: item for key, item in value.items() if item is not None}
-
-
-def numeric_object(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-
-    result: dict[str, Any] = {}
-    for key, child in value.items():
-        normalized_key = snake_case(str(key))
-        if isinstance(child, dict):
-            nested = numeric_object(child)
-            if nested:
-                result[normalized_key] = nested
-            continue
-        number = numeric(child)
-        if number is not None:
-            result[normalized_key] = number
-    return result
-
-
-HEADER_STABILITY_FIELDS = {
-    "name": ("name",),
-    "symbol": ("symbol",),
-    "dev": ("dev",),
-    "icon": ("icon",),
-    "website": ("website",),
-    "twitter": ("twitter",),
-    "decimals": ("decimals",),
-    "token_program": ("tokenProgram",),
-    "launchpad": ("launchpad",),
-    "created_at": ("createdAt",),
-    "first_pool_id": ("firstPool", "id"),
-    "first_pool_created_at": ("firstPool", "createdAt"),
-    "is_verified": ("isVerified",),
-    "mint_authority": ("mintAuthority",),
-    "freeze_authority": ("freezeAuthority",),
-    "mint_authority_disabled": ("audit", "mintAuthorityDisabled"),
-    "freeze_authority_disabled": ("audit", "freezeAuthorityDisabled"),
-}
+        fingerprint = json.dumps(value, sort_keys=True, ensure_ascii=False)
+        if fingerprint not in seen:
+            seen.add(fingerprint)
+            values.append(value)
+    return values
 
 
 def build_header(
     mint: str,
     payloads: list[dict[str, Any]],
-) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+) -> tuple[dict[str, Any], set[str]]:
     header: dict[str, Any] = {"mint": mint}
-    stability: dict[str, Any] = {}
+    simple_fields = {
+        "name": ("name",),
+        "symbol": ("symbol",),
+        "dev": ("dev",),
+        "icon": ("icon",),
+        "website": ("website",),
+        "twitter": ("twitter",),
+        "decimals": ("decimals",),
+        "token_program": ("tokenProgram",),
+        "launchpad": ("launchpad",),
+        "created_at": ("createdAt",),
+    }
+    for output, path in simple_fields.items():
+        value = last_present(payloads, *path)
+        if value is not None:
+            header[output] = value
 
-    for output_name, path in HEADER_STABILITY_FIELDS.items():
-        stats = distinct_non_null_values(payloads, *path)
-        stability[output_name] = {
-            "present": stats["present"],
-            "missing": stats["missing"],
-            "unique_values": stats["unique_count"],
-            "stable": stats["unique_count"] <= 1,
-        }
-
-    header.update(
-        compact_dict(
-            {
-                "name": last_non_null(payloads, "name"),
-                "symbol": last_non_null(payloads, "symbol"),
-                "dev": last_non_null(payloads, "dev"),
-                "icon": last_non_null(payloads, "icon"),
-                "website": last_non_null(payloads, "website"),
-                "twitter": last_non_null(payloads, "twitter"),
-                "decimals": last_non_null(payloads, "decimals"),
-                "token_program": last_non_null(payloads, "tokenProgram"),
-                "launchpad": last_non_null(payloads, "launchpad"),
-                "created_at": last_non_null(payloads, "createdAt"),
-            }
-        )
-    )
-
-    first_pool = compact_dict(
-        {
-            "id": last_non_null(payloads, "firstPool", "id"),
-            "created_at": last_non_null(payloads, "firstPool", "createdAt"),
-        }
-    )
+    first_pool = {
+        "id": last_present(payloads, "firstPool", "id"),
+        "created_at": last_present(payloads, "firstPool", "createdAt"),
+    }
+    first_pool = {key: value for key, value in first_pool.items() if value is not None}
     if first_pool:
         header["first_pool"] = first_pool
 
-    is_verified = last_non_null(payloads, "isVerified")
-    if is_verified is not None:
-        header["verification"] = {"is_verified": is_verified}
+    verified = last_present(payloads, "isVerified")
+    if verified is not None:
+        header["verification"] = {"is_verified": verified}
 
-    authorities = compact_dict(
-        {
-            "mint_authority": last_non_null(payloads, "mintAuthority"),
-            "freeze_authority": last_non_null(payloads, "freezeAuthority"),
-            "mint_authority_disabled": last_non_null(
-                payloads, "audit", "mintAuthorityDisabled"
-            ),
-            "freeze_authority_disabled": last_non_null(
-                payloads, "audit", "freezeAuthorityDisabled"
-            ),
-        }
-    )
+    authorities = {
+        "mint_authority": last_present(payloads, "mintAuthority"),
+        "freeze_authority": last_present(payloads, "freezeAuthority"),
+        "mint_authority_disabled": last_present(
+            payloads, "audit", "mintAuthorityDisabled"
+        ),
+        "freeze_authority_disabled": last_present(
+            payloads, "audit", "freezeAuthorityDisabled"
+        ),
+    }
+    authorities = {
+        key: value for key, value in authorities.items() if value is not None
+    }
     if authorities:
         header["authorities"] = authorities
 
     dynamic_supply: set[str] = set()
     constant_supply: dict[str, Any] = {}
-    for output_name, path in {
+    for output, path in {
         "circulating": ("circSupply",),
         "total": ("totalSupply",),
     }.items():
-        stats = distinct_non_null_values(payloads, *path)
-        stability[f"supply.{output_name}"] = {
-            "present": stats["present"],
-            "missing": stats["missing"],
-            "unique_values": stats["unique_count"],
-            "stable": stats["unique_count"] <= 1,
-        }
-        if stats["unique_count"] == 1:
-            constant_supply[output_name] = stats["values"][0]
-        elif stats["unique_count"] > 1:
-            dynamic_supply.add(output_name)
-
+        values = distinct_present(payloads, *path)
+        if len(values) == 1:
+            constant_supply[output] = values[0]
+        elif len(values) > 1:
+            dynamic_supply.add(output)
     if constant_supply:
         header["supply"] = constant_supply
 
-    return header, stability, dynamic_supply
+    return header, dynamic_supply
 
 
-def extract_history_row(
+def history_row(
     observed_at: datetime,
     payload: dict[str, Any],
     dynamic_supply: set[str],
 ) -> dict[str, Any]:
     row: dict[str, Any] = {"t": iso(observed_at)}
-
     for source, target in (
         ("mcap", "market_cap"),
         ("liquidity", "liquidity"),
@@ -352,19 +200,18 @@ def extract_history_row(
 
     audit = payload.get("audit")
     if isinstance(audit, dict):
-        audit_result = compact_dict(
-            {
-                "dev_mints": numeric(audit.get("devMints")),
-                "dev_balance_pct": numeric(audit.get("devBalancePercentage")),
-                "top_holders_pct": numeric(audit.get("topHoldersPercentage")),
-            }
-        )
-        if audit_result:
-            row["audit"] = audit_result
+        values = {
+            "dev_mints": numeric(audit.get("devMints")),
+            "dev_balance_pct": numeric(audit.get("devBalancePercentage")),
+            "top_holders_pct": numeric(audit.get("topHoldersPercentage")),
+        }
+        values = {key: value for key, value in values.items() if value is not None}
+        if values:
+            row["audit"] = values
 
-    stats_1h = numeric_object(payload.get("stats1h"))
-    if stats_1h:
-        row["stats_1h"] = stats_1h
+    stats = numeric_object(payload.get("stats1h"))
+    if stats:
+        row["stats_1h"] = stats
 
     apy = numeric_object(payload.get("apy"))
     if apy:
@@ -386,28 +233,24 @@ def extract_history_row(
     return row
 
 
-def flatten_numeric_history(
-    value: Any,
-    prefix: str = "",
-) -> dict[str, int | float]:
-    result: dict[str, int | float] = {}
+def flatten_numeric(value: Any, prefix: str = "") -> dict[str, float | int]:
+    result: dict[str, float | int] = {}
     if not isinstance(value, dict):
         return result
-
     for key, child in value.items():
-        if key in {"t", "bucket_start", "bucket_end", "observations"}:
+        if key == "t":
             continue
         path = f"{prefix}.{key}" if prefix else key
         if isinstance(child, dict):
-            result.update(flatten_numeric_history(child, path))
-            continue
-        number = numeric(child)
-        if number is not None:
-            result[path] = number
+            result.update(flatten_numeric(child, path))
+        else:
+            number = numeric(child)
+            if number is not None:
+                result[path] = number
     return result
 
 
-def set_nested(target: dict[str, Any], path: str, value: Any) -> None:
+def set_path(target: dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")
     current = target
     for part in parts[:-1]:
@@ -415,206 +258,338 @@ def set_nested(target: dict[str, Any], path: str, value: Any) -> None:
     current[parts[-1]] = value
 
 
-def parse_iso_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def bucket_start(value: datetime, minutes: int) -> datetime:
+def make_buckets(history: list[dict[str, Any]], minutes: int) -> list[dict[str, Any]]:
     seconds = minutes * 60
-    floored = math.floor(value.timestamp() / seconds) * seconds
-    return datetime.fromtimestamp(floored, tz=timezone.utc)
+    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in history:
+        timestamp = datetime.fromisoformat(row["t"]).timestamp()
+        grouped[math.floor(timestamp / seconds) * seconds].append(row)
+
+    buckets: list[dict[str, Any]] = []
+    for start_ts in sorted(grouped):
+        rows = grouped[start_ts]
+        values_by_path: dict[str, list[float | int]] = defaultdict(list)
+        for row in rows:
+            for path, value in flatten_numeric(row).items():
+                values_by_path[path].append(value)
+
+        bucket: dict[str, Any] = {
+            "bucket_start": iso(datetime.fromtimestamp(start_ts, tz=timezone.utc)),
+            "bucket_end": iso(
+                datetime.fromtimestamp(start_ts + seconds, tz=timezone.utc)
+            ),
+            "observations": len(rows),
+        }
+        for path, values in sorted(values_by_path.items()):
+            set_path(
+                bucket,
+                path,
+                {
+                    "first": values[0],
+                    "last": values[-1],
+                    "min": min(values),
+                    "max": max(values),
+                    "samples": len(values),
+                },
+            )
+        buckets.append(bucket)
+    return buckets
 
 
-def aggregate_bucket(
-    rows: list[dict[str, Any]],
-    start: datetime,
-    minutes: int,
+def percentile(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    values = sorted(values)
+    if len(values) == 1:
+        return values[0]
+    position = (len(values) - 1) * q
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return values[lower]
+    weight = position - lower
+    return values[lower] * (1 - weight) + values[upper] * weight
+
+
+def metric_points(
+    history: list[dict[str, Any]],
+    *path: str,
+) -> list[tuple[str, float]]:
+    points: list[tuple[str, float]] = []
+    for row in history:
+        value = numeric(get_path(row, *path))
+        if value is not None:
+            points.append((row["t"], float(value)))
+    return points
+
+
+def change_pct(start: float, current: float) -> float | None:
+    if start == 0:
+        return None
+    return (current / start - 1) * 100
+
+
+def metric_summary(
+    history: list[dict[str, Any]],
+    *path: str,
+    peak_and_drawdown: bool = False,
 ) -> dict[str, Any]:
-    end = datetime.fromtimestamp(
-        start.timestamp() + minutes * 60,
-        tz=timezone.utc,
-    )
-    values_by_path: dict[str, list[int | float]] = defaultdict(list)
-
-    for row in rows:
-        for path, value in flatten_numeric_history(row).items():
-            values_by_path[path].append(value)
-
+    points = metric_points(history, *path)
+    if not points:
+        return {}
+    values = [value for _, value in points]
     result: dict[str, Any] = {
-        "bucket_start": iso(start),
-        "bucket_end": iso(end),
-        "observations": len(rows),
+        "start": rounded(values[0]),
+        "current": rounded(values[-1]),
+        "min": rounded(min(values)),
+        "max": rounded(max(values)),
+        "change_pct": rounded(change_pct(values[0], values[-1])),
     }
-
-    for path in sorted(values_by_path):
-        values = values_by_path[path]
-        set_nested(
-            result,
-            path,
-            {
-                "first": values[0],
-                "last": values[-1],
-                "min": min(values),
-                "max": max(values),
-                "samples": len(values),
-            },
-        )
-
+    if peak_and_drawdown:
+        peak_index = max(range(len(values)), key=values.__getitem__)
+        running_peak = values[0]
+        max_drawdown = 0.0
+        for value in values:
+            running_peak = max(running_peak, value)
+            if running_peak > 0:
+                max_drawdown = min(
+                    max_drawdown,
+                    (value / running_peak - 1) * 100,
+                )
+        result["peak_at"] = points[peak_index][0]
+        result["max_drawdown_pct"] = rounded(max_drawdown)
     return result
 
 
-def make_buckets(
-    history: list[dict[str, Any]],
-    minutes: int,
-) -> list[dict[str, Any]]:
-    grouped: dict[datetime, list[dict[str, Any]]] = defaultdict(list)
-    for row in history:
-        observed_at = parse_iso_datetime(row["t"])
-        grouped[bucket_start(observed_at, minutes)].append(row)
-
-    return [
-        aggregate_bucket(grouped[start], start, minutes)
-        for start in sorted(grouped)
-    ]
+def bucket_last(bucket: dict[str, Any], *path: str) -> float | None:
+    metric = get_path(bucket, *path)
+    if not isinstance(metric, dict):
+        return None
+    return numeric(metric.get("last"))
 
 
-def gap_metrics(observed_times: list[datetime]) -> dict[str, float | int | None]:
-    gaps = [
-        (after - before).total_seconds()
-        for before, after in zip(observed_times, observed_times[1:])
-    ]
-    if not gaps:
-        return {
-            "count": 0,
-            "min_seconds": None,
-            "median_seconds": None,
-            "p90_seconds": None,
-            "p95_seconds": None,
-            "max_seconds": None,
-            "mean_seconds": None,
-        }
+def summarize_values(values: list[float]) -> dict[str, Any]:
+    if not values:
+        return {}
     return {
-        "count": len(gaps),
-        "min_seconds": min(gaps),
-        "median_seconds": percentile(gaps, 0.50),
-        "p90_seconds": percentile(gaps, 0.90),
-        "p95_seconds": percentile(gaps, 0.95),
-        "max_seconds": max(gaps),
-        "mean_seconds": sum(gaps) / len(gaps),
+        "current": rounded(values[-1]),
+        "median": rounded(percentile(values, 0.5)),
+        "min": rounded(min(values)),
+        "max": rounded(max(values)),
     }
 
 
+def ratio_values(
+    buckets: list[dict[str, Any]],
+    left: tuple[str, ...],
+    right: tuple[str, ...],
+    mode: str,
+) -> list[float]:
+    values: list[float] = []
+    for bucket in buckets:
+        a = bucket_last(bucket, *left)
+        b = bucket_last(bucket, *right)
+        if a is None or b is None:
+            continue
+        a = float(a)
+        b = float(b)
+        if mode == "divide":
+            if b != 0:
+                values.append(a / b)
+        elif mode == "net":
+            total = a + b
+            if total != 0:
+                values.append((a - b) / total)
+    return values
+
+
+def ownership_summary(history: list[dict[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for field in ("top_holders_pct", "dev_balance_pct"):
+        points = metric_points(history, "audit", field)
+        if points:
+            start = points[0][1]
+            current = points[-1][1]
+            result[field] = {
+                "start": rounded(start),
+                "current": rounded(current),
+                "change_pp": rounded(current - start),
+            }
+    dev_mints = metric_points(history, "audit", "dev_mints")
+    if dev_mints:
+        result["dev_mints_current"] = rounded(dev_mints[-1][1])
+    return result
+
+
+def activity_summary(buckets: list[dict[str, Any]]) -> dict[str, Any]:
+    field_names: set[str] = set()
+    for bucket in buckets:
+        stats = bucket.get("stats_1h")
+        if isinstance(stats, dict):
+            field_names.update(
+                key
+                for key, value in stats.items()
+                if isinstance(value, dict) and "last" in value
+            )
+
+    fields: dict[str, Any] = {}
+    for field in sorted(field_names):
+        values = [
+            float(value)
+            for bucket in buckets
+            if (value := bucket_last(bucket, "stats_1h", field)) is not None
+        ]
+        if values:
+            fields[field] = {
+                "current": rounded(values[-1]),
+                "median": rounded(percentile(values, 0.5)),
+            }
+
+    derived: dict[str, Any] = {}
+    for name, left, right, mode in (
+        (
+            "buy_sell_volume_ratio",
+            ("stats_1h", "buy_volume"),
+            ("stats_1h", "sell_volume"),
+            "divide",
+        ),
+        (
+            "net_flow_ratio",
+            ("stats_1h", "buy_volume"),
+            ("stats_1h", "sell_volume"),
+            "net",
+        ),
+        (
+            "buy_sell_count_ratio",
+            ("stats_1h", "num_buys"),
+            ("stats_1h", "num_sells"),
+            "divide",
+        ),
+    ):
+        values = ratio_values(buckets, left, right, mode)
+        if values:
+            derived[name] = summarize_values(values)
+
+    result: dict[str, Any] = {}
+    if fields:
+        result["fields"] = fields
+    if derived:
+        result["derived"] = derived
+    return result
+
+
+def organic_summary(
+    history: list[dict[str, Any]],
+    buckets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    score = metric_points(history, "organic_score")
+    if score:
+        values = [value for _, value in score]
+        result["score"] = {
+            "start": rounded(values[0]),
+            "current": rounded(values[-1]),
+            "median": rounded(percentile(values, 0.5)),
+        }
+
+    shares: list[float] = []
+    for bucket in buckets:
+        buy = bucket_last(bucket, "stats_1h", "buy_volume")
+        sell = bucket_last(bucket, "stats_1h", "sell_volume")
+        organic_buy = bucket_last(bucket, "stats_1h", "buy_organic_volume")
+        organic_sell = bucket_last(bucket, "stats_1h", "sell_organic_volume")
+        if None in (buy, sell, organic_buy, organic_sell):
+            continue
+        total = float(buy) + float(sell)
+        if total != 0:
+            shares.append((float(organic_buy) + float(organic_sell)) / total)
+    if shares:
+        result["volume_share"] = summarize_values(shares)
+    return result
+
+
+def derived_summary(
+    history: list[dict[str, Any]],
+    buckets: list[dict[str, Any]],
+    duration_seconds: float,
+    resolution_minutes: int,
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "history": {
+            "hours": rounded(duration_seconds / 3600, 4),
+            "resolution_minutes": resolution_minutes,
+            "observations": len(history),
+            "buckets": len(buckets),
+            "from": history[0]["t"],
+            "to": history[-1]["t"],
+        }
+    }
+
+    market_cap = metric_summary(history, "market_cap", peak_and_drawdown=True)
+    if market_cap:
+        summary["market_cap"] = market_cap
+
+    liquidity = metric_summary(history, "liquidity")
+    if liquidity:
+        ratios = ratio_values(
+            buckets,
+            ("liquidity",),
+            ("market_cap",),
+            "divide",
+        )
+        if ratios:
+            liquidity["liquidity_to_market_cap"] = summarize_values(ratios)
+        summary["liquidity"] = liquidity
+
+    holders = metric_summary(history, "holders")
+    if holders:
+        summary["holders"] = holders
+
+    ownership = ownership_summary(history)
+    if ownership:
+        summary["ownership"] = ownership
+
+    activity = activity_summary(buckets)
+    if activity:
+        summary["activity_1h"] = activity
+
+    organic = organic_summary(history, buckets)
+    if organic:
+        summary["organic"] = organic
+
+    return summary
+
+
 def projected_payload_sql() -> str:
-    return """
+    fields = (
+        "id name symbol dev icon website twitter decimals tokenProgram launchpad "
+        "createdAt firstPool isVerified mintAuthority freezeAuthority circSupply "
+        "totalSupply mcap liquidity holderCount organicScore audit stats1h apy updatedAt"
+    ).split()
+    parts = ",\n                ".join(
+        f"'{field}', payload->'{field}'" for field in fields
+    )
+    return f"""
         jsonb_strip_nulls(
             jsonb_build_object(
-                'id', payload->'id',
-                'name', payload->'name',
-                'symbol', payload->'symbol',
-                'dev', payload->'dev',
-                'icon', payload->'icon',
-                'website', payload->'website',
-                'twitter', payload->'twitter',
-                'decimals', payload->'decimals',
-                'tokenProgram', payload->'tokenProgram',
-                'launchpad', payload->'launchpad',
-                'createdAt', payload->'createdAt',
-                'firstPool', payload->'firstPool',
-                'isVerified', payload->'isVerified',
-                'mintAuthority', payload->'mintAuthority',
-                'freezeAuthority', payload->'freezeAuthority',
-                'circSupply', payload->'circSupply',
-                'totalSupply', payload->'totalSupply',
-                'mcap', payload->'mcap',
-                'liquidity', payload->'liquidity',
-                'holderCount', payload->'holderCount',
-                'organicScore', payload->'organicScore',
-                'audit', payload->'audit',
-                'stats1h', payload->'stats1h',
-                'apy', payload->'apy'
+                {parts}
             )
         )
     """
 
 
-def load_history(
-    database_url: str,
-    mint: str,
-) -> tuple[dict[str, Any] | None, dict[str, Any], list[dict[str, Any]]]:
+def load_rows(database_url: str, mint: str) -> list[dict[str, Any]]:
+    projection = projected_payload_sql()
     with psycopg.connect(
         database_url,
         row_factory=dict_row,
         autocommit=True,
-        options=(
-            "-c default_transaction_read_only=on "
-            "-c statement_timeout=60000"
-        ),
-    ) as connection:
-        metadata = connection.execute(
-            """
-            SELECT
-                mint,
-                name,
-                symbol,
-                tracking_enabled,
-                priority,
-                created_at,
-                first_pool_created_at,
-                first_observed_at,
-                last_polled_at,
-                last_changed_at,
-                source_updated_at,
-                disabled_at,
-                disabled_reason
-            FROM mints
-            WHERE mint = %s
-            """,
-            (mint,),
-        ).fetchone()
-
-        summary = connection.execute(
-            """
-            SELECT
-                COUNT(*) AS snapshots,
-                COUNT(DISTINCT payload->>'updatedAt') AS unique_updated_at,
-                COALESCE(SUM(octet_length(payload::text)), 0) AS raw_payload_bytes,
-                COALESCE(SUM(length(payload::text)), 0) AS raw_payload_characters
-            FROM mint_snapshots
-            WHERE mint = %s
-            """,
-            (mint,),
-        ).fetchone()
-
-        projection = projected_payload_sql()
-        rows = connection.execute(
-            f"""
-            SELECT
-                observed_at,
-                {projection} AS payload
-            FROM mint_snapshots
-            WHERE mint = %s
-            ORDER BY observed_at ASC
-            """,
-            (mint,),
-        ).fetchall()
-
-    return metadata, dict(summary), list(rows)
-
-
-def load_raw_rows(database_url: str, mint: str) -> list[dict[str, Any]]:
-    with psycopg.connect(
-        database_url,
-        row_factory=dict_row,
-        autocommit=True,
-        options=(
-            "-c default_transaction_read_only=on "
-            "-c statement_timeout=60000"
-        ),
+        options="-c default_transaction_read_only=on -c statement_timeout=60000",
     ) as connection:
         return list(
             connection.execute(
-                """
-                SELECT observed_at, payload
+                f"""
+                SELECT observed_at, {projection} AS payload
                 FROM mint_snapshots
                 WHERE mint = %s
                 ORDER BY observed_at ASC
@@ -624,86 +599,41 @@ def load_raw_rows(database_url: str, mint: str) -> list[dict[str, Any]]:
         )
 
 
-def leaf_values(value: Any, prefix: str = "") -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {prefix or "$": value}
-
-    result: dict[str, Any] = {}
-    for key, child in value.items():
-        path = f"{prefix}.{key}" if prefix else str(key)
-        if isinstance(child, dict):
-            result.update(leaf_values(child, path))
-        else:
-            result[path] = child
-    return result
-
-
-def profile_payload_fields(
-    payloads: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    total = len(payloads)
-    presence: dict[str, int] = defaultdict(int)
-    unique: dict[str, set[str]] = defaultdict(set)
-    changes: dict[str, int] = defaultdict(int)
-    previous: dict[str, Any] = {}
-
-    for index, payload in enumerate(payloads):
-        leaves = leaf_values(payload)
-        current_paths = set(leaves)
-        all_paths = current_paths | set(previous)
-
-        for path in current_paths:
-            presence[path] += 1
-            unique[path].add(value_fingerprint(leaves[path]))
-
-        if index > 0:
-            for path in all_paths:
-                before = previous.get(path, _MISSING)
-                after = leaves.get(path, _MISSING)
-                if before is _MISSING or after is _MISSING:
-                    if before is not after:
-                        changes[path] += 1
-                    continue
-                if value_fingerprint(before) != value_fingerprint(after):
-                    changes[path] += 1
-
-        previous = leaves
-
-    rows = []
-    for path in set(presence) | set(changes):
-        present = presence[path]
-        rows.append(
-            {
-                "path": path,
-                "present": present,
-                "presence_pct": round(present / total * 100, 4) if total else 0.0,
-                "missing": total - present,
-                "unique_values": len(unique[path]),
-                "consecutive_changes": changes[path],
-                "change_pct": (
-                    round(changes[path] / (total - 1) * 100, 4)
-                    if total > 1
-                    else 0.0
-                ),
-            }
-        )
-
-    rows.sort(
-        key=lambda row: (
-            -row["consecutive_changes"],
-            -row["unique_values"],
-            row["path"],
-        )
-    )
-    return rows
-
-
-def serializable_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
-    if metadata is None:
-        return None
+def context_size(value: Any) -> dict[str, int]:
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return {
-        key: iso(value) if isinstance(value, datetime) else value
-        for key, value in metadata.items()
+        "utf8_bytes": len(text.encode("utf-8")),
+        "estimated_tokens_chars_div_4": math.ceil(len(text) / 4),
+    }
+
+
+def human_bytes(value: int) -> str:
+    size = float(value)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} GB"
+
+
+def write_json(path: Path, value: Any) -> None:
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def gap_summary(times: list[datetime]) -> dict[str, Any]:
+    gaps = [
+        (after - before).total_seconds()
+        for before, after in zip(times, times[1:])
+    ]
+    if not gaps:
+        return {}
+    return {
+        "median_seconds": rounded(percentile(gaps, 0.5)),
+        "p95_seconds": rounded(percentile(gaps, 0.95)),
+        "max_seconds": rounded(max(gaps)),
     }
 
 
@@ -714,174 +644,87 @@ def main() -> None:
     if not database_url:
         raise SystemExit("DATABASE_URL is not configured.")
 
+    rows = load_rows(database_url, args.mint)
+    if not rows:
+        raise SystemExit(f"No mint_snapshots found for: {args.mint}")
+
+    times = [row["observed_at"] for row in rows]
+    payloads = [row["payload"] for row in rows]
+    duration_seconds = (times[-1] - times[0]).total_seconds()
+    resolution_minutes = (
+        1 if duration_seconds <= ONE_MINUTE_MAX_HISTORY_HOURS * 3600 else 5
+    )
+
+    header, dynamic_supply = build_header(args.mint, payloads)
+    history = [
+        history_row(row["observed_at"], row["payload"], dynamic_supply)
+        for row in rows
+    ]
+    buckets = make_buckets(history, resolution_minutes)
+    summary = derived_summary(
+        history,
+        buckets,
+        duration_seconds,
+        resolution_minutes,
+    )
+
+    llm_context = {
+        "token": header,
+        "summary": summary,
+        "temporal_history": {
+            "resolution_minutes": resolution_minutes,
+            "buckets": buckets,
+        },
+    }
+    size = context_size(llm_context)
+
+    unique_updated_at = len(
+        {
+            payload.get("updatedAt")
+            for payload in payloads
+            if payload.get("updatedAt") is not None
+        }
+    )
+    report = {
+        "mint": args.mint,
+        "snapshots": len(rows),
+        "unique_updated_at": unique_updated_at,
+        "duplicate_updated_at_rows": len(rows) - unique_updated_at,
+        "from": iso(times[0]),
+        "to": iso(times[-1]),
+        "duration_seconds": duration_seconds,
+        "gaps": gap_summary(times),
+        "projection": {
+            "rule": "1m for available history <= 6h; otherwise 5m",
+            "resolution_minutes": resolution_minutes,
+            "buckets": len(buckets),
+            "context_size": size,
+        },
+        "summary": summary,
+        "future_system_prompt_requirement": {
+            "summary_role": (
+                "summary is deterministic derived context, not a diagnosis"
+            ),
+            "temporal_evidence_rule": (
+                "the model must inspect temporal_history and use it to confirm, "
+                "qualify, or challenge summary; judgment from summary alone is forbidden"
+            ),
+        },
+        "notes": {
+            "missing": "missing stays missing; no zero fill or interpolation",
+            "rolling_stats": (
+                "stats_1h is rolling source data; medians use bucket-last values and "
+                "rolling values are never summed across buckets"
+            ),
+            "token_estimate": "characters / 4 is only a rough comparison metric",
+        },
+    }
+
     output_dir = Path(
         args.out or f"history_inspection_{args.mint[:12]}"
     ).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    metadata, source_summary, rows = load_history(database_url, args.mint)
-    if metadata is None:
-        raise SystemExit(f"Mint not found in mints: {args.mint}")
-    if not rows:
-        raise SystemExit(f"No mint_snapshots found for: {args.mint}")
-
-    observed_times = [row["observed_at"] for row in rows]
-    payloads = [row["payload"] for row in rows]
-    duration_seconds = (observed_times[-1] - observed_times[0]).total_seconds()
-
-    header, header_stability, dynamic_supply = build_header(args.mint, payloads)
-    history = [
-        extract_history_row(row["observed_at"], row["payload"], dynamic_supply)
-        for row in rows
-    ]
-    full_contract = {"token": header, "history": history}
-
-    bucket_sets = {
-        minutes: make_buckets(history, minutes)
-        for minutes in BUCKET_MINUTES
-    }
-    bucket_contracts = {
-        minutes: {"token": header, "history": bucket_sets[minutes]}
-        for minutes in BUCKET_MINUTES
-    }
-
-    full_size = size_metrics(full_contract)
-    bucket_sizes = {
-        minutes: size_metrics(bucket_contracts[minutes])
-        for minutes in BUCKET_MINUTES
-    }
-
-    raw_bytes = int(source_summary["raw_payload_bytes"] or 0)
-    raw_characters = int(source_summary["raw_payload_characters"] or 0)
-    raw_estimated_tokens = math.ceil(raw_characters / 4)
-
-    unstable_header_fields = [
-        field
-        for field, info in header_stability.items()
-        if info["unique_values"] > 1 and not field.startswith("supply.")
-    ]
-
-    field_profile: list[dict[str, Any]] = []
-    raw_rows: list[dict[str, Any]] | None = None
-    if args.profile_fields or args.write_raw:
-        raw_rows = load_raw_rows(database_url, args.mint)
-    if args.profile_fields and raw_rows is not None:
-        field_profile = profile_payload_fields(
-            [row["payload"] for row in raw_rows]
-        )
-
-    report: dict[str, Any] = {
-        "mint": args.mint,
-        "database_metadata": serializable_metadata(metadata),
-        "history": {
-            "snapshots": len(rows),
-            "unique_updated_at": int(source_summary["unique_updated_at"] or 0),
-            "duplicate_updated_at_rows": (
-                len(rows) - int(source_summary["unique_updated_at"] or 0)
-            ),
-            "first_observed_at": iso(observed_times[0]),
-            "last_observed_at": iso(observed_times[-1]),
-            "duration_seconds": duration_seconds,
-            "gap_statistics": gap_metrics(observed_times),
-        },
-        "llm_contract": {
-            "header": header,
-            "header_stability": header_stability,
-            "unstable_header_fields": unstable_header_fields,
-            "dynamic_supply_fields": sorted(dynamic_supply),
-            "history_fields": {
-                "core": [
-                    "t",
-                    "market_cap",
-                    "liquidity",
-                    "holders",
-                    "organic_score",
-                ],
-                "audit": [
-                    "dev_mints",
-                    "dev_balance_pct",
-                    "top_holders_pct",
-                ],
-                "stats": "all numeric fields available under stats1h",
-                "apy": "all numeric fields available under apy",
-                "supply": (
-                    "circSupply/totalSupply only when they vary over history"
-                ),
-            },
-            "explicitly_excluded": [
-                "fdv",
-                "usdPrice",
-                "priceBlockId",
-                "organicScoreLabel",
-                "tags",
-                "stats5m",
-                "stats6h",
-                "stats24h",
-                "updatedAt",
-            ],
-        },
-        "representations": {
-            "raw_payload_text": {
-                "rows": len(rows),
-                "characters": raw_characters,
-                "utf8_bytes": raw_bytes,
-                "estimated_llm_tokens_chars_div_4": raw_estimated_tokens,
-                "note": "payload text only; observed_at wrapper is not included",
-            },
-            "llm_full": {
-                "rows": len(history),
-                **full_size,
-                "reduction_vs_raw_payload_pct": reduction_pct(
-                    raw_bytes,
-                    full_size["utf8_bytes"],
-                ),
-            },
-        },
-        "payload_field_profile": field_profile,
-        "notes": {
-            "token_estimate": (
-                "estimated_llm_tokens_chars_div_4 is a rough comparison metric only"
-            ),
-            "default_query": (
-                "The normal path projects only contract-relevant JSON fields in "
-                "PostgreSQL. Full raw payloads are fetched only for --profile-fields "
-                "or --write-raw."
-            ),
-        },
-    }
-
-    for minutes in BUCKET_MINUTES:
-        size = bucket_sizes[minutes]
-        report["representations"][f"llm_{minutes}m"] = {
-            "buckets": len(bucket_sets[minutes]),
-            **size,
-            "reduction_vs_raw_payload_pct": reduction_pct(
-                raw_bytes,
-                size["utf8_bytes"],
-            ),
-            "reduction_vs_llm_full_pct": reduction_pct(
-                full_size["utf8_bytes"],
-                size["utf8_bytes"],
-            ),
-        }
-
-    write_json(output_dir / "llm_full.json", full_contract)
-    for minutes in BUCKET_MINUTES:
-        write_json(
-            output_dir / f"llm_{minutes}m.json",
-            bucket_contracts[minutes],
-        )
-    if args.write_raw and raw_rows is not None:
-        write_json(
-            output_dir / "raw.json",
-            [
-                {
-                    "observed_at": iso(row["observed_at"]),
-                    "payload": row["payload"],
-                }
-                for row in raw_rows
-            ],
-        )
+    write_json(output_dir / "llm_context.json", llm_context)
     write_json(output_dir / "report.json", report)
 
     print()
@@ -891,116 +734,32 @@ def main() -> None:
     print(f"Name:       {header.get('name') or '-'}")
     print(f"Symbol:     {header.get('symbol') or '-'}")
     print(f"Snapshots:  {len(rows):,}")
-    print(f"updatedAt:  {int(source_summary['unique_updated_at'] or 0):,} unique")
-    print(
-        "Duplicates:  "
-        f"{len(rows) - int(source_summary['unique_updated_at'] or 0):,} rows"
-    )
-    print(f"From:       {iso(observed_times[0])}")
-    print(f"To:         {iso(observed_times[-1])}")
-    print(f"Duration:   {human_duration(duration_seconds)}")
-
-    gaps = report["history"]["gap_statistics"]
+    print(f"updatedAt:  {unique_updated_at:,} unique")
+    print(f"Duplicates: {len(rows) - unique_updated_at:,} rows")
+    print(f"From:       {iso(times[0])}")
+    print(f"To:         {iso(times[-1])}")
+    print(f"Duration:   {duration_seconds / 3600:.2f}h")
     print()
-    print("SNAPSHOT GAPS")
+    print("LLM PROJECTION")
+    print("Rule:       1m <= 6h, otherwise 5m")
+    print(f"Resolution: {resolution_minutes}m")
+    print(f"Buckets:    {len(buckets):,}")
     print(
-        "min={min}  median={median}  p90={p90}  p95={p95}  max={max}".format(
-            min=human_duration(gaps["min_seconds"]),
-            median=human_duration(gaps["median_seconds"]),
-            p90=human_duration(gaps["p90_seconds"]),
-            p95=human_duration(gaps["p95_seconds"]),
-            max=human_duration(gaps["max_seconds"]),
-        )
+        f"Context:    {human_bytes(size['utf8_bytes'])} / "
+        f"~{size['estimated_tokens_chars_div_4']:,} rough tokens"
     )
-
     print()
-    print("LLM HEADER")
-    print(json.dumps(header, ensure_ascii=False, indent=2))
-
+    print("DERIVED SUMMARY")
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     print()
-    print("HEADER VALIDATION")
-    if unstable_header_fields:
-        print("WARNING: candidate header fields changed during history:")
-        for field in unstable_header_fields:
-            print(
-                f"  {field}: "
-                f"{header_stability[field]['unique_values']} unique values"
-            )
-    else:
-        print("All candidate header fields were stable when present.")
-
-    if dynamic_supply:
-        print("Dynamic supply kept in history: " + ", ".join(sorted(dynamic_supply)))
-    else:
-        print("Supply is constant or absent.")
-
-    print()
-    print("REPRESENTATION SIZE")
+    print("LLM EVIDENCE RULE")
     print(
-        f"{'representation':<16} "
-        f"{'rows':>10} "
-        f"{'size':>12} "
-        f"{'est.tokens':>14} "
-        f"{'vs raw':>10}"
+        "Summary is derived context only. The future system prompt must require "
+        "temporal_history inspection and forbid judgment from summary alone."
     )
-    print("-" * 68)
-    print(
-        f"{'raw payload':<16} "
-        f"{len(rows):>10,} "
-        f"{human_bytes(raw_bytes):>12} "
-        f"{raw_estimated_tokens:>14,} "
-        f"{'0.00%':>10}"
-    )
-    print(
-        f"{'llm full':<16} "
-        f"{len(history):>10,} "
-        f"{human_bytes(full_size['utf8_bytes']):>12} "
-        f"{full_size['estimated_llm_tokens_chars_div_4']:>14,} "
-        f"{reduction_pct(raw_bytes, full_size['utf8_bytes']):>9.2f}%"
-    )
-    for minutes in BUCKET_MINUTES:
-        size = bucket_sizes[minutes]
-        print(
-            f"{f'llm {minutes}m':<16} "
-            f"{len(bucket_sets[minutes]):>10,} "
-            f"{human_bytes(size['utf8_bytes']):>12} "
-            f"{size['estimated_llm_tokens_chars_div_4']:>14,} "
-            f"{reduction_pct(raw_bytes, size['utf8_bytes']):>9.2f}%"
-        )
-
-    if args.profile_fields:
-        print()
-        print(
-            f"TOP {min(args.top_fields, len(field_profile))} "
-            "CHANGING RAW PAYLOAD PATHS"
-        )
-        print(
-            f"{'path':<46} "
-            f"{'presence':>10} "
-            f"{'unique':>8} "
-            f"{'changes':>9}"
-        )
-        print("-" * 78)
-        for item in field_profile[: args.top_fields]:
-            print(
-                f"{item['path'][:46]:<46} "
-                f"{item['presence_pct']:>9.2f}% "
-                f"{item['unique_values']:>8,} "
-                f"{item['consecutive_changes']:>9,}"
-            )
-
     print()
     print(f"Output: {output_dir}")
-    files = [
-        "llm_full.json",
-        "llm_1m.json",
-        "llm_5m.json",
-        "llm_15m.json",
-        "report.json",
-    ]
-    if args.write_raw:
-        files.insert(0, "raw.json")
-    print("Files: " + ", ".join(files))
+    print("Files: llm_context.json, report.json")
 
 
 if __name__ == "__main__":
