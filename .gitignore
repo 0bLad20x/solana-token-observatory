@@ -8,5 +8,6 @@ build/
 dist/
 data/
 Archive/
+history_inspection_*/
 src/upload_gmgn.py
 src/gmgn.mjs
