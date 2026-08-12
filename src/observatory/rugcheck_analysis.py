@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def _instructions(token: dict[str, Any]) -> str:
     return f"""Act as a senior Solana token safety analyst. Analyze exactly one selected token
-using only the RugCheck evidence supplied with the user request.
+using only the RugCheck safety metadata supplied with the user request.
 
 Selected token:
 - Mint: {token['mint']}
@@ -25,27 +25,30 @@ Selected token:
 
 Evidence rules:
 - RugCheck is an external provider, not Jupiter system truth.
-- Treat the fetched_at timestamp as the observation time of this external report.
-- Use only fields actually present in the delivered evidence. Missing means unknown,
-  never safe.
-- The input contains a deterministic transport projection for LLM analysis. The raw
-  RugCheck report remains available through the direct evidence endpoint.
-- Every market remains represented, but repeated raw mint/vault account snapshots are
-  intentionally omitted. Do not treat omitted account-level fields as provider absence.
-- knownAccounts contains only provider labels for addresses referenced elsewhere outside
-  the market rows; it is not the provider's full known-account registry.
+- Treat fetched_at as the observation time of this external report.
+- Missing means unknown, never safe.
+- The delivered JSON is a deterministic metadata projection of the raw RugCheck report.
+  The complete provider report remains available through the direct evidence endpoint.
+- Wallet addresses, individual top-holder rows, individual market rows and repeated raw
+  account snapshots are intentionally not sent to you. Their relevant measurable
+  properties are represented as deterministic aggregates.
+- Holder percentages are concentration metadata. Known top-holder labels/types are
+  RugCheck provider labels, not inferred identities.
+- Market counts, market-type counts, liquidity concentration and LP-lock counts are
+  deterministic aggregates; they do not establish causality or guarantee withdrawability.
 - RugCheck risks, score, score_normalised and rugged are provider evidence, not an
   internally verified safety verdict.
-- Do not invent ownership identities, creator intent, lock state, authorities or market
-  structure when the delivered evidence does not provide them.
+- Do not invent ownership identities, creator intent, authorities, lock mechanisms or
+  market behavior beyond the delivered metadata.
 - Distinguish facts reported by RugCheck from your inference.
-- Do not convert the report into a new deterministic good/bad score.
-- Do not make lifecycle, trading or deactivation decisions.
+- Do not create a new deterministic good/bad score and do not make lifecycle, trading or
+  deactivation decisions.
 
-Prioritize the user's question. When relevant, examine authorities, metadata mutability,
-listed risks, holder concentration/insider flags, creator history, market/liquidity and LP
-lock evidence. Explain material unknowns and contradictions. End with a calibrated safety
-evidence assessment and confidence, not a guarantee that the token is safe or unsafe.
+Prioritize the user's question. Focus on the highest-information safety properties:
+provider risks, mint/freeze control, metadata mutability, holder concentration, insider
+signals, creator concentration, liquidity concentration and LP-lock evidence. Explain
+material unknowns and contradictions. End with a calibrated safety-evidence assessment
+and confidence, not a guarantee that the token is safe or unsafe.
 """
 
 
@@ -78,7 +81,7 @@ async def analyze_rugcheck_report(
     question: str,
     evidence: dict[str, Any],
 ) -> dict[str, Any]:
-    """Interpret one RugCheck report through one bounded strong-model request."""
+    """Interpret deterministic RugCheck safety metadata with one strong-model request."""
 
     import httpx
 
@@ -98,7 +101,7 @@ async def analyze_rugcheck_report(
                 "role": "user",
                 "content": (
                     f"User question:\n{question}\n\n"
-                    f"RugCheck external evidence JSON:\n{context_json}"
+                    f"RugCheck external safety metadata JSON:\n{context_json}"
                 ),
             },
         ],
@@ -154,7 +157,7 @@ async def analyze_rugcheck_report(
         "scope": "rugcheck",
         "evidence": {
             "type": "rugcheck_token_report",
-            "mode": projection.get("type", "rugcheck_analysis_v1"),
+            "mode": projection.get("type", "rugcheck_analysis_v2"),
             "source": "rugcheck",
             "mint": evidence["mint"],
             "fetched_at": evidence["fetched_at"],
@@ -162,8 +165,11 @@ async def analyze_rugcheck_report(
             "raw_rough_report_tokens": projection.get("raw_rough_report_tokens"),
             "analysis_context_bytes": context_bytes,
             "analysis_rough_tokens": rough_context_tokens,
-            "markets_total": projection.get("markets_total"),
-            "known_accounts_total": projection.get("known_accounts_total"),
-            "known_accounts_retained": projection.get("known_accounts_retained"),
+            "markets_observed": projection.get("markets_observed"),
+            "top_holders_observed": projection.get("top_holders_observed"),
+            "known_accounts_observed": projection.get("known_accounts_observed"),
+            "wallet_addresses_sent_to_llm": projection.get(
+                "wallet_addresses_sent_to_llm"
+            ),
         },
     }
