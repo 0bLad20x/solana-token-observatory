@@ -110,10 +110,11 @@ class RugCheckProjectionTests(unittest.TestCase):
         summary = projected["summary"]
 
         semantics = summary["semantics"]
-        self.assertIn("not a probability", semantics["score"])
-        self.assertIn("does not define its formula", semantics["score_normalised"])
-        self.assertIn("explicit RugCheck insider flag", semantics["insider"])
-        self.assertIn("lpLockedPct", semantics["lp_lock_counts"])
+        self.assertIn("do not classify", semantics["score"])
+        self.assertIn("without converting", semantics["score_normalised"])
+        self.assertIn("not token creation time", semantics["detected_at"])
+        self.assertIn("AMM/pool", semantics["topN_pct"])
+        self.assertIn("no locker entry", semantics["lp_lock_counts"])
 
         risk = summary["provider_risk"]
         self.assertEqual(risk["score"], 7)
@@ -131,12 +132,19 @@ class RugCheckProjectionTests(unittest.TestCase):
         self.assertEqual(ownership["total_holders"], 100)
         self.assertEqual(ownership["top1_pct"], 12.5)
         self.assertEqual(ownership["top5_pct"], 17.5)
+        self.assertEqual(ownership["known_labelled_top_holder_pct"], 17.5)
+        self.assertIsNone(ownership["largest_unlabelled_top_holder_pct"])
         self.assertEqual(ownership["insider_flags_reported"], 2)
         self.assertEqual(ownership["insiders_in_top_holders"], 1)
         self.assertEqual(ownership["insider_pct_in_top_holders"], 12.5)
         self.assertEqual(ownership["creator_in_top_holders_pct"], 12.5)
         self.assertEqual(ownership["creator_tokens_count"], 1)
         self.assertEqual(ownership["known_top_holder_types"], {"AMM": 1, "wallet": 1})
+        self.assertEqual(ownership["known_top_holder_type_pct"], {"AMM": 12.5, "wallet": 5.0})
+        self.assertEqual(
+            ownership["known_top_holder_label_pct"],
+            {"Known AMM pool": 12.5, "Unrelated": 5.0},
+        )
 
         liquidity = summary["liquidity"]
         self.assertEqual(liquidity["market_count"], 2)
@@ -157,7 +165,7 @@ class RugCheckProjectionTests(unittest.TestCase):
         self.assertNotIn("knownAccounts", serialized)
 
         meta = projected["projection"]
-        self.assertEqual(meta["type"], "rugcheck_analysis_v3")
+        self.assertEqual(meta["type"], "rugcheck_analysis_v4")
         self.assertEqual(meta["raw_report_bytes"], 9999)
         self.assertEqual(meta["markets_observed"], 2)
         self.assertEqual(meta["top_holders_observed"], 2)
