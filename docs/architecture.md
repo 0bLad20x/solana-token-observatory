@@ -18,9 +18,9 @@ JUPITER MONITORING
 Search lanes -> WriteQueue -> Repository
         ↓
 mints + mint_snapshots
-        ↓
-OPERATIONAL LIFECYCLE
-lifecycle_clean.py
+        ↓                 ↓
+OPERATIONAL LIFECYCLE   SNAPSHOT MAINTENANCE
+lifecycle_clean.py      24h Raw Retention
 lifecycle_queries.py
 lifecycle_rules.py
         ↓
@@ -62,7 +62,7 @@ Die Queue darf identische `(mint, updatedAt)`-Antworten innerhalb ihres Buffers 
 
 ## 4. Persistenz und Beobachtungssemantik
 
-`src/repository.py` besitzt Collector-Persistenz und die ausdrücklich erlaubten operativen Mint-Mutationen.
+`src/repository.py` besitzt Collector-Persistenz und die ausdrücklich erlaubten operativen Datenbank-Mutationen des Core.
 
 ### `mints`
 
@@ -78,7 +78,7 @@ Die Queue darf identische `(mint, updatedAt)`-Antworten innerhalb ihres Buffers 
 
 ### `mint_snapshots`
 
-`mint_snapshots` historisiert tatsächlich beobachtete Jupiter-Source-Versionen.
+`mint_snapshots` hält die hochaufgelöste Raw-Historie tatsächlich beobachteter Jupiter-Source-Versionen.
 
 ```text
 Jupiter Search erfolgreich
@@ -99,6 +99,17 @@ Daraus folgt eine harte Interpretationsgrenze:
 **Snapshot-Abstände sind keine Poll-Abstände.**
 
 Fehlende Zwischen-Snapshots bedeuten nicht automatisch, dass der Collector nicht gepollt hat.
+
+`mint_snapshots` ist zugleich bewusst kein unbegrenztes Langzeitarchiv. Die Raw-Auflösung besitzt eine 24-Stunden-Retention. `src/maintenance.py` führt beim Start des normalen Collectors und danach stündlich gebatchte Cleanup-Läufe aus; `MintRepository.delete_expired_snapshots()` besitzt die eigentliche Delete-Mutation.
+
+Retention darf die operative Evidence nicht verändern:
+
+- der jeweils jüngste Snapshot jedes Mints bleibt immer erhalten, damit Current-State-Consumer und Lifecycle Rule 1 weiter funktionieren;
+- bei deaktivierten Mints dürfen ältere Raw-Snapshots nach Ablauf des Fensters entfernt werden;
+- bei aktiven Mints darf ein alter Snapshot erst entfernt werden, wenn sowohl Rule 4 als auch Rule 5 über `lifecycle_rule_state.scanned_through` nachweislich mindestens bis zu diesem Snapshot verarbeitet wurden;
+- wenn der Lifecycle nicht im Apply-Betrieb läuft und deshalb keine Scan-Cursors fortschreibt, blockiert diese Safety-Bedingung die Löschung aktiver historischer Evidence statt sie stillschweigend zu verwerfen.
+
+Für den globalen Retention-Cutoff existiert zusätzlich zum Primärschlüssel `(mint, observed_at)` ein Index mit `observed_at` als führendem Key.
 
 ## 5. Operational Lifecycle
 
@@ -152,6 +163,8 @@ Er darf nicht:
 
 Diese Grenze gilt unabhängig davon, ob der Consumer ein Research-Skript, ein Frontend oder ein späteres LLM-Tool ist.
 
+`tools/inspect_token_history.py` ist ein read-only Research-Consumer für die laufende Definition einer LLM-tauglichen Temporal Projection. Der normale Pfad projiziert bereits in PostgreSQL nur den aktuellen Grundvertrag: einmalige Token-Identität plus Market Cap, Liquidity, Holders, Organic Score, ausgewählte dynamische Audit-Werte, sämtliche numerischen `stats1h`-Werte, optionale APY-Werte und nur tatsächlich dynamische Supply-Werte. Die teure vollständige Raw-Payload-/Feldanalyse ist explizit opt-in und gehört nicht zum späteren Observatory-Query-Pfad.
+
 Das Observatory ist als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/` implementiert. Es liest aktuelle Projektionen und SSE-Deltas, verändert aber keine Core-Dateien oder operativen Zustände.
 
 `POST /api/analyst` besitzt zwei explizite read-only Scopes:
@@ -197,18 +210,14 @@ Discovery
    ↓
 Monitoring
    ↓
-Persistent Observations
+24h Raw Observations
    ↓
 Lifecycle v0.1
    ↓
 Survivor Population
 ```
 
-Die aktive nächste Arbeit ist WP5: Für den exakt ausgewählten Mint werden höchstens die
-fünf jüngsten immutable `mint_snapshots` über einen bounded read-only Tool Call
-bereitgestellt. Damit kann der Analyst jüngste beobachtete Änderungen erklären, ohne
-eine allgemeine History-Schicht einzuführen. Spatial-Arbeit, freie Zeiträume, Charts,
-Prognosen und operative Mutationen sind nicht Teil dieses Slices.
+Die aktive nächste Arbeit ist weiterhin WP5. Der History Inspector ist dafür ausschließlich ein empirisches Research-Werkzeug und legt noch keinen produktiven Temporal-Projection- oder LLM-Tool-Vertrag fest. Spatial-Arbeit, persistierte OHLC/Time-Buckets, Prognosen und operative Mutationen bleiben davon getrennt.
 
 Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 
@@ -229,8 +238,9 @@ Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Datenverantwortung.
 2. **Poll und Snapshot sind verschiedene Ereignisse.** Zeitabhängige Analysen dürfen diese Semantik nicht vermischen.
 3. **Source-Versionen gehen nicht durch Writer-Coalescing verloren.** Unterschiedliche beobachtete `updatedAt`-Versionen bleiben erhalten.
-4. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
-5. **Lifecycle-Semantik ist versioniert.** Refactorings dürfen den Contract nicht implizit verändern.
-6. **Downstream ist read-only gegenüber operativem State.** Frontend, Research und spätere Tools lesen; Lifecycle mutiert.
-7. **Generierte Daten sind Evidence, nicht Architektur.**
-8. **Roadmap ist keine Implementation.** `MILESTONES.md` beschreibt Richtung, nicht bereits vorhandenes Verhalten.
+4. **Raw-Auflösung ist temporär.** Hochfrequente `mint_snapshots` werden nur so lange gehalten, wie operative Evidence und die definierte Retention es verlangen.
+5. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
+6. **Lifecycle-Semantik ist versioniert.** Refactorings und Maintenance dürfen den Contract nicht implizit verändern.
+7. **Downstream ist read-only gegenüber operativem State.** Frontend, Research und spätere Tools lesen; Lifecycle mutiert.
+8. **Generierte Daten sind Evidence, nicht Architektur.**
+9. **Roadmap ist keine Implementation.** `MILESTONES.md` beschreibt Richtung, nicht bereits vorhandenes Verhalten.
