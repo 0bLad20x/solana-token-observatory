@@ -25,6 +25,7 @@ UNSUPPORTED_QUERY_ANSWER = (
     "This question cannot be mapped unambiguously to the current token data."
 )
 TEMPORAL_MAX_OUTPUT_TOKENS = 1800
+TEMPORAL_REQUEST_TIMEOUT_SECONDS = 45.0
 logger = logging.getLogger(__name__)
 
 
@@ -131,6 +132,9 @@ async def _post_json(
         status = error.response.status_code
         raise AnalystError(f"Mistral request failed with status {status}") from error
     except httpx.RequestError as error:
+        timeout_type = getattr(httpx, "TimeoutException", None)
+        if timeout_type is not None and isinstance(error, timeout_type):
+            raise AnalystError("Mistral request timed out") from error
         raise AnalystError("Mistral request failed") from error
 
     try:
@@ -383,7 +387,7 @@ async def analyze_temporal_token(
         "temperature": 0,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=TEMPORAL_REQUEST_TIMEOUT_SECONDS) as client:
         first_payload = await _post_json(
             client=client,
             httpx=httpx,
@@ -436,7 +440,7 @@ async def analyze_temporal_token(
             "max_tokens": TEMPORAL_MAX_OUTPUT_TOKENS,
         }
         final_started = perf_counter()
-        logger.info(
+        logger.warning(
             "[temporal] final_mistral_start mint=%s model=%s bytes=%s rough_tokens=%s max_tokens=%s",
             mint,
             model,
@@ -459,7 +463,7 @@ async def analyze_temporal_token(
                 perf_counter() - final_started,
             )
             raise
-        logger.info(
+        logger.warning(
             "[temporal] final_mistral_done mint=%s elapsed=%.2fs",
             mint,
             perf_counter() - final_started,
