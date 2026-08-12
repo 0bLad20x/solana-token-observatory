@@ -28,6 +28,10 @@ CASES: tuple[tuple[str, dict[str, Any] | None], ...] = (
         {"sort_by": "holders", "sort_order": "desc", "limit": 4, "launchpad": None},
     ),
     (
+        "Top 6 by trades in the last 5 minutes, please.",
+        {"sort_by": "trades_5m", "sort_order": "desc", "limit": 6, "launchpad": None},
+    ),
+    (
         "Top 7 by 5m volume",
         {"sort_by": "volume_5m", "sort_order": "desc", "limit": 7, "launchpad": None},
     ),
@@ -42,6 +46,18 @@ CASES: tuple[tuple[str, dict[str, Any] | None], ...] = (
     (
         "Which 5 tokens have gone longest without a source-data change?",
         {"sort_by": "change_age_seconds", "sort_order": "desc", "limit": 5, "launchpad": None},
+    ),
+    (
+        "Which 4 tokens changed most recently?",
+        {"sort_by": "change_age_seconds", "sort_order": "asc", "limit": 4, "launchpad": None},
+    ),
+    (
+        "Show me the 2 tokens with the lowest liqidity!",
+        {"sort_by": "liquidity", "sort_order": "asc", "limit": 2, "launchpad": None},
+    ),
+    (
+        "MARKET CAP — top 3?!?",
+        {"sort_by": "market_cap", "sort_order": "desc", "limit": 3, "launchpad": None},
     ),
     ("Which tokens have the highest 1h volume?", None),
     ("Which token is best?", None),
