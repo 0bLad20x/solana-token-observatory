@@ -235,11 +235,19 @@ export class AnalystUI {
 
   #renderRugCheckEvidence(evidence) {
     const trace = document.createElement("strong");
-    trace.textContent = `rugcheck_token_report · external evidence · ~${integerFormat.format(evidence.rough_report_tokens)} rough tokens`;
+    trace.textContent = `rugcheck_token_report · ${evidence.mode} · ~${integerFormat.format(evidence.analysis_rough_tokens)} analysis tokens`;
     const size = document.createElement("span");
-    size.textContent = `${integerFormat.format(evidence.report_bytes)} bytes · source RugCheck`;
+    size.textContent = `raw ${integerFormat.format(evidence.raw_report_bytes)} bytes → analysis ${integerFormat.format(evidence.analysis_context_bytes)} bytes · source RugCheck`;
+    const coverage = document.createElement("span");
+    const known = evidence.known_accounts_total == null
+      ? "known accounts unavailable"
+      : `${integerFormat.format(evidence.known_accounts_retained)} / ${integerFormat.format(evidence.known_accounts_total)} referenced known accounts`;
+    const markets = evidence.markets_total == null
+      ? "markets unavailable"
+      : `${integerFormat.format(evidence.markets_total)} markets retained`;
+    coverage.textContent = `${markets} · ${known}`;
     const fetched = document.createElement("span");
     fetched.textContent = `Fetched ${evidence.fetched_at}`;
-    this.sources.append(trace, size, fetched);
+    this.sources.append(trace, size, coverage, fetched);
   }
 }
