@@ -84,12 +84,12 @@ def _changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _traced_temporal_context(mint: str) -> dict[str, Any] | None:
+def _traced_temporal_summary(mint: str) -> dict[str, Any] | None:
     started = perf_counter()
     logger.warning("[temporal] summary_load_start mint=%s", mint)
-    context = reader.temporal_context(mint)
+    summary = reader.temporal_summary(mint)
     elapsed = perf_counter() - started
-    if context is None:
+    if summary is None:
         logger.warning(
             "[temporal] summary_load_done mint=%s elapsed=%.2fs result=missing",
             mint,
@@ -97,7 +97,7 @@ def _traced_temporal_context(mint: str) -> dict[str, Any] | None:
         )
         return None
 
-    history = context.get("summary", {}).get("history", {})
+    history = summary.get("history", {})
     logger.warning(
         "[temporal] summary_load_done mint=%s elapsed=%.2fs observations=%s hours=%s",
         mint,
@@ -105,7 +105,7 @@ def _traced_temporal_context(mint: str) -> dict[str, Any] | None:
         history.get("observations"),
         history.get("hours"),
     )
-    return context
+    return summary
 
 
 @asynccontextmanager
@@ -196,7 +196,7 @@ async def analyst(request: AnalystRequest) -> dict[str, Any]:
             model=MISTRAL_MODEL,
             token=token,
             question=question,
-            context_loader=_traced_temporal_context,
+            summary_loader=_traced_temporal_summary,
         )
         logger.warning(
             "[temporal] request_done mint=%s elapsed=%.2fs",
