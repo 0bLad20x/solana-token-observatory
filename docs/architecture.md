@@ -100,14 +100,7 @@ Daraus folgt eine harte Interpretationsgrenze:
 
 Fehlende Zwischen-Snapshots bedeuten nicht automatisch, dass der Collector nicht gepollt hat.
 
-`mint_snapshots` ist zugleich bewusst kein unbegrenztes Langzeitarchiv. Die Raw-Auflösung besitzt eine 24-Stunden-Retention. `src/maintenance.py` führt beim Start des normalen Collectors und danach stündlich gebatchte Cleanup-Läufe aus; `MintRepository.delete_expired_snapshots()` besitzt die eigentliche Delete-Mutation.
-
-Retention darf die operative Evidence nicht verändern:
-
-- der jeweils jüngste Snapshot jedes Mints bleibt immer erhalten, damit Current-State-Consumer und Lifecycle Rule 1 weiter funktionieren;
-- bei deaktivierten Mints dürfen ältere Raw-Snapshots nach Ablauf des Fensters entfernt werden;
-- bei aktiven Mints darf ein alter Snapshot erst entfernt werden, wenn sowohl Rule 4 als auch Rule 5 über `lifecycle_rule_state.scanned_through` nachweislich mindestens bis zu diesem Snapshot verarbeitet wurden;
-- wenn der Lifecycle nicht im Apply-Betrieb läuft und deshalb keine Scan-Cursors fortschreibt, blockiert diese Safety-Bedingung die Löschung aktiver historischer Evidence statt sie stillschweigend zu verwerfen.
+`mint_snapshots` ist kein unbegrenztes Langzeitarchiv. Die Tabelle ist ein 24-Stunden-Raw-Working-Buffer. `src/maintenance.py` führt beim Start des normalen Collectors und danach stündlich gebatchte Cleanup-Läufe aus; `MintRepository.delete_expired_snapshots()` löscht ausschließlich Rows mit `observed_at` vor dem globalen 24h-Cutoff. Es gibt keine per-Mint- oder Lifecycle-Sonderlogik in der Retention.
 
 Für den globalen Retention-Cutoff existiert zusätzlich zum Primärschlüssel `(mint, observed_at)` ein Index mit `observed_at` als führendem Key.
 
@@ -238,9 +231,9 @@ Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Datenverantwortung.
 2. **Poll und Snapshot sind verschiedene Ereignisse.** Zeitabhängige Analysen dürfen diese Semantik nicht vermischen.
 3. **Source-Versionen gehen nicht durch Writer-Coalescing verloren.** Unterschiedliche beobachtete `updatedAt`-Versionen bleiben erhalten.
-4. **Raw-Auflösung ist temporär.** Hochfrequente `mint_snapshots` werden nur so lange gehalten, wie operative Evidence und die definierte Retention es verlangen.
+4. **Raw-Auflösung ist temporär.** `mint_snapshots` ist auf die letzten 24 Stunden begrenzt.
 5. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
-6. **Lifecycle-Semantik ist versioniert.** Refactorings und Maintenance dürfen den Contract nicht implizit verändern.
+6. **Lifecycle-Semantik ist versioniert.** Retention ist Storage-Maintenance und keine Lifecycle-Regel.
 7. **Downstream ist read-only gegenüber operativem State.** Frontend, Research und spätere Tools lesen; Lifecycle mutiert.
 8. **Generierte Daten sind Evidence, nicht Architektur.**
 9. **Roadmap ist keine Implementation.** `MILESTONES.md` beschreibt Richtung, nicht bereits vorhandenes Verhalten.
