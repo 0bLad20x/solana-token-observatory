@@ -5,7 +5,13 @@ import logging
 from time import perf_counter
 from typing import Any
 
-from .analyst import AnalystError, MISTRAL_CHAT_URL
+from .mistral import (
+    AnalystError,
+    MISTRAL_CHAT_URL,
+    chat_message,
+    message_text,
+    post_json,
+)
 from .rugcheck_projection import project_rugcheck_evidence
 
 RUGCHECK_MAX_OUTPUT_TOKENS = 1600
@@ -70,27 +76,6 @@ End with a calibrated evidence assessment, not a guaranteed verdict.
 """
 
 
-def _message_text(payload: dict[str, Any]) -> str:
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise AnalystError("Mistral returned no RugCheck chat choices")
-    message = choices[0].get("message")
-    if not isinstance(message, dict):
-        raise AnalystError("Mistral returned no RugCheck chat message")
-    content = message.get("content")
-    if isinstance(content, str):
-        return content.strip()
-    if not isinstance(content, list):
-        return ""
-    return "".join(
-        item["text"]
-        for item in content
-        if isinstance(item, dict)
-        and item.get("type") == "text"
-        and isinstance(item.get("text"), str)
-    ).strip()
-
-
 async def analyze_rugcheck_report(
     *,
     api_key: str,
@@ -140,36 +125,21 @@ async def analyze_rugcheck_report(
         context_bytes,
         rough_context_tokens,
     )
-    try:
-        async with httpx.AsyncClient(timeout=RUGCHECK_REQUEST_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                MISTRAL_CHAT_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
-                json=request,
-            )
-            response.raise_for_status()
-    except httpx.HTTPStatusError as error:
-        status = error.response.status_code
-        raise AnalystError(f"Mistral request failed with status {status}") from error
-    except httpx.RequestError as error:
-        timeout_type = getattr(httpx, "TimeoutException", None)
-        if timeout_type is not None and isinstance(error, timeout_type):
-            raise AnalystError("Mistral request timed out") from error
-        raise AnalystError("Mistral request failed") from error
-
-    try:
-        payload = response.json()
-    except ValueError as error:
-        raise AnalystError("Mistral returned invalid JSON") from error
-    if not isinstance(payload, dict):
-        raise AnalystError("Mistral returned an invalid response")
+    async with httpx.AsyncClient(timeout=RUGCHECK_REQUEST_TIMEOUT_SECONDS) as client:
+        payload = await post_json(
+            client=client,
+            httpx=httpx,
+            url=MISTRAL_CHAT_URL,
+            api_key=api_key,
+            request=request,
+        )
 
     logger.warning(
         "[rugcheck] mistral_done mint=%s elapsed=%.2fs",
         evidence.get("mint"),
         perf_counter() - started,
     )
-    answer = _message_text(payload)
+    answer = message_text(chat_message(payload))
     if not answer:
         raise AnalystError("Mistral returned no RugCheck answer")
 
