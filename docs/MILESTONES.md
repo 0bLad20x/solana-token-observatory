@@ -108,16 +108,10 @@ korrekt gerankt werden, Mehrfachupdates pro Mint zu einer Zeile führen und Eint
 Der Feed verwendet dieselbe Selection wie Suche und Bubble. Der Slice wurde nach realer
 Browservalidierung als PR #13 gemergt.
 
-## Aktiv — WP5 Temporal Token Context
+## Temporal Context Research — abgeschlossen
 
-WP5 untersucht zuerst den kleinsten belastbaren LLM-Kontext für die Frage:
-
-```text
-Wie ist dieser Token in seinem verfügbaren Beobachtungsfenster
-zu seinem aktuellen Zustand gekommen?
-```
-
-Der aktuelle Research-Proof ist `tools/inspect_token_history.py`:
+PR #16 hat den LLM-tauglichen Temporal Context gegen reale Token-Historien validiert.
+`tools/inspect_token_history.py` ist die Referenz für die bewiesene Semantik:
 
 ```text
 maximal 24h mint_snapshots
@@ -132,31 +126,147 @@ deterministic summary + temporal_history
 llm_context.json
 ```
 
-Der Summary verdichtet deterministisch Market Cap inklusive Peak und Drawdown,
-Liquidity inklusive `liquidity / market_cap`, Holder-Entwicklung,
-Ownership-Konzentration, rollierende `stats1h`-Aktivität und Organic Evidence. Rolling
-`stats1h` wird nicht über Buckets summiert. Missing bleibt Missing; es gibt kein
-Zero-Fill und keine Interpolation.
+Der normale Proof erzeugt weder Raw-Payload noch unaggregierte Full- oder 15m-Varianten.
+Der Summary verdichtet deterministisch Market Cap inklusive Peak und Drawdown, Liquidity
+inklusive `liquidity / market_cap`, Holder-Entwicklung, Ownership-Konzentration,
+rollierende `stats1h`-Aktivität und Organic Evidence. Rolling `stats1h` wird nicht über
+Buckets summiert. Missing bleibt Missing; es gibt kein Zero-Fill und keine Interpolation.
 
-Raw-Payload-, unaggregierte Full- und 15m-Repräsentationen gehören nicht mehr zum
-aktiven Proof. Der Inspector erzeugt genau einen LLM-Kontext plus `report.json`.
+Realtests mit einer annähernd 24h langen JupSOL-Historie und ZEC-Historie bestätigten die
+5m-Projektion bei ungefähr 100k grob geschätzten Context-Tokens. Der JupSOL-Sonderfall
+`mcap == liquidity` wurde direkt in den gespeicherten Jupiter-Payloads bestätigt und ist
+keine Inspector-Berechnungsstörung.
 
-Wichtige LLM-Grenze für die spätere Integration: Der System Prompt muss das Modell
-zwingen, `temporal_history` selbst zu untersuchen und den Summary nur als deterministische
-Orientierung zu verwenden. Ein Urteil ausschließlich aus dem Summary ist nicht zulässig;
-die Zeitreihe muss die Zusammenfassung bestätigen, qualifizieren oder in Frage stellen.
+## Aktiv — WP5 Temporal Token Analysis
 
-Der aktuelle Stop ist noch bewusst vor der Observatory-Integration: Zuerst muss der reale
-Inspector-Lauf für lange und kurze Token-Historien zeigen, dass Projektion, Summary und
-Context-Größe sinnvoll sind. Erst danach wird daraus der konkrete read-only WP5-Tool- und
-Browser-Vertrag abgeleitet.
+WP5 integriert genau den bewiesenen Temporal Context in den bestehenden read-only
+Observatory-Analysten. Die Produktfrage lautet:
+
+```text
+Wie ist der ausgewählte Token innerhalb der verfügbaren Beobachtungshistorie
+zu seinem aktuellen Zustand gekommen, und welche konstruktiven, schwachen,
+instabilen oder unklaren Muster sind in den Daten sichtbar?
+```
+
+Der vertikale Pfad ist:
+
+```text
+selected Mint + free temporal question
+              ↓
+Mistral Tool Call
+              ↓
+get_token_temporal_context
+              ↓
+exact selected Mint only
+              ↓
+1m <= 6h, otherwise 5m
+              ↓
+token + deterministic summary + temporal_history
+              ↓
+grounded temporal diagnosis
+```
+
+### Tool-Vertrag
+
+Genau ein neues internes read-only Tool wird ergänzt:
+
+```text
+get_token_temporal_context
+```
+
+Es erhält nur den Mint und darf ausschließlich den aktuell ausgewählten Mint lesen. Der
+Server validiert diese Bindung. Das Modell darf weder freie SQL-Abfragen noch eigene
+Zeiträume, Auflösungen oder andere Mints anfordern.
+
+Die Tool-Antwort entspricht semantisch dem validierten `llm_context.json`:
+
+```json
+{
+  "token": {},
+  "summary": {},
+  "temporal_history": {
+    "resolution_minutes": 5,
+    "buckets": []
+  }
+}
+```
+
+Die Auflösung ist keine Modellentscheidung:
+
+```text
+verfügbare History <= 6h -> 1m
+verfügbare History >  6h -> 5m
+```
+
+Die verfügbare History ist durch die operative Raw-Retention auf maximal ungefähr 24h
+begrenzt.
+
+### Eine Semantik, zwei Consumer
+
+Der Inspector bleibt das Research-/CLI-Testwerkzeug, das Observatory wird der zweite reale
+Consumer derselben Temporal-Projection-Semantik. WP5 darf deshalb die Berechnung nicht
+kopieren und den CLI-Prozess nicht als Subprocess starten. Die pure Projection-/Summary-
+Logik bekommt genau einen gemeinsamen Code-Owner; der Inspector wird ein dünner Consumer
+davon und das Observatory ruft dieselbe Logik read-only auf.
+
+### LLM Evidence Contract
+
+Der deterministische Summary ist Orientierung, nicht Diagnose und nicht höherwertig als
+die historische Evidence. Der Temporal-System-Prompt muss das Modell verpflichten:
+
+- `summary` **und** `temporal_history` zu prüfen;
+- relevante zeitliche Verläufe selbst aus den Buckets zu untersuchen;
+- den Summary mit der Zeitreihe zu bestätigen, zu qualifizieren oder ihm zu widersprechen;
+- bei Widerspruch die direkte zeitliche Evidence ausdrücklich zu benennen;
+- beobachtete Fakten, deterministisch abgeleitete Werte und LLM-Interpretation sprachlich
+  auseinanderzuhalten;
+- Missing nicht als Null zu interpretieren oder durch Proxy-Werte zu ersetzen;
+- `stats1h` als rollierende Ein-Stunden-Werte zu behandeln und niemals über Buckets zu
+  summieren;
+- keine Entwicklung außerhalb des tatsächlich gelieferten Zeitfensters zu behaupten.
+
+Ein Urteil ausschließlich aus dem Summary ist unzulässig.
+
+### Minimaler Implementierungsschnitt
+
+WP5 verändert nur den read-only Analyst-Pfad:
+
+1. gemeinsame pure Temporal-Projection aus dem validierten Inspector-Verhalten ableiten;
+2. read-only History für exakt den ausgewählten Mint laden;
+3. `get_token_temporal_context` in den bestehenden bounded Tool-Vertrag aufnehmen;
+4. einen expliziten `temporal` Analyst-Scope ergänzen;
+5. den Evidence Contract in dessen System Prompt verankern;
+6. im Browser Resolution, abgedeckte Zeitspanne und die grounded Antwort sichtbar machen.
+
+Kein neuer allgemeiner Tool-Registry-, Agenten- oder History-Framework-Layer wird dafür
+eingeführt.
+
+### Visible proof / Stop condition
+
+WP5 ist abgeschlossen, wenn der reale Browser mindestens diese drei Fälle beweist:
+
+- Token mit `<= 6h` verfügbarer History -> realer Tool Call -> `1m` Context;
+- Token mit `> 6h` verfügbarer History -> realer Tool Call -> `5m` Context;
+- Token mit fehlenden Teilfeldern -> Missing bleibt Missing und die Antwort benennt die
+  begrenzte Evidence.
+
+Für jeden Fall muss gelten:
+
+- Tool-Mint == aktuell ausgewählter Mint;
+- genau ein `get_token_temporal_context` Tool Call für die Analyse;
+- Antwort verwendet die zeitliche History und nicht nur den Summary;
+- keine operative Mutation;
+- keine erfundenen Werte oder Zeiträume.
 
 ## Nicht Teil der funktionalen Foundation
 
 - Bubble Map oder Designumbau;
 - persistierte OHLC- oder Langzeit-History-Plattform;
+- benutzerdefinierte Zeiträume oder Auflösungen;
+- Raw-, Full- oder 15m-LLM-Payloads;
+- Cross-Token-History-Vergleich;
+- Prognosen oder automatische Trading-Aktionen;
 - Bubble-Größe, Pulsieren, Farbe, Layout oder Physics;
-- Price-Change-Proxies;
 - Datenbank-, Collector- oder Lifecycle-Änderungen;
 - automatischer Good/Bad-Score als operative Wahrheit.
 
