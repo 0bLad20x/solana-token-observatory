@@ -128,9 +128,8 @@ class RugCheckAnalystTests(unittest.TestCase):
             "RugCheck external safety metadata JSON:\n", 1
         )[1]
         delivered = json.loads(context_text)
-        self.assertEqual(delivered["projection"]["type"], "rugcheck_analysis_v2")
-        self.assertEqual(delivered["projection"]["raw_report_bytes"], 5000)
-        self.assertEqual(delivered["projection"]["wallet_addresses_sent_to_llm"], 0)
+        self.assertEqual(set(delivered), {"source", "fetched_at", "summary"})
+        self.assertEqual(delivered["source"], "rugcheck")
         self.assertEqual(delivered["summary"]["ownership"]["top1_pct"], 10.0)
         self.assertEqual(delivered["summary"]["liquidity"]["market_count"], 1)
 
@@ -140,6 +139,8 @@ class RugCheckAnalystTests(unittest.TestCase):
         self.assertNotIn("mintAAccount", serialized)
         self.assertNotIn("topHolders", serialized)
         self.assertNotIn("knownAccounts", serialized)
+        self.assertNotIn("raw_report_bytes", serialized)
+        self.assertNotIn("wallet_addresses_sent_to_llm", serialized)
 
         self.assertEqual(result["scope"], "rugcheck")
         self.assertEqual(result["evidence"]["source"], "rugcheck")
