@@ -241,17 +241,17 @@ function renderAnalystTokens(tool) {
   analystSources.append(list);
 }
 
-function renderTemporalTool(tool) {
+function renderTemporalEvidence(evidence) {
   const trace = document.createElement("strong");
-  trace.textContent = `get_token_temporal_context · summary only · ~${integerFormat.format(tool.rough_input_tokens)} rough input tokens`;
+  trace.textContent = `temporal_summary · summary only · ~${integerFormat.format(evidence.rough_summary_tokens)} rough summary tokens`;
   analystSources.append(trace);
 
   const span = document.createElement("span");
-  span.textContent = `${Number(tool.history_hours).toFixed(2)}h evidence · ${integerFormat.format(tool.observations)} observations`;
+  span.textContent = `${Number(evidence.history_hours).toFixed(2)}h evidence · ${integerFormat.format(evidence.observations)} observations`;
   analystSources.append(span);
 
   const range = document.createElement("span");
-  range.textContent = `${tool.from} → ${tool.to}`;
+  range.textContent = `${evidence.from} → ${evidence.to}`;
   analystSources.append(range);
 }
 
@@ -268,7 +268,7 @@ function renderAnalyst(payload) {
       analystStatus.textContent = "No unambiguous supported query was found";
     }
   } else if (payload.scope === "temporal") {
-    renderTemporalTool(payload.tool);
+    renderTemporalEvidence(payload.evidence);
     analystStatus.textContent = "Temporal summary analysis completed";
   } else if (payload.sources.length) {
     const heading = document.createElement("strong");
@@ -409,7 +409,7 @@ analystForm.addEventListener("submit", async event => {
   analystStatus.textContent = requestScope === "web"
     ? "Searching the web…"
     : requestScope === "temporal"
-      ? "Loading compact temporal summary through get_token_temporal_context…"
+      ? "Loading compact temporal summary…"
       : "Translating question into query_tokens…";
   analystResult.classList.add("hidden");
 
