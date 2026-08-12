@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from observatory.evidence.rugcheck import RugCheckError, get_token_report
+from observatory.rugcheck_projection import project_rugcheck_evidence
 
 
 def _json_bytes(value: Any) -> int:
@@ -109,6 +110,36 @@ async def inspect(
     print(f"{'section':<28} {'shape':<14} {'bytes':>10} {'~tokens':>10}")
     for key, shape, size, rough_tokens in _section_profile(report):
         print(f"{key:<28} {shape:<14} {size:>10,} {rough_tokens:>10,}")
+
+    projected = project_rugcheck_evidence(evidence)
+    projection = projected.get("projection", {})
+    projected_bytes = projection.get("projected_report_bytes")
+    raw_bytes = projection.get("raw_report_bytes")
+    reduction = None
+    if isinstance(raw_bytes, int) and raw_bytes > 0 and isinstance(projected_bytes, int):
+        reduction = 100.0 * (1.0 - projected_bytes / raw_bytes)
+
+    print()
+    print("ANALYSIS PROJECTION")
+    print(f"Mode:                    {projection.get('type')}")
+    print(f"Raw report bytes:        {raw_bytes:,}" if isinstance(raw_bytes, int) else "Raw report bytes:        -")
+    print(
+        f"Projected report bytes:  {projected_bytes:,}"
+        if isinstance(projected_bytes, int)
+        else "Projected report bytes:  -"
+    )
+    projected_tokens = projection.get("projected_rough_report_tokens")
+    print(
+        f"Projected rough tokens:  {projected_tokens:,}"
+        if isinstance(projected_tokens, int)
+        else "Projected rough tokens:  -"
+    )
+    print(f"Reduction:               {reduction:.1f}%" if reduction is not None else "Reduction:               -")
+    print(f"Markets retained:        {projection.get('markets_total')}")
+    print(
+        "Known accounts retained: "
+        f"{projection.get('known_accounts_retained')} / {projection.get('known_accounts_total')}"
+    )
 
     for section in sections:
         if section not in report:
