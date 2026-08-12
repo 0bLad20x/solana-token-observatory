@@ -156,6 +156,26 @@ class RugCheckProjectionTests(unittest.TestCase):
         self.assertEqual(meta["wallet_addresses_sent_to_llm"], 0)
         self.assertLess(meta["projected_report_bytes"], 9999)
 
+    def test_missing_provider_sections_remain_unknown(self) -> None:
+        projected = project_rugcheck_evidence(
+            {
+                "source": "rugcheck",
+                "mint": MINT,
+                "fetched_at": "2026-08-12T12:00:00+00:00",
+                "report": {"score": 5},
+            }
+        )
+        summary = projected["summary"]
+
+        self.assertIsNone(summary["token_control"]["mint_authority_present"])
+        self.assertIsNone(summary["token_control"]["freeze_authority_present"])
+        self.assertIsNone(summary["token_control"]["metadata_update_authority_present"])
+        self.assertIsNone(summary["ownership"]["top_holders_reported"])
+        self.assertIsNone(summary["ownership"]["insiders_in_top_holders"])
+        self.assertIsNone(summary["liquidity"]["market_count"])
+        self.assertIsNone(summary["liquidity"]["markets_with_zero_lp_lock"])
+        self.assertIsNone(summary["provider_risk"]["risks"])
+
 
 if __name__ == "__main__":
     unittest.main()
