@@ -16,9 +16,11 @@ from lifecycle_rules import (
     RULE2_CHECKPOINT_MINUTES,
     RULE3_CHECKPOINT_GRACE_SECONDS,
     RULE3_CHECKPOINT_MINUTES,
+    RULE6_CHECKPOINT_MINUTES,
     classify_rule1,
     classify_rule2,
     classify_rule3,
+    classify_rule6,
 )
 from repository import MintRepository
 
@@ -26,13 +28,13 @@ from repository import MintRepository
 RULE1_MAX_POLL_LAG_SECONDS = 60.0
 INTERVAL_SECONDS = 15.0
 
-RULE_KEYS = ("rule1", "rule2", "rule3", "rule4", "rule5")
+RULE_KEYS = ("rule1", "rule2", "rule3", "rule4", "rule5", "rule6")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Lifecycle hard-retire engine. Rule 1-5 disable dead tokens "
+            "Lifecycle hard-retire engine. Rule 1-6 disable dead tokens "
             "by setting tracking_enabled=false."
         ),
     )
@@ -166,6 +168,22 @@ def run_cycle(
                     if row["crossing_at"] is None
                 ],
             )
+
+    # Rule 6 — early holder failure at T+30 from collector observation.
+    # The checkpoint remains eligible while its raw evidence is retained.
+    candidates = []
+    for row in queries.fetch_holder_checkpoint(
+        checkpoint_minutes=RULE6_CHECKPOINT_MINUTES,
+    ):
+        if row["mint"] in already_flagged:
+            continue
+
+        reason = classify_rule6(row["payload"])
+        if reason is not None:
+            candidates.append({**row, "reason": reason})
+
+    acted["rule6"] = _act(repository, candidates, apply)
+    already_flagged.update(row["mint"] for row in acted["rule6"])
 
     breakdown = {
         key: len(acted[key])

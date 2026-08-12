@@ -164,8 +164,12 @@ def _current_candidates(
         nonlocal call_index
         if apply:
             raise RuntimeError("equivalence verifier must remain read-only")
+
+        # This verifier freezes Contract v0.1 only. New rules appended after
+        # rule5 are intentionally outside its comparison scope.
         if call_index >= len(RULE_KEYS):
-            raise RuntimeError("unexpected additional lifecycle rule")
+            return candidates
+
         rule_key = RULE_KEYS[call_index]
         call_index += 1
         captured[rule_key] = {

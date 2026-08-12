@@ -73,7 +73,7 @@ Snapshot-Abstände sind deshalb keine Poll-Abstände. Fehlende Zwischen-Snapshot
 
 ## Lifecycle-Änderungen
 
-`docs/LIFECYCLE_CONTRACT.md` ist die fachliche Authority für Rule 1–5.
+`docs/LIFECYCLE_CONTRACT.md` ist die fachliche Authority für Rule 1–6 und Contract v0.2.
 
 Eine reine Simplification darf SQL, Python-Struktur, Datenzugriff oder Orchestrierung ändern, aber nicht:
 
@@ -86,13 +86,13 @@ Eine reine Simplification darf SQL, Python-Struktur, Datenzugriff oder Orchestri
 - Regelreihenfolge;
 - First-match-Verhalten.
 
-Vor einer reinen Lifecycle-Simplification muss der Equivalence-Verifier ausgeführt werden:
+Rule 1–5 sind aus Contract v0.1 unverändert übernommen. Für Änderungen, die diese geerbten Regeln betreffen, muss der Equivalence-Verifier ausgeführt werden:
 
 ```powershell
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Nur wenn pro Regel exakt dieselben `(mint, reason)`-Sets entstehen, ist die Änderung gegenüber Contract v0.1 semantisch äquivalent.
+Der Verifier ist absichtlich auf Rule 1–5 begrenzt. Rule 6 wird separat durch ihren v0.2-Contract, Unit-Tests und den realen Dry-Run/Apply-Pfad validiert. Eine Änderung an Rule 6 ist eine neue Lifecycle-Semantik und keine v0.1-Simplification.
 
 ## Frontend-/Observatory-Änderungen
 
@@ -160,10 +160,19 @@ python -m compileall -q src tools
 python -m unittest discover -s tests -v
 ```
 
-Für Lifecycle-Simplifications zusätzlich:
+Der repository-weite `unittest discover` besitzt aktuell zwei bereits auf `main` vorhandene Importfehler in veralteten `diagnostics`-Tests. Änderungen dürfen diesen Baseline-Zustand nicht verschlechtern; betroffene neue Funktionalität muss zusätzlich gezielt getestet werden.
+
+Für Änderungen an den geerbten Lifecycle-Regeln 1–5 zusätzlich:
 
 ```powershell
 python tools/verify_lifecycle_contract_v01.py
+```
+
+Für Rule 6 zusätzlich mindestens:
+
+```powershell
+python -m unittest tests.test_lifecycle_rule6 -v
+python src/lifecycle_clean.py --once
 ```
 
 Für Frontend-Synchronisations-/State-Änderungen zusätzlich die betroffenen Node-Tests und den realen Browserpfad prüfen.

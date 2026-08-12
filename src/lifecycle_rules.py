@@ -27,6 +27,11 @@ RULE3_CHECKPOINT_GRACE_SECONDS = 60.0
 # T0 = token created_at; start at T+30 and never expire.
 COLLAPSE_GRACE_MINUTES = 30
 
+# Rule 6 -- Early Holder Failure.
+# T0 = first observed by our collector; evaluate the T+30 checkpoint.
+RULE6_CHECKPOINT_MINUTES = 30
+RULE6_HOLDER_FLOOR = 5
+
 
 @dataclass(frozen=True, slots=True)
 class CollapseRule:
@@ -111,3 +116,10 @@ def classify_rule3(has_economic_data: bool) -> str | None:
     if has_economic_data:
         return None
     return "economic_data_missing_at_5m"
+
+
+def classify_rule6(payload: dict[str, Any]) -> str | None:
+    holders = _as_int(payload, "holderCount")
+    if holders is not None and holders < RULE6_HOLDER_FLOOR:
+        return "holder_count_below_5_at_30m"
+    return None
