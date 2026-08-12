@@ -7,24 +7,62 @@ from typing import Any
 _MISSING = object()
 
 SEMANTICS = {
-    "score": "RugCheck raw provider score; not a probability.",
-    "score_normalised": (
-        "RugCheck normalized provider score; public API does not define its formula "
-        "or category thresholds."
+    "score": (
+        "RugCheck raw provider score. Public API does not define its formula or numeric "
+        "severity thresholds; do not classify the number itself as low/high risk."
     ),
-    "risk_level": "Severity label assigned by RugCheck to a detected risk.",
-    "risk_score": "Numeric weight RugCheck assigns to one risk; not a probability.",
-    "topN_pct": "Sum of pct for the N largest reported top-holder rows.",
+    "score_normalised": (
+        "RugCheck normalized provider score. Public API does not define its formula, "
+        "direction or category thresholds; report the value without converting it into "
+        "a safety/risk rating."
+    ),
+    "rugged": (
+        "RugCheck provider boolean for this report. false means RugCheck did not mark the "
+        "token rugged in this observation; it is not proof of safety or future behavior."
+    ),
+    "risk_fields": (
+        "Risk name, level, value, score and description are RugCheck provider fields. "
+        "The description is the canonical supplied meaning; do not add unstated causal "
+        "consequences as provider facts."
+    ),
+    "detected_at": (
+        "RugCheck provider detection timestamp; not token creation time and not token age."
+    ),
+    "platform": (
+        "launchpad/deploy_platform identify reported infrastructure only; do not assign "
+        "reputation or risk unless RugCheck lists an explicit risk for it."
+    ),
+    "transfer_fee": (
+        "Reported transfer-fee fields only; authority presence or maxAmount must not be "
+        "expanded into claims about future fee changes unless provider evidence states it."
+    ),
+    "topN_pct": (
+        "Sum of pct for the N largest reported top-holder rows. Rows can include AMM/pool "
+        "infrastructure, so this is address-row concentration, not automatically beneficial-"
+        "owner concentration."
+    ),
+    "known_holder_pct": (
+        "Known holder percentages are deterministic sums over top-holder rows matched to "
+        "RugCheck known-account labels/types. They identify provider-labelled infrastructure "
+        "without sending wallet addresses."
+    ),
     "insider": (
         "Counts/shares use only rows with an explicit RugCheck insider flag; null means "
         "the required flag or percentage evidence was unavailable."
     ),
+    "graph_insiders": (
+        "graph_insiders_detected and insider_networks are RugCheck graph-level signals; "
+        "do not infer overlap or non-overlap with top-holder insider flags."
+    ),
     "largest_market_share_pct": (
         "Largest observed market USD liquidity divided by summed observed markets with "
-        "USD liquidity."
+        "USD liquidity; this is liquidity concentration, not ownership or withdrawability."
     ),
     "lp_lock_counts": (
-        "Counts use explicit lpLockedPct: >0 positive, =0 zero; missing values excluded."
+        "Counts use explicit RugCheck lpLockedPct: >0 positive, =0 zero; missing values "
+        "excluded. locker_count and locker_scan_status are separate provider fields. "
+        "Do not infer that no locker entry means liquidity is unlocked/withdrawable, and "
+        "do not call the fields contradictory without explicit provider evidence."
     ),
 }
 
@@ -156,6 +194,11 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
     insider_true_pct_complete = True
     known_names: Counter[str] = Counter()
     known_types: Counter[str] = Counter()
+    known_name_pct: Counter[str] = Counter()
+    known_type_pct: Counter[str] = Counter()
+    labelled_pct = 0.0
+    labelled_pct_known = False
+    largest_unlabelled_pct: float | None = None
     creator = report.get("creator")
     creator_pct = 0.0
     creator_pct_known = False
@@ -186,6 +229,8 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
             for value in [item.get(key)]
             if isinstance(value, str) and value
         }
+        row_names: set[str] = set()
+        row_types: set[str] = set()
         for address in addresses:
             label = known_accounts.get(address)
             if not isinstance(label, dict):
@@ -193,9 +238,29 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
             name = label.get("name")
             account_type = label.get("type")
             if isinstance(name, str) and name:
-                known_names[name] += 1
+                row_names.add(name)
             if isinstance(account_type, str) and account_type:
-                known_types[account_type] += 1
+                row_types.add(account_type)
+
+        for name in row_names:
+            known_names[name] += 1
+            if pct is not None:
+                known_name_pct[name] += pct
+        for account_type in row_types:
+            known_types[account_type] += 1
+            if pct is not None:
+                known_type_pct[account_type] += pct
+
+        if row_names or row_types:
+            if pct is not None:
+                labelled_pct += pct
+                labelled_pct_known = True
+        elif pct is not None:
+            largest_unlabelled_pct = (
+                pct
+                if largest_unlabelled_pct is None
+                else max(largest_unlabelled_pct, pct)
+            )
 
     creator_tokens = report.get("creatorTokens", _MISSING)
     creator_tokens_count = (
@@ -220,6 +285,10 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
         "top5_pct": concentration(5),
         "top10_pct": concentration(10),
         "top20_pct": concentration(20),
+        "known_labelled_top_holder_pct": (
+            _rounded(labelled_pct) if labelled_pct_known else None
+        ),
+        "largest_unlabelled_top_holder_pct": _rounded(largest_unlabelled_pct),
         "insider_flags_reported": insider_flags_reported if holders_known else None,
         "insiders_in_top_holders": insider_count_value,
         "insider_pct_in_top_holders": insider_pct_value,
@@ -240,6 +309,14 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
         result["known_top_holder_types"] = dict(sorted(known_types.items()))
     if known_names:
         result["known_top_holder_labels"] = dict(sorted(known_names.items()))
+    if known_type_pct:
+        result["known_top_holder_type_pct"] = {
+            key: _rounded(value) for key, value in sorted(known_type_pct.items())
+        }
+    if known_name_pct:
+        result["known_top_holder_label_pct"] = {
+            key: _rounded(value) for key, value in sorted(known_name_pct.items())
+        }
     return result
 
 
@@ -351,7 +428,7 @@ def project_rugcheck_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
         "mint": evidence.get("mint"),
         "fetched_at": evidence.get("fetched_at"),
         "projection": {
-            "type": "rugcheck_analysis_v3",
+            "type": "rugcheck_analysis_v4",
             "raw_report_bytes": raw_report_bytes,
             "raw_rough_report_tokens": raw_rough_tokens,
             "projected_report_bytes": projected_bytes,
