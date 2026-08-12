@@ -240,7 +240,7 @@ async def events() -> AsyncIterator[ServerSentEvent]:
 
         for mint, token in active.items():
             before = previous.get(mint)
-            if before is None:
+            if before is None or not before["tracking_enabled"]:
                 delta.append({"type": "token_added", "token": token})
             elif fingerprint(before) != fingerprint(token):
                 delta.append(
