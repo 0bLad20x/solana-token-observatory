@@ -12,7 +12,7 @@ Der operative Core besitzt vier Verantwortungen:
 
 1. **Discovery:** neue Mint-Adressen aus externen Quellen aufnehmen.
 2. **Monitoring:** aktive Mints regelmäßig über Jupiter Tokens V2 Search beobachten.
-3. **Persistence:** beobachtete Jupiter-Source-Versionen verlustfrei und nachvollziehbar speichern.
+3. **Persistence:** beobachtete Jupiter-Source-Versionen nachvollziehbar als hochaufgelöste Raw-Snapshots speichern und über eine begrenzte Retention pflegen.
 4. **Operational Lifecycle:** wirtschaftlich offensichtlich schlechte Tokens anhand des eingefrorenen Lifecycle-Contracts deaktivieren.
 
 Read-only Consumer wie Research, Frontend oder spätere LLM-Tools liegen außerhalb dieser operativen Mutationskette.
@@ -31,10 +31,10 @@ WriteQueue
 MintRepository
     ↓
 mints + mint_snapshots
-    ↓
-Operational Lifecycle
-    ↓
-tracking_enabled=false
+    ↓              ↓
+Lifecycle     Snapshot Maintenance
+    ↓              ↓
+tracking_enabled   24h Raw Retention
 ```
 
 Ein erfolgreicher Poll und ein neuer Snapshot sind verschiedene Ereignisse:
@@ -43,9 +43,9 @@ Ein erfolgreicher Poll und ein neuer Snapshot sind verschiedene Ereignisse:
 - `last_polled_at`: letzter erfolgreicher Search-Poll;
 - `last_changed_at`: lokale Beobachtungszeit der jüngsten neuen Source-Version;
 - `source_updated_at`: jüngster persistierter Jupiter-`updatedAt`-Wert;
-- `mint_snapshots`: immutable Historie tatsächlich beobachteter Source-Versionen.
+- `mint_snapshots`: hochaufgelöste Raw-Historie tatsächlich beobachteter Source-Versionen.
 
-Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot.
+Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot. `mint_snapshots` ist ein temporärer Raw-Working-Buffer: Rows mit `observed_at` älter als 24 Stunden werden unabhängig vom Mint-Zustand entfernt.
 
 ## Operativer Core
 
@@ -57,6 +57,7 @@ src/
 ├── discovery.py
 ├── refresh.py
 ├── repository.py
+├── maintenance.py
 ├── schema.sql
 ├── lifecycle_clean.py
 ├── lifecycle_queries.py
@@ -98,7 +99,7 @@ Collector starten:
 python src/main.py run
 ```
 
-Discovery und Jupiter-Refresh laufen parallel. Neue Mints werden zunächst als aktiv registriert; Search-Beobachtungen vervollständigen anschließend Mint-Fakten und Snapshot-Historie.
+Discovery, Jupiter-Refresh und Snapshot-Maintenance laufen parallel. Neue Mints werden zunächst als aktiv registriert; Search-Beobachtungen vervollständigen anschließend Mint-Fakten und Snapshot-Historie. Die Maintenance führt beim Start und danach stündlich einen gebatchten 24h-Retention-Lauf aus.
 
 ## Operational Lifecycle
 
@@ -131,6 +132,24 @@ python tools/verify_lifecycle_contract_v01.py
 ```
 
 Der Verifier vergleicht die aktuelle Implementierung gegen die eingefrorene v0.1-Referenz auf demselben PostgreSQL-Snapshot und verlangt pro Regel identische `(mint, reason)`-Sets.
+
+## Snapshot Retention und History Inspector
+
+`mint_snapshots` ist kein unbegrenztes Langzeitarchiv. `src/maintenance.py` hält einen festen 24-Stunden-Raw-Buffer und löscht ältere Rows in Batches ausschließlich anhand von `observed_at`.
+
+Für die experimentelle LLM-/Zeitreihenanalyse existiert ein read-only Inspector:
+
+```powershell
+python tools/inspect_token_history.py <MINT>
+```
+
+Der normale Inspector-Pfad liest aus PostgreSQL nur die Felder des aktuellen LLM-Grundvertrags und erzeugt `llm_full.json`, 1m-/5m-/15m-Projektionen sowie `report.json`. Die teure vollständige Raw-Feldanalyse ist opt-in:
+
+```powershell
+python tools/inspect_token_history.py <MINT> --profile-fields --write-raw
+```
+
+Der Inspector ist Research-Evidence und kein produktiver Observatory-/LLM-Query-Pfad.
 
 ## Read-only Downstream
 
@@ -175,7 +194,7 @@ leitet sich ausschließlich aus SSE-Deltas ab und verändert weder Token-Daten n
 Visualisierung. Ein Klick auf eine Feed-Zeile verwendet dieselbe Token-Selection wie
 Suche und Bubble und öffnet den Token im Inspector.
 
-OHLC/Time-Buckets und Snapshot-Retention sind derzeit bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
+OHLC/Time-Buckets als persistierte Langzeitprojektion sind weiterhin bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
 ## Validierung
 
@@ -184,6 +203,7 @@ python -m compileall -q src tools
 python -m unittest discover -s tests -v
 python src/main.py --help
 python src/lifecycle_clean.py --help
+python tools/inspect_token_history.py --help
 python tools/verify_lifecycle_contract_v01.py
 ```
 

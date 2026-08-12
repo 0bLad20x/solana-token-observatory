@@ -301,6 +301,40 @@ class MintRepository:
         )
 
     @retry_on_deadlock
+    def delete_expired_snapshots(
+        self,
+        cutoff: datetime,
+        batch_size: int,
+    ) -> int:
+        """Delete one batch of raw snapshots older than the retention cutoff."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than zero")
+
+        with self._db.connection() as connection:
+            cursor = connection.execute(
+                """
+                WITH candidates AS (
+                    SELECT ctid
+                    FROM mint_snapshots
+                    WHERE observed_at < %(cutoff)s
+                    ORDER BY observed_at
+                    LIMIT %(batch_size)s
+                )
+                DELETE FROM mint_snapshots AS s
+                USING candidates AS c
+                WHERE s.ctid = c.ctid
+                """,
+                {
+                    "cutoff": cutoff,
+                    "batch_size": batch_size,
+                },
+            )
+            deleted = cursor.rowcount
+            connection.commit()
+
+        return deleted
+
+    @retry_on_deadlock
     def disable_mints(self, candidates: Sequence[dict[str, Any]]) -> set[str]:
         if not candidates:
             return set()
