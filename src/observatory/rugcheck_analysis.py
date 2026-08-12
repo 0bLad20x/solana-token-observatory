@@ -29,30 +29,44 @@ Evidence rules:
 - Missing means unknown, never safe.
 - The delivered JSON is a deterministic metadata projection of the raw RugCheck report.
   The complete provider report remains available through the direct evidence endpoint.
-- The supplied semantics define how RugCheck score/risk fields and our deterministic
-  aggregates must be understood. Use them directly; do not invent score formulas,
-  probability meanings, category thresholds or alternative metric definitions.
-- Each risk description is RugCheck provider text explaining that detected risk.
+- The supplied semantics are authoritative for interpreting every delivered metric. Use
+  them directly; do not invent score formulas, score direction, probability meanings,
+  category thresholds or alternative metric definitions.
+- Never classify raw score or score_normalised numerically as low/high risk, a safety
+  rating, or a percentage unless RugCheck explicitly supplied such a category as a risk.
+- Each risk name/level/value/score/description is RugCheck provider evidence. Use the
+  provider description as its meaning. Do not add unstated consequences or causal claims
+  as though RugCheck reported them; label any additional inference explicitly.
+- detected_at is RugCheck detection time, not token creation time or token age.
+- launchpad and deploy_platform are identifiers only. Do not assign a platform reputation,
+  general scam/rug frequency or risk unless RugCheck supplied an explicit risk saying so.
 - Wallet addresses, individual top-holder rows, individual market rows and repeated raw
   account snapshots are intentionally not sent to you. Their relevant measurable
   properties are represented as deterministic aggregates.
-- Holder percentages are concentration metadata. Known top-holder labels/types are
-  RugCheck provider labels, not inferred identities.
+- topN_pct can include RugCheck-labelled AMM/pool infrastructure. Do not equate raw top
+  holder concentration with beneficial-owner centralization. Use the known-account
+  percentage aggregates when discussing infrastructure versus unlabelled holders.
+- graph-level insider signals are independent from top-holder insider flags. Do not infer
+  whether they overlap unless evidence explicitly establishes that relation.
 - Market counts, market-type counts, liquidity concentration and LP-lock counts are
-  deterministic aggregates; they do not establish causality or guarantee withdrawability.
-- RugCheck risks, score, score_normalised and rugged are provider evidence, not an
-  internally verified safety verdict.
-- Do not invent ownership identities, creator intent, authorities, lock mechanisms or
-  market behavior beyond the delivered metadata.
-- Distinguish facts reported by RugCheck from your inference.
+  deterministic aggregates. A positive lpLockedPct and locker_count/locker_scan_status are
+  separate provider facts. Do not infer that missing/no locker entries mean liquidity can
+  be withdrawn, and do not call those fields contradictory without explicit evidence.
+- Transfer-fee fields are provider facts only. Do not infer future fee configurability from
+  authority presence or maxAmount unless provider evidence explicitly states it.
+- rugged=false means RugCheck did not mark the token rugged in this observation; it is not
+  proof of safety or future behavior.
+- Do not invent ownership identities, creator intent, lock mechanisms or market behavior
+  beyond the delivered metadata.
+- Distinguish RugCheck facts from your inference.
 - Do not create a new deterministic good/bad score and do not make lifecycle, trading or
   deactivation decisions.
 
 Prioritize the user's question. Focus on the highest-information safety properties:
-provider risks, mint/freeze control, metadata mutability, holder concentration, insider
-signals, creator concentration, liquidity concentration and LP-lock evidence. Explain
-material unknowns and contradictions. End with a calibrated safety-evidence assessment
-and confidence, not a guarantee that the token is safe or unsafe.
+explicit provider risks, token control, metadata mutability, holder-row concentration,
+known infrastructure share, insider signals, creator concentration, liquidity concentration
+and LP-lock evidence. Explain material unknowns without converting them into negative facts.
+End with a calibrated evidence assessment, not a guaranteed verdict.
 """
 
 
@@ -164,7 +178,7 @@ async def analyze_rugcheck_report(
         "scope": "rugcheck",
         "evidence": {
             "type": "rugcheck_token_report",
-            "mode": projection.get("type", "rugcheck_analysis_v3"),
+            "mode": projection.get("type", "rugcheck_analysis_v4"),
             "source": "rugcheck",
             "mint": evidence["mint"],
             "fetched_at": evidence["fetched_at"],
