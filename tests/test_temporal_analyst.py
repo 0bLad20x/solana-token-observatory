@@ -38,7 +38,7 @@ class TemporalAnalystTests(unittest.TestCase):
                 MINT,
             )
 
-    def test_temporal_analysis_requires_one_tool_call_and_returns_visible_evidence_meta(self) -> None:
+    def test_temporal_analysis_sends_summary_only_and_returns_evidence_meta(self) -> None:
         captured: list[dict[str, object]] = []
         responses = [
             {
@@ -65,8 +65,8 @@ class TemporalAnalystTests(unittest.TestCase):
                     {
                         "message": {
                             "content": (
-                                "The early history was weaker, while later buckets "
-                                "showed improving market cap and holder growth."
+                                "Valuation improved across the observed window, while the "
+                                "available summary is insufficient for exact turning points."
                             )
                         }
                     }
@@ -82,14 +82,13 @@ class TemporalAnalystTests(unittest.TestCase):
                     "from": "2026-08-12T00:00:00+00:00",
                     "to": "2026-08-12T08:00:00+00:00",
                 },
-                "market_cap": {"start": 10, "current": 20},
-            },
-            "temporal_history": {
-                "resolution_minutes": 5,
-                "buckets": [
-                    {"bucket_start": "2026-08-12T00:00:00+00:00"},
-                    {"bucket_start": "2026-08-12T07:55:00+00:00"},
-                ],
+                "market_cap": {
+                    "start": 10,
+                    "current": 20,
+                    "min": 8,
+                    "max": 22,
+                    "change_pct": 100,
+                },
             },
         }
 
@@ -137,7 +136,7 @@ class TemporalAnalystTests(unittest.TestCase):
                         "symbol": "EX",
                         "launchpad": "pump.fun",
                     },
-                    question="How did this token develop?",
+                    question="How does this token look?",
                     context_loader=load_context,
                 )
             )
@@ -149,18 +148,21 @@ class TemporalAnalystTests(unittest.TestCase):
             "get_token_temporal_context",
         )
         self.assertEqual(first_request["tool_choice"], "required")
-        self.assertIn("NOT sufficient evidence", first_request["messages"][0]["content"])
-        self.assertIn("temporal_history", first_request["messages"][0]["content"])
+        system_prompt = first_request["messages"][0]["content"]
+        self.assertIn("It does NOT return time buckets", system_prompt)
+        self.assertIn("cross-metric confirmation or divergence", system_prompt)
+        self.assertIn("Do NOT claim phases", system_prompt)
 
         final_request = captured[1]["json"]
         self.assertEqual(final_request["max_tokens"], TEMPORAL_MAX_OUTPUT_TOKENS)
         tool_message = final_request["messages"][-1]
         delivered = json.loads(tool_message["content"])
         self.assertEqual(delivered, context)
+        self.assertNotIn("temporal_history", delivered)
         self.assertEqual(result["scope"], "temporal")
         self.assertEqual(result["tool"]["mint"], MINT)
-        self.assertEqual(result["tool"]["resolution_minutes"], 5)
-        self.assertEqual(result["tool"]["buckets"], 2)
+        self.assertEqual(result["tool"]["evidence"], "summary_only")
+        self.assertGreater(result["tool"]["rough_input_tokens"], 0)
 
 
 if __name__ == "__main__":
