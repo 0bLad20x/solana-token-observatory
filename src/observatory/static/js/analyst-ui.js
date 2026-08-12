@@ -237,15 +237,15 @@ export class AnalystUI {
     const trace = document.createElement("strong");
     trace.textContent = `rugcheck_token_report · ${evidence.mode} · ~${integerFormat.format(evidence.analysis_rough_tokens)} analysis tokens`;
     const size = document.createElement("span");
-    size.textContent = `raw ${integerFormat.format(evidence.raw_report_bytes)} bytes → analysis ${integerFormat.format(evidence.analysis_context_bytes)} bytes · source RugCheck`;
+    size.textContent = `raw ${integerFormat.format(evidence.raw_report_bytes)} bytes → metadata ${integerFormat.format(evidence.analysis_context_bytes)} bytes · source RugCheck`;
     const coverage = document.createElement("span");
-    const known = evidence.known_accounts_total == null
-      ? "known accounts unavailable"
-      : `${integerFormat.format(evidence.known_accounts_retained)} / ${integerFormat.format(evidence.known_accounts_total)} referenced known accounts`;
-    const markets = evidence.markets_total == null
+    const markets = evidence.markets_observed == null
       ? "markets unavailable"
-      : `${integerFormat.format(evidence.markets_total)} markets retained`;
-    coverage.textContent = `${markets} · ${known}`;
+      : `${integerFormat.format(evidence.markets_observed)} markets aggregated`;
+    const holders = evidence.top_holders_observed == null
+      ? "top holders unavailable"
+      : `${integerFormat.format(evidence.top_holders_observed)} top holders aggregated`;
+    coverage.textContent = `${markets} · ${holders} · ${integerFormat.format(evidence.wallet_addresses_sent_to_llm || 0)} wallet addresses sent`;
     const fetched = document.createElement("span");
     fetched.textContent = `Fetched ${evidence.fetched_at}`;
     this.sources.append(trace, size, coverage, fetched);
