@@ -47,8 +47,10 @@ CREATE TABLE IF NOT EXISTS mint_snapshots (
     PRIMARY KEY (mint, observed_at)
 );
 
--- The primary key (mint, observed_at) already supports both forward and
--- backward B-tree scans for per-mint history. No duplicate DESC index.
+-- The primary key (mint, observed_at) supports per-mint history scans.
+-- Retention deletes across the whole table need observed_at as the leading key.
+CREATE INDEX IF NOT EXISTS ix_mint_snapshots_observed_at
+    ON mint_snapshots (observed_at);
 
 CREATE TABLE IF NOT EXISTS lifecycle_rule_state (
     mint TEXT NOT NULL REFERENCES mints(mint) ON DELETE CASCADE,
