@@ -45,7 +45,7 @@ Ein erfolgreicher Poll und ein neuer Snapshot sind verschiedene Ereignisse:
 - `source_updated_at`: jüngster persistierter Jupiter-`updatedAt`-Wert;
 - `mint_snapshots`: hochaufgelöste Raw-Historie tatsächlich beobachteter Source-Versionen.
 
-Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot. Raw-Snapshots sind ein temporärer Working Buffer und werden nach 24 Stunden bereinigt, sobald ihre operative Lifecycle-Evidence sicher verarbeitet ist. Der jeweils jüngste Snapshot eines Mints bleibt erhalten.
+Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot. `mint_snapshots` ist ein temporärer Raw-Working-Buffer: Rows mit `observed_at` älter als 24 Stunden werden unabhängig vom Mint-Zustand entfernt.
 
 ## Operativer Core
 
@@ -135,7 +135,7 @@ Der Verifier vergleicht die aktuelle Implementierung gegen die eingefrorene v0.1
 
 ## Snapshot Retention und History Inspector
 
-`mint_snapshots` ist die hochaufgelöste Raw-Evidence und kein unbegrenztes Langzeitarchiv. `src/maintenance.py` hält standardmäßig ein 24-Stunden-Fenster. Gelöscht wird in kleinen Batches. Für aktive Mints werden alte Rows erst entfernt, wenn Rule 4 und Rule 5 mit ihren persistenten `scanned_through`-Cursors darüber hinausgelaufen sind; der neueste Snapshot jedes Mints wird immer behalten.
+`mint_snapshots` ist kein unbegrenztes Langzeitarchiv. `src/maintenance.py` hält einen festen 24-Stunden-Raw-Buffer und löscht ältere Rows in Batches ausschließlich anhand von `observed_at`.
 
 Für die experimentelle LLM-/Zeitreihenanalyse existiert ein read-only Inspector:
 
