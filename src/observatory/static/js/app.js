@@ -24,7 +24,11 @@ function setStreamStatus(mode, label) {
 }
 
 function renderView(events = []) {
-  currentView.render(state.values(), state.selectedMint, events);
+  currentView.render({
+    tokens: state.values(),
+    selectedMint: state.selectedMint,
+    events,
+  });
 }
 
 function selectToken(mint) {
