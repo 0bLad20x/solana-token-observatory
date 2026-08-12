@@ -1,21 +1,21 @@
 # jupiter-data-transform
 
-`jupiter-data-transform` sammelt und historisiert Zustände von Solana-Tokens und reduziert die operative Beobachtung über einen transparenten, versionierten Lifecycle.
+`jupiter-data-transform` entdeckt Solana-Mints, beobachtet deren Jupiter-Zustände, hält eine begrenzte hochaufgelöste Raw-Historie und reduziert die operative Population über einen transparenten, versionierten Lifecycle.
 
 ## System in einem Satz
 
 ```text
-Discovery -> Jupiter Monitoring -> Persistent Observations -> Operational Lifecycle -> Read-only Downstream
+Discovery -> Jupiter Monitoring -> Persistent Observations -> Operational Lifecycle -> Read-only Observatory / Research
 ```
 
 Der operative Core besitzt vier Verantwortungen:
 
 1. **Discovery:** neue Mint-Adressen aus externen Quellen aufnehmen.
-2. **Monitoring:** aktive Mints regelmäßig über Jupiter Tokens V2 Search beobachten.
-3. **Persistence:** beobachtete Jupiter-Source-Versionen nachvollziehbar als hochaufgelöste Raw-Snapshots speichern und über eine begrenzte Retention pflegen.
-4. **Operational Lifecycle:** wirtschaftlich offensichtlich schlechte Tokens anhand des eingefrorenen Lifecycle-Contracts deaktivieren.
+2. **Monitoring:** aktive Mints über Jupiter Tokens V2 Search beobachten.
+3. **Persistence:** tatsächlich beobachtete Jupiter-Source-Versionen nachvollziehbar persistieren und über eine begrenzte Retention pflegen.
+4. **Operational Lifecycle:** Tokens anhand des eingefrorenen Lifecycle-Contracts deaktivieren.
 
-Read-only Consumer wie Research, Frontend oder spätere LLM-Tools liegen außerhalb dieser operativen Mutationskette.
+Frontend, Analyst und Research sind read-only Downstream-Consumer und besitzen keine operative Mutation-Authority.
 
 ## Datenfluss
 
@@ -26,15 +26,15 @@ PostgreSQL: mints
     ↓
 Jupiter Search refresh
     ↓
-WriteQueue
-    ↓
-MintRepository
+WriteQueue -> MintRepository
     ↓
 mints + mint_snapshots
     ↓              ↓
 Lifecycle     Snapshot Maintenance
     ↓              ↓
 tracking_enabled   24h Raw Retention
+    ↓
+Read-only Observatory / Research
 ```
 
 Ein erfolgreicher Poll und ein neuer Snapshot sind verschiedene Ereignisse:
@@ -43,28 +43,9 @@ Ein erfolgreicher Poll und ein neuer Snapshot sind verschiedene Ereignisse:
 - `last_polled_at`: letzter erfolgreicher Search-Poll;
 - `last_changed_at`: lokale Beobachtungszeit der jüngsten neuen Source-Version;
 - `source_updated_at`: jüngster persistierter Jupiter-`updatedAt`-Wert;
-- `mint_snapshots`: hochaufgelöste Raw-Historie tatsächlich beobachteter Source-Versionen.
+- `mint_snapshots`: immutable Historie tatsächlich beobachteter Source-Versionen innerhalb des Raw-Buffers.
 
-Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot. `mint_snapshots` ist ein temporärer Raw-Working-Buffer: Rows mit `observed_at` älter als 24 Stunden werden unabhängig vom Mint-Zustand entfernt.
-
-## Operativer Core
-
-```text
-src/
-├── main.py
-├── config.py
-├── database.py
-├── discovery.py
-├── refresh.py
-├── repository.py
-├── maintenance.py
-├── schema.sql
-├── lifecycle_clean.py
-├── lifecycle_queries.py
-└── lifecycle_rules.py
-```
-
-Zusätzliche read-only Research-Skripte können im Repository existieren, besitzen aber keine operative Authority über Tracking- oder Lifecycle-Zustand.
+Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot. Rows in `mint_snapshots` mit `observed_at` älter als 24 Stunden werden unabhängig vom Lifecycle-Zustand entfernt.
 
 ## Voraussetzungen
 
@@ -72,6 +53,7 @@ Zusätzliche read-only Research-Skripte können im Repository existieren, besitz
 - PostgreSQL
 - Jupiter API Key(s)
 - PumpPortal API Key für die entsprechende Discovery-Quelle
+- Mistral API Key für die Analyst-Funktionen des Observatory
 
 ## Installation
 
@@ -80,10 +62,11 @@ py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m pip install -r requirements-frontend.txt
 Copy-Item .env.example .env
 ```
 
-Danach die lokalen Zugangsdaten in `.env` eintragen. `.env` wird nicht committed.
+Danach lokale Zugangsdaten in `.env` eintragen. `.env` wird nicht committed.
 
 ## Collector
 
@@ -99,17 +82,17 @@ Collector starten:
 python src/main.py run
 ```
 
-Discovery, Jupiter-Refresh und Snapshot-Maintenance laufen parallel. Neue Mints werden zunächst als aktiv registriert; Search-Beobachtungen vervollständigen anschließend Mint-Fakten und Snapshot-Historie. Die Maintenance führt beim Start und danach stündlich einen gebatchten 24h-Retention-Lauf aus.
+Discovery, Jupiter-Refresh und Snapshot-Maintenance laufen parallel. Die Maintenance führt beim Start und danach stündlich einen gebatchten 24h-Retention-Lauf aus.
 
 ## Operational Lifecycle
 
-Einmalig als Dry-Run:
+Dry-Run:
 
 ```powershell
 python src/lifecycle_clean.py --once
 ```
 
-Einmalig mit operativer Deaktivierung:
+Einmalig anwenden:
 
 ```powershell
 python src/lifecycle_clean.py --apply --once
@@ -131,86 +114,89 @@ Vor einer reinen Lifecycle-Simplification:
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Der Verifier vergleicht die aktuelle Implementierung gegen die eingefrorene v0.1-Referenz auf demselben PostgreSQL-Snapshot und verlangt pro Regel identische `(mint, reason)`-Sets.
+## Read-only Observatory
 
-## Snapshot Retention und History Inspector
-
-`mint_snapshots` ist kein unbegrenztes Langzeitarchiv. `src/maintenance.py` hält einen festen 24-Stunden-Raw-Buffer und löscht ältere Rows in Batches ausschließlich anhand von `observed_at`.
-
-Für die experimentelle LLM-/Zeitreihenanalyse existiert ein read-only Inspector:
-
-```powershell
-python tools/inspect_token_history.py <MINT>
-```
-
-Der Inspector erzeugt genau einen LLM-Kontext statt mehrere konkurrierende Repräsentationen:
-
-```text
-verfügbare History <= 6h -> 1m Buckets
-verfügbare History >  6h -> 5m Buckets
-```
-
-`llm_context.json` enthält Token-Header, einen deterministisch berechneten `summary`-Block und dieselbe historische Evidence als `temporal_history`. Raw-Payload-, unaggregierte Full- und 15m-Ausgaben gehören nicht mehr zum normalen Research-Vertrag. `report.json` dokumentiert Projektion, grobe Context-Größe und die spätere System-Prompt-Anforderung.
-
-Der Summary verdichtet Market Cap, Liquidity, Holder-Entwicklung, Ownership-Konzentration, rollierende `stats1h`-Aktivität und Organic Evidence. Rollierende `stats1h`-Werte werden nicht über Buckets summiert. Missing bleibt Missing; es gibt kein Zero-Fill oder Interpolation.
-
-Für eine spätere LLM-Integration gilt ausdrücklich: Der System Prompt muss das Modell zwingen, `temporal_history` selbst zu prüfen und den Summary nur als deterministische Orientierung zu verwenden. Ein Urteil ausschließlich aus dem Summary ist nicht zulässig.
-
-Der Inspector ist Research-Evidence und noch kein produktiver Observatory-/LLM-Query-Pfad.
-
-## Read-only Downstream
-
-Read-only Consumer dürfen operative Daten lesen und eigene Projektionen erzeugen. Sie dürfen jedoch weder `tracking_enabled`, Priority noch Lifecycle-State verändern.
-
-Das lokale Observatory läuft als separater read-only Prozess:
+Das Observatory läuft als separater FastAPI-/Browser-Prozess:
 
 ```powershell
 python src/frontend.py
 ```
 
-Für die tokenbezogene Webrecherche werden serverseitig konfiguriert:
+Standardmäßig unter `http://127.0.0.1:8000`.
+
+Der Browser besitzt eine gemeinsame aktive Population und genau einen `selected Mint`. Search, Inspector, Activity, aktuelle View und selected-token Analyst-Funktionen konsumieren diese gemeinsame Selection. Die konkrete View ist ein austauschbarer Proof und keine Design-Authority.
+
+Die Live-Synchronisation besitzt eine explizite Grenze:
 
 ```text
-MISTRAL_API_KEY=...
-MISTRAL_MODEL=mistral-small-latest
+connect / reconnect
+      ↓
+full universe_snapshot
+      ↓
+subsequent universe_delta events
+```
+
+Der initiale Stream-Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas. `GET /api/token/{mint}` bleibt ein Selected-Detail-Read und schreibt nicht als zweiter Pfad in die Population.
+
+## Analyst
+
+`POST /api/analyst` besitzt vier explizite read-only Use Cases:
+
+| Scope | Evidence / Aufgabe | Modell-Tier |
+|---|---|---|
+| `current_data` | bounded `query_tokens` über die aktuelle aktive Population | FAST |
+| `web` | exact-Mint Web Research | STRONG |
+| `temporal` | deterministischer `<=24h` Summary + eine Interpretation | STRONG |
+| `rugcheck` | exact-Mint RugCheck Evidence + kompakte Safety-Metadaten | STRONG |
+
+Aktuelle Defaults:
+
+```text
+MISTRAL_MODEL_FAST=ministral-14b-latest
+MISTRAL_MODEL_STRONG=mistral-large-latest
 MISTRAL_WEB_SEARCH_MODE=web_search
 ```
 
-`MISTRAL_WEB_SEARCH_MODE` akzeptiert ausschließlich `web_search` oder
-`web_search_premium`. Externe Rechercheergebnisse werden nicht persistiert und besitzen
-keine operative Mutation-Authority.
+Die Modellwahl ist serverseitige Use-Case-Policy. Die UI kennt keine Modellnamen.
 
-Der Analyst kann außerdem Fragen zur aktuellen aktiven Token-Population in einen
-serverseitigen `query_tokens`-Aufruf übersetzen. Das Tool kennt nur eine feste Liste
-beschriebener aktueller Felder. Die real verfügbaren Launchpads werden pro Anfrage aus
-der aktiven Population ergänzt. Das Tool liefert standardmäßig fünf und maximal zwanzig
-Treffer und akzeptiert weder SQL noch operative Mutationen. Dafür ist keine zusätzliche
-Konfiguration nötig.
+### Current Data
 
-Das Observatory kann die bereits geladene aktive Population direkt nach Mint, Symbol
-oder Name durchsuchen. Suchtreffer sind nach aktueller Market Cap sortiert und zeigen
-Market Cap, Liquidity und Holders zur Unterscheidung gleichnamiger Tokens. Suchtreffer
-und von `query_tokens` zurückgegebene Tokens führen über dieselbe Selection zum Inspector
-und zur tokenbezogenen Webrecherche. Dafür wird kein zusätzlicher Datenbank-Endpunkt
-benötigt.
+Freie Fragen zur aktuellen Population werden in genau den bounded `query_tokens`-Vertrag übersetzt. Das Tool akzeptiert ausschließlich beschriebene Felder, Limits und Filter; kein SQL und keine operative Mutation. Unsupported oder mehrdeutige Fragen dürfen keine Proxy-Metrik erfinden.
 
-Der Live-Feed zeigt höchstens fünf unterschiedliche Tokens, deren rollierendes Jupiter-
-`volume_5m` innerhalb der letzten 60 Sekunden positiv gestiegen ist. Gerankt wird die
-Zunahme von `volume_5m / market_cap`; fehlende Werte werden ausgeschlossen. Der Feed
-leitet sich ausschließlich aus SSE-Deltas ab und verändert weder Token-Daten noch die
-Visualisierung. Ein Klick auf eine Feed-Zeile verwendet dieselbe Token-Selection wie
-Suche und Bubble und öffnet den Token im Inspector.
+### Web Research
 
-OHLC/Time-Buckets als persistierte Langzeitprojektion sind weiterhin bewusst zurückgestellt. Der aktuelle Entwicklungsstand und die Reihenfolge stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
+Web Research verwendet den exakt selektierten Mint als Identitätsgrenze. Externe Ergebnisse bleiben externe Evidenz und werden nicht persistiert oder zu Jupiter System Truth umgedeutet.
+
+### Temporal Summary
+
+Der produktive Temporal-Pfad lädt einen deterministischen Summary aus maximal 24 Stunden verfügbarer Raw-Historie und sendet **keine Raw-History und keine 1m/5m/15m-Buckets** an das LLM. Danach erfolgt genau eine STRONG-Modell-Interpretation.
+
+`tools/inspect_token_history.py` bleibt als read-only Research-/Diagnosewerkzeug im Repository, ist aber nicht der produktive Observatory-Vertrag.
+
+### RugCheck
+
+Der direkte Evidence-Endpunkt ist:
+
+```text
+GET /api/evidence/rugcheck/{mint}
+```
+
+Der vollständige RugCheck Token Report bleibt als Provider-Evidence verfügbar. Für die Analyst-Interpretation wird daraus deterministisch eine kompakte Safety-Metadaten-Projektion (`rugcheck_analysis_v4`) erzeugt; einzelne Wallet-/Holder-/Market-Rohzeilen werden nicht an das LLM geschickt. RugCheck-Evidence wird weder persistiert noch zu Jupiter- oder Lifecycle-Truth.
+
+## Funktionale Observatory-Grenze
+
+Der Functional Core ist nach PR #20/#21 und dem finalen Synchronisations-Slice PR #24 abgeschlossen. Er enthält Domain-Fakten, Population, Selection und Live-Event-Anwendung, aber keine Presentation Truth wie `x/y`, Radius, Farbe, Opacity, D3/Pixi-State oder Clusterpositionen.
+
+Der nächste Schritt ist deshalb **nicht automatisch ein neues Visual Design**. Der aktuelle Projektcheckpoint und die noch zu entscheidenden Evidence-/Relation-Fragen stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
 ## Validierung
 
 ```powershell
 python -m compileall -q src tools
 python -m unittest discover -s tests -v
+node --test tests/test_frontend_state.mjs tests/test_frontend_sync.mjs
 python src/main.py --help
 python src/lifecycle_clean.py --help
-python tools/inspect_token_history.py --help
 python tools/verify_lifecycle_contract_v01.py
 ```
 
@@ -221,7 +207,8 @@ Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
 - [`README.md`](README.md): Zweck, Einstieg und Bedienung.
 - [`docs/architecture.md`](docs/architecture.md): implementierte Komponenten, Datenfluss und harte Systemgrenzen.
 - [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md): fachliche Semantik und Version des operativen Lifecycle.
-- [`docs/MILESTONES.md`](docs/MILESTONES.md): aktueller Stand und nächste Entwicklungsrichtung; keine Authority für bereits implementiertes Verhalten.
-- [`AGENTS.md`](AGENTS.md): verbindliche Regeln für Änderungen am Repository.
+- [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md): funktionaler Observatory-/Analyst-Vertrag und Truth-Grenzen.
+- [`docs/MILESTONES.md`](docs/MILESTONES.md): aktueller Checkpoint und nächste Entwicklungsentscheidung.
+- [`AGENTS.md`](AGENTS.md): verbindliche Regeln für Repository-Änderungen.
 
 Änderungshistorie gehört in Git. Temporäre Refactoring-, Research- oder Optimization-Notizen sind keine dauerhaften Architektur-Authorities.
