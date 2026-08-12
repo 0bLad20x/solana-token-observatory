@@ -12,8 +12,14 @@ Die operative Basis steht:
 - Jupiter Search Monitoring;
 - PostgreSQL-Registry und immutable `mint_snapshots`;
 - 24h Raw-Buffer-Retention für `mint_snapshots`;
-- Operational Lifecycle v0.1;
+- Operational Lifecycle v0.3;
 - read-only Downstream-Grenze.
+
+Lifecycle v0.2 ergänzte Rule 6 `Early Holder Failure`: T0 ist `first_observed_at`, der Decision-Checkpoint liegt bei T+30 und `holderCount < 5` führt bei vorhandener Checkpoint-Evidence zur Deaktivierung. Der erste reale Apply auf der bestehenden Population deaktivierte 2.313 Mints, davon 2.125 über Rule 6, und reduzierte die aktive Population in diesem Lauf von 4.602 auf 2.348.
+
+Lifecycle v0.3 ergänzt Rule 7 `Persistent Source Inactivity`: ein bereits beobachteter Mint wird deaktiviert, wenn er weiterhin frisch erfolgreich gepollt wird, `last_changed_at` aber seit mindestens 24 Stunden unverändert ist. Diese Regel verwendet ausschließlich langlebige Collector-Timestamps aus `mints`; sie benötigt keinen Raw-Snapshot und vermischt die 24h-Retention nicht mit Lifecycle-Evidence.
+
+Die Entscheidung wurde aus dem aktiven, frisch gepollten Bestand abgeleitet: 629 Mints lagen bei 24–48 Stunden ohne neue Jupiter-Source-Version und weitere 30 bei mehr als 48 Stunden. Rule 7 adressiert damit genau die persistente Monitoring-Inactivity, die zuvor als aktive Population ohne verbleibenden Raw-Snapshot sichtbar wurde.
 
 ## Observatory Functional Foundation — abgeschlossen
 
@@ -32,36 +38,25 @@ Die vertikalen Slices haben die funktionale Basis bewiesen:
 | Model Routing + RugCheck / Issue #22 / PR #23 | FAST/STRONG Policy + exact-Mint RugCheck Evidence + v4 Projection |
 | Final Core Sync / PR #24 | verlustfreie Connect/Reconnect-Synchronisationsgrenze + ein Population-Updatepfad |
 
-## Aktueller Checkpoint — Functional Core frozen
+## Aktueller Checkpoint — Live Operational Telemetry
 
-Der Observatory Functional Core wird jetzt als abgeschlossen betrachtet.
-
-```text
-Operational Core
-      ↓
-read-only backend
-      ↓
-Browser IO
-      ↓
-Population State + selected Mint
-      ├── Search
-      ├── Activity
-      ├── Inspector
-      ├── Analyst
-      └── disposable Current View
-```
-
-Die Population synchronisiert sich über:
+Der Observatory Functional Core ist abgeschlossen. Der aktuelle aktive Slice ist Issue #26 / Draft PR #27: ein kleiner vertikaler Proof für flüchtige Live-Telemetrie des real laufenden operativen Systems.
 
 ```text
-initial / reconnect universe_snapshot
-              ↓
-subsequent universe_delta events
+Discovery / Search / WriteQueue / Lifecycle
+                ↓
+       localhost UDP best effort
+                ↓
+      Observatory 10m RAM buffer
+                ↓
+      telemetry snapshot + SSE
+                ↓
+       deterministic 1 Hz UI proof
 ```
 
-`GET /api/token/{mint}` bleibt ein Selected-Detail-Read und schreibt nicht als zweiter Pfad in die Population.
+Die Telemetrie beschreibt Masse, Durchsatz und Runtime-Zustand. Sie ist keine neue Persistence-, Alerting-, Lifecycle- oder Event-Sourcing-Schicht. Konkrete Mint-Identitäten bleiben im kanonischen Token-Stream.
 
-Der Functional Core enthält Domain-Fakten, Selection und Live-Event-Anwendung, aber keine Presentation Truth wie `x/y`, Radius, Farbe, Alpha, Clusterpositionen, Pixi/D3-State oder einen universellen ViewSpec.
+Vor dem Merge des Telemetrie-Slices müssen der Branch auf den aktuellen Lifecycle-v0.3-Stand synchronisiert, die Rule-1–7-Telemetriebezeichnung korrigiert, die vorhandene lokale Runtime-Evidence final geprüft und die zuständigen Architecture-/Observatory-Authorities aktualisiert werden.
 
 ## Analyst Evidence — aktueller Stand
 
@@ -83,13 +78,13 @@ STRONG = mistral-large-latest
 
 RugCheck ist damit kein offener Readiness-Punkt mehr. Der ältere Issue #18 ist durch Issue #22 / PR #23 erfüllt.
 
-## Jetzt offen — Evidence Readiness Review vor Design
+## Danach — Evidence / Visual Research
 
-Es gibt **noch keinen automatisch ausgewählten nächsten Feature-Slice**. Vor neuem Visual-/Spatial-Design wird entschieden, ob eine konkrete zukünftige Benutzerfrage noch eine fehlende Evidence- oder Relation-Grenze benötigt.
+Nach dem Live-Telemetrie-Proof wird erneut anhand einer konkreten Benutzerfrage entschieden, ob noch eine Evidence-/Relation-Grenze fehlt oder Issue #9 Visual / Spatial Research der nächste Slice ist.
 
-Kandidaten:
+Mögliche spätere Kandidaten bleiben:
 
-### 1. Discovery Provenance
+### Discovery Provenance
 
 Nur falls zukünftige Nutzung eine beweisbare Relation benötigt wie:
 
@@ -103,19 +98,17 @@ Jupiter Observation
 
 muss geprüft werden, ob und wie diese Provenance persistiert oder als read-only Relation bereitgestellt wird.
 
-Nicht vorab implementieren, nur weil eine spätere Flow-/Tunnel-Darstellung denkbar ist.
-
-### 2. Bounded Multi-Mint Comparison / zusätzliche Evidence
+### Bounded Multi-Mint Comparison / zusätzliche Evidence
 
 Nur aus einer konkreten Benutzerfrage ableiten, ob mehrere Mints gemeinsam verglichen oder weitere deterministische Summaries/Source-Metadaten benötigt werden.
 
-### 3. Unified AI Question Router
+### Unified AI Question Router
 
 Die vier bewiesenen Analyst-Pfade könnten später hinter einem gemeinsamen Frageeingang liegen. Noch offen ist, ob Routing deterministisch, LLM-basiert, hybrid oder parallel erfolgt.
 
 Kein generisches Agent-/Tool-Framework vorsorglich bauen.
 
-## Danach — Issue #9 Visual / Spatial Research
+## Issue #9 Visual / Spatial Research
 
 Issue #9 bleibt der separate Design-/Research-Schritt.
 
@@ -135,9 +128,9 @@ Große Dateien unter `analysis/` sind historische Research-Evidence und werden *
 
 ## Stop Condition dieses Checkpoints
 
-Der Repository-Zustand ist für neue Arbeit bereit, wenn:
+Der Repository-Zustand ist für den nächsten Slice bereit, wenn:
 
 - die dauerhaften Authorities den aktuellen `main` widerspiegeln;
+- Lifecycle v0.3 und Telemetry-Branch nicht semantisch auseinanderlaufen;
 - abgeschlossene Issues nicht mehr als offene Roadmap erscheinen;
-- kein Dokument einen bereits verworfenen Research-Pfad als Produktvertrag beschreibt;
-- das nächste Feature erst nach einer expliziten Evidence-/Produktentscheidung begonnen wird.
+- kein Dokument einen bereits verworfenen Research-Pfad als Produktvertrag beschreibt.

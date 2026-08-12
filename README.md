@@ -106,9 +106,12 @@ python src/lifecycle_clean.py --apply
 
 Ohne `--apply` schreibt der Lifecycle keine Deaktivierungen. Mit `--apply` setzt ausschließlich der definierte Lifecycle-Pfad `tracking_enabled=false` und persistiert `disabled_at` sowie `disabled_reason`.
 
-Die fachliche Semantik von Rule 1–5 ist in [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) als Contract v0.1 eingefroren.
+Die fachliche Semantik von Rule 1–7 ist in [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) als Contract v0.3 eingefroren.
 
-Vor einer reinen Lifecycle-Simplification:
+- Rule 6 ergänzt einen T+30-Checkpoint auf frühe Holder-Distribution: `holderCount < 5` wird deaktiviert, sofern die definierte Checkpoint-Evidence vorhanden ist.
+- Rule 7 deaktiviert Mints, die weiterhin frisch von Jupiter Search gepollt werden, deren `last_changed_at` aber seit mindestens 24 Stunden unverändert ist. Dafür ist kein Snapshot erforderlich; die Entscheidung verwendet die langlebigen Collector-Timestamps in `mints`.
+
+Rule 1–5 bleiben gegenüber v0.1 unverändert. Der bestehende Verifier prüft weiterhin genau diese geerbten Regeln gegen die eingefrorene v0.1-Referenz:
 
 ```powershell
 python tools/verify_lifecycle_contract_v01.py
@@ -199,6 +202,14 @@ python src/main.py --help
 python src/lifecycle_clean.py --help
 python tools/verify_lifecycle_contract_v01.py
 ```
+
+Für Lifecycle v0.3 zusätzlich gezielt:
+
+```powershell
+python -m unittest tests.test_lifecycle_rule6 tests.test_lifecycle_rule7 -v
+```
+
+Hinweis: Der repository-weite `unittest discover` besitzt aktuell zwei bereits auf `main` vorhandene Importfehler in veralteten `diagnostics`-Tests. Lifecycle-v0.3 verändert diesen unabhängigen Baseline-Zustand nicht.
 
 Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
 
