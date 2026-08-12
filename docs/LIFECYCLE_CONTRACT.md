@@ -238,6 +238,21 @@ Rule 5 current == v0.1 reference
 
 Rule 6 ist absichtlich nicht v0.1-äquivalent. Zusätzlich gelten die Rule-6-Unit-Tests und ein lokaler Dry-Run vor dem ersten `--apply` als Acceptance Gate.
 
+Der erste reale v0.2-Apply auf der bestehenden Population wurde erfolgreich ausgeführt:
+
+```text
+deactivated: 2313
+rule1: 183
+rule2: 0
+rule3: 2
+rule4: 3
+rule5: 0
+rule6: 2125
+active remaining: 2348
+```
+
+Damit ist der Runtime-Acceptance-Gate für Rule 6 erfüllt.
+
 ## Versionierung
 
 `0.2` wird nur dann ersetzt, wenn eine fachliche Lifecycle-Regel bewusst geändert wird, zum Beispiel:
