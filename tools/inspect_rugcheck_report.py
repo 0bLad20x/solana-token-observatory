@@ -37,7 +37,60 @@ def _section_profile(report: dict[str, Any]) -> list[tuple[str, str, int, int]]:
     return rows
 
 
-async def inspect(mint: str, show_json: bool) -> int:
+def _object_key_profile(items: list[Any]) -> list[tuple[tuple[str, ...], int]]:
+    counts: dict[tuple[str, ...], int] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        keys = tuple(sorted(item))
+        counts[keys] = counts.get(keys, 0) + 1
+    return sorted(counts.items(), key=lambda row: (-row[1], row[0]))
+
+
+def _print_section_sample(section: str, value: Any, sample_size: int) -> None:
+    print()
+    print(f"SECTION DETAIL · {section}")
+    print(f"Shape: {_shape(value)}")
+    print(f"Bytes: {_json_bytes(value):,}")
+
+    if isinstance(value, list):
+        profiles = _object_key_profile(value)
+        if profiles:
+            print("Object key shapes:")
+            for keys, count in profiles[:5]:
+                print(f"  {count:>4} × {', '.join(keys)}")
+        for index, item in enumerate(value[:sample_size]):
+            print()
+            print(f"Sample [{index}]")
+            print(json.dumps(item, ensure_ascii=False, indent=2))
+        return
+
+    if isinstance(value, dict):
+        print("Value shapes:")
+        shape_counts: dict[str, int] = {}
+        for item in value.values():
+            shape = _shape(item)
+            shape_counts[shape] = shape_counts.get(shape, 0) + 1
+        for shape, count in sorted(shape_counts.items(), key=lambda row: (-row[1], row[0])):
+            print(f"  {count:>4} × {shape}")
+
+        for index, (key, item) in enumerate(value.items()):
+            if index >= sample_size:
+                break
+            print()
+            print(f"Sample key: {key}")
+            print(json.dumps(item, ensure_ascii=False, indent=2))
+        return
+
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+
+
+async def inspect(
+    mint: str,
+    show_json: bool,
+    sections: list[str],
+    sample_size: int,
+) -> int:
     try:
         evidence = await get_token_report(mint)
     except RugCheckError as error:
@@ -57,6 +110,14 @@ async def inspect(mint: str, show_json: bool) -> int:
     for key, shape, size, rough_tokens in _section_profile(report):
         print(f"{key:<28} {shape:<14} {size:>10,} {rough_tokens:>10,}")
 
+    for section in sections:
+        if section not in report:
+            print()
+            print(f"SECTION DETAIL · {section}")
+            print("Section not present")
+            continue
+        _print_section_sample(section, report[section], sample_size)
+
     if show_json:
         print()
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -67,8 +128,31 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect one exact-mint RugCheck report.")
     parser.add_argument("mint")
     parser.add_argument("--show-json", action="store_true")
+    parser.add_argument(
+        "--section",
+        action="append",
+        default=[],
+        help="Print structure and bounded samples for one top-level section; repeatable.",
+    )
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=2,
+        choices=range(1, 6),
+        metavar="1-5",
+        help="Number of bounded section samples to print (default: 2).",
+    )
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(inspect(args.mint, args.show_json)))
+    raise SystemExit(
+        asyncio.run(
+            inspect(
+                args.mint,
+                args.show_json,
+                args.section,
+                args.sample_size,
+            )
+        )
+    )
 
 
 if __name__ == "__main__":
