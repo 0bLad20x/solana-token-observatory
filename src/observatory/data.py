@@ -9,7 +9,7 @@ from psycopg_pool import ConnectionPool
 
 from temporal_context import (
     TEMPORAL_SOURCE_FIELDS,
-    build_temporal_context,
+    build_temporal_summary_bundle,
 )
 
 
@@ -221,7 +221,9 @@ class FrontendReader:
             )
 
     def temporal_context(self, mint: str) -> dict[str, Any] | None:
+        """Build the compact standalone temporal summary used by the Observatory LLM."""
+
         rows = self.token_history(mint)
         if not rows:
             return None
-        return build_temporal_context(mint, rows)
+        return build_temporal_summary_bundle(mint, rows)
