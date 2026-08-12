@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from .analyst import (
     AnalystError,
+    analyze_temporal_token,
     query_current_tokens,
     research_token,
     validate_search_mode,
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnalystRequest(BaseModel):
-    scope: Literal["current_data", "web"] = "current_data"
+    scope: Literal["current_data", "web", "temporal"] = "current_data"
     mint: str | None = Field(default=None, pattern=r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     question: str = Field(min_length=1, max_length=1000)
 
@@ -144,17 +145,27 @@ async def analyst(request: AnalystRequest) -> dict[str, Any]:
         if request.mint is None:
             raise HTTPException(
                 status_code=422,
-                detail="mint is required for web research",
+                detail="mint is required for selected-token analysis",
             )
         token = await asyncio.to_thread(reader.token, request.mint)
         if token is None:
             raise HTTPException(status_code=404, detail="mint not found")
-        return await research_token(
+
+        if request.scope == "web":
+            return await research_token(
+                api_key=MISTRAL_API_KEY,
+                model=MISTRAL_MODEL,
+                search_mode=MISTRAL_WEB_SEARCH_MODE,
+                token=token,
+                question=question,
+            )
+
+        return await analyze_temporal_token(
             api_key=MISTRAL_API_KEY,
             model=MISTRAL_MODEL,
-            search_mode=MISTRAL_WEB_SEARCH_MODE,
             token=token,
             question=question,
+            context_loader=reader.temporal_context,
         )
     except AnalystError as error:
         logger.warning("Analyst request failed: %s", error)
