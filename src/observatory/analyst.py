@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
+from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
 
@@ -22,6 +24,8 @@ WEB_SEARCH_MODES = frozenset({"web_search", "web_search_premium"})
 UNSUPPORTED_QUERY_ANSWER = (
     "This question cannot be mapped unambiguously to the current token data."
 )
+TEMPORAL_MAX_OUTPUT_TOKENS = 1200
+logger = logging.getLogger(__name__)
 
 
 class AnalystError(RuntimeError):
@@ -237,6 +241,7 @@ Evidence contract:
 - Do not infer events or conditions outside the delivered observation span.
 - Separate observed facts from interpretation. Do not present a deterministic good/bad
   score as system truth.
+- Keep the final diagnosis focused and concise; prioritize the strongest evidence.
 """
 
 
@@ -353,7 +358,7 @@ async def analyze_temporal_token(
         "model": model,
         "messages": messages,
         "tools": [temporal_context_tool(selected_mint)],
-        "tool_choice": "auto",
+        "tool_choice": "required",
         "parallel_tool_calls": False,
         "temperature": 0,
     }
@@ -388,6 +393,13 @@ async def analyze_temporal_token(
             "content": first_message.get("content") or "",
             "tool_calls": first_message["tool_calls"],
         }
+        context_json = json.dumps(
+            context,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        context_bytes = len(context_json.encode("utf-8"))
+        rough_tokens = (len(context_json) + 3) // 4
         final_request = {
             "model": model,
             "messages": [
@@ -397,21 +409,40 @@ async def analyze_temporal_token(
                     "role": "tool",
                     "name": "get_token_temporal_context",
                     "tool_call_id": call_id,
-                    "content": json.dumps(
-                        context,
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ),
+                    "content": context_json,
                 },
             ],
             "temperature": 0,
+            "max_tokens": TEMPORAL_MAX_OUTPUT_TOKENS,
         }
-        final_payload = await _post_json(
-            client=client,
-            httpx=httpx,
-            url=MISTRAL_CHAT_URL,
-            api_key=api_key,
-            request=final_request,
+        final_started = perf_counter()
+        logger.info(
+            "[temporal] final_mistral_start mint=%s model=%s bytes=%s rough_tokens=%s max_tokens=%s",
+            mint,
+            model,
+            context_bytes,
+            rough_tokens,
+            TEMPORAL_MAX_OUTPUT_TOKENS,
+        )
+        try:
+            final_payload = await _post_json(
+                client=client,
+                httpx=httpx,
+                url=MISTRAL_CHAT_URL,
+                api_key=api_key,
+                request=final_request,
+            )
+        except AnalystError:
+            logger.warning(
+                "[temporal] final_mistral_failed mint=%s elapsed=%.2fs",
+                mint,
+                perf_counter() - final_started,
+            )
+            raise
+        logger.info(
+            "[temporal] final_mistral_done mint=%s elapsed=%.2fs",
+            mint,
+            perf_counter() - final_started,
         )
 
     answer = _message_text(_chat_message(final_payload))
