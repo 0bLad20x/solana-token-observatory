@@ -130,16 +130,21 @@ exact core metrics + fixed representative samples
         ↓
 deterministic temporal summary
         ↓
-get_token_temporal_context
-        ↓
 token + summary
         ↓
-Mistral expert diagnosis
+ONE Mistral request
+        ↓
+expert diagnosis
 ```
 
 Das LLM erhält keine Raw-History, keine 1m/5m/15m-Buckets und keine adaptive Resolution.
 Der Summary ist die Produktgrenze und darf später gezielt um zusätzliche deterministische
 Informationen erweitert werden, wenn ein konkreter analytischer Nutzen bewiesen ist.
+
+Im Unterschied zu WP2 ist hier **kein LLM Tool Call nötig**. Der Scope und der ausgewählte
+Mint bestimmen serverseitig bereits eindeutig, welche Summary geladen wird. Ein
+vorgeschalteter Mistral-Request, der nur den feststehenden Mint zurückfordert, wäre reine
+Latenz ohne zusätzliche Entscheidung.
 
 ### Summary-Berechnung
 
@@ -227,8 +232,8 @@ Token D -> summary D
 compact LLM comparison
 ```
 
-WP5 implementiert noch kein Multi-Token-Tool. Die Modulgrenze erlaubt es später jedoch,
-mehrere kleine Summaries zu bündeln, ohne Historien mitzuschicken.
+WP5 implementiert noch keinen Multi-Token-Vergleich. Die Modulgrenze erlaubt es später
+jedoch, mehrere kleine Summaries zu bündeln, ohne Historien mitzuschicken.
 
 ### Visible proof / Stop condition
 
@@ -237,11 +242,12 @@ WP5 ist abgeschlossen, wenn der reale lokale Test bestätigt:
 - Summary-Unit-Tests und bestehende Analyst-/Tool-Tests bleiben grün;
 - Inspector erzeugt nur `summary_context.json` und `report.json`;
 - die DB-Laufzeit ist gegenüber der früheren Full-Payload-Projektion praktisch verbessert;
-- Tool-Mint entspricht exakt der aktuellen Selection;
-- an Mistral geht `token + summary`, aber keine History;
-- Zeitspanne, Observation-Anzahl und grobe Summary-Inputgröße sind sichtbar;
+- der Summary wird ausschließlich für den aktuell ausgewählten Mint geladen;
+- an Mistral geht `token + summary`, aber keine History und kein vorgeschalteter Tool-Request;
+- der Temporal-Pfad erzeugt genau **einen** Mistral-Request;
+- Zeitspanne, Observation-Anzahl und grobe Summary-Größe sind sichtbar;
 - die Antwort analysiert Beziehungen, ohne nicht gelieferte Chronologie zu erfinden;
-- spätestens nach 45s folgt eine Antwort oder ein sichtbarer Mistral-Fehler/Timeout;
+- spätestens nach 45s folgt für diesen einen Mistral-Request eine Antwort oder ein sichtbarer Fehler/Timeout;
 - Current Data und Web Research funktionieren unverändert.
 
 ## Nicht Teil der funktionalen Foundation
@@ -250,11 +256,11 @@ WP5 ist abgeschlossen, wenn der reale lokale Test bestätigt:
 - persistierte OHLC- oder Langzeit-History-Plattform;
 - benutzerdefinierte Zeiträume oder Auflösungen;
 - Raw-, Full-, 1m-, 5m- oder 15m-LLM-History-Payloads;
-- Multi-Token-Tool oder Cross-Token-History-Vergleich in WP5;
+- Multi-Token- oder Cross-Token-History-Vergleich in WP5;
 - Prognosen oder automatische Trading-Aktionen;
 - Bubble-Größe, Pulsieren, Farbe, Layout oder Physics;
 - Datenbank-, Collector- oder Lifecycle-Änderungen;
 - automatischer Good/Bad-Score als operative Wahrheit.
 
-Nach WP5 ist kein WP6 vorab definiert. Visual Redesign, zusätzliche interne Tools und
+Nach WP5 ist kein WP6 vorab definiert. Visual Redesign, zusätzliche interne Analysen und
 Discovery Provenance werden erst nach der Browservalidierung neu bewertet.
