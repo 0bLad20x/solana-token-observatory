@@ -140,9 +140,9 @@ export class TelemetryUI {
       const breakdown = event.breakdown || {};
       const affectedLabel = event.apply ? "retired" : "candidates";
       this.lifecycleElement.append(row("telemetry-row lifecycle", [
-        ["active", `${number(event.active_remaining)} active`],
+        ["tracking", `${number(event.active_remaining)} tracking`],
         ["affected", `${number(event.affected_count)} ${affectedLabel}`],
-        ["rules", `R1 ${number(breakdown.rule1, "0")} · R2 ${number(breakdown.rule2, "0")} · R3 ${number(breakdown.rule3, "0")} · R4 ${number(breakdown.rule4, "0")} · R5 ${number(breakdown.rule5, "0")}`],
+        ["rules", `R1 ${number(breakdown.rule1, "0")} · R2 ${number(breakdown.rule2, "0")} · R3 ${number(breakdown.rule3, "0")} · R4 ${number(breakdown.rule4, "0")} · R5 ${number(breakdown.rule5, "0")} · R6 ${number(breakdown.rule6, "0")} · R7 ${number(breakdown.rule7, "0")}`],
         ["duration", latency(event.duration_ms)],
         ["age", ageLabel(event.at, now)],
       ]));
