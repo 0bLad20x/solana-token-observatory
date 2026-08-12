@@ -110,113 +110,113 @@ Browservalidierung als PR #13 gemergt.
 
 ## Temporal Context Research — abgeschlossen
 
-PR #16 hat den LLM-tauglichen Temporal Context gegen reale Token-Historien validiert.
-`tools/inspect_token_history.py` bleibt das Research-Werkzeug für zwei getrennte Produkte:
+PR #16 bewies zunächst, dass sich bis zu 24h `mint_snapshots` deterministisch zu einer
+LLM-tauglichen History verdichten lassen. Die 1m/5m-Projektion war als Research-Proof
+korrekt, aber ein realer 24h-Browsertest benötigte mit ungefähr 100k grob geschätzten
+Input-Tokens rund 118 Sekunden und lieferte gegenüber dem kompakten Summary nur begrenzten
+zusätzlichen Erkenntnisgewinn.
+
+Diese Forschung ist abgeschlossen. Adaptive 1m/5m/15m-History ist **kein Bestandteil des
+WP5-Produktpfads mehr** und wird auch vom Inspector nicht mehr erzeugt.
+
+## Aktiv — WP5 Temporal Summary Analysis
+
+WP5 reduziert den Analysepfad auf die kleinste bewiesene Projektion:
 
 ```text
 maximal 24h mint_snapshots
         ↓
-canonical observations
-        ├──> summary_context.json
-        │      token + deterministic summary
-        │
-        └──> llm_context.json
-               token + summary + adaptive 1m/5m temporal_history
+exact core metrics + fixed representative samples
+        ↓
+deterministic temporal summary
+        ↓
+get_token_temporal_context
+        ↓
+token + summary
+        ↓
+Mistral expert diagnosis
 ```
 
-Der Summary verdichtet deterministisch Market Cap inklusive Peak und Drawdown, Liquidity
-inklusive `liquidity / market_cap`, Holder-Entwicklung, Ownership-Konzentration,
-rollierende `stats1h`-Aktivität und Organic Evidence. Missing bleibt Missing; es gibt kein
-Zero-Fill und keine Interpolation.
+Das LLM erhält keine Raw-History, keine 1m/5m/15m-Buckets und keine adaptive Resolution.
+Der Summary ist die Produktgrenze und darf später gezielt um zusätzliche deterministische
+Informationen erweitert werden, wenn ein konkreter analytischer Nutzen bewiesen ist.
 
-Der Deep-Context verwendet für verfügbare History bis 6h 1m-Buckets und darüber 5m-Buckets.
-Realtests mit annähernd 24h langen Historien lagen bei ungefähr 100k grob geschätzten
-Context-Tokens. Der JupSOL-Sonderfall `mcap == liquidity` wurde direkt in den gespeicherten
-Jupiter-Payloads bestätigt und ist keine Inspector-Berechnungsstörung.
+### Summary-Berechnung
 
-Ein realer WP5-Browsertest zeigte anschließend die Produktgrenze des Deep-Contexts: Eine
-24h-Analyse mit 160 5m-Buckets und 12.809 Raw-Observations benötigte rund 118 Sekunden,
-während der zusätzliche Erkenntnisgewinn gegenüber dem deterministischen Summary gering
-war. Der Deep-Context bleibt deshalb Research Evidence, ist aber **nicht** mehr der
-standardmäßige Observatory-LLM-Payload.
+Start, Current, Min, Max, Change, Peak und Max Drawdown werden aus allen verfügbaren
+Beobachtungen innerhalb des maximal 24h langen Fensters berechnet.
 
-## Aktiv — WP5 Temporal Summary Analysis
-
-WP5 prüft jetzt die kleinste sinnvolle Analyseprojektion:
+Für rollierende `stats1h`-Werte, deren Mediane und abgeleitete Ratios wird intern genau
+eine feste 5m-Zeitnormalisierung verwendet. Sie ist **kein Time-Bucket-Produkt** und wird
+nicht an das LLM ausgegeben. Ihr einziger Zweck ist, unterschiedliche Snapshot-Frequenzen
+nicht unterschiedlich stark in Median- und Ratio-Statistiken zu gewichten.
 
 ```text
-selected Mint + free question
-              ↓
-Mistral Tool Call
-              ↓
-get_token_temporal_context
-              ↓
-exact selected Mint only
-              ↓
-token + deterministic summary
-              ↓
-expert diagnosis
+raw observations
+      ├── exact core trajectory facts
+      │
+      └── one representative sample / 5m
+                 ↓
+        rolling-stat medians + ratios
+                 ↓
+             summary
 ```
 
-Das Observatory sendet **keine 1m/5m-Buckets** und keine Raw-History an das LLM. Der
-bestehende Tool-Name bleibt vorerst `get_token_temporal_context`; sein tatsächlicher
-Vertrag ist im WP5-Slice `token + summary`.
+### Query-Grenze
 
-### Eigenständiger Summary-Vertrag
+Die Datenbankabfrage ist ebenfalls auf den Summary-Vertrag reduziert:
 
-`build_temporal_summary_bundle(mint, rows)` liefert ausschließlich:
+- der exakte History-Scan lädt nur `observed_at` und die kleinen skalaren Felder für
+  Market Cap, Liquidity, Holders, Organic Score und Ownership;
+- das größere `stats1h`-JSON wird nur für einen repräsentativen Datensatz pro 5m-Sample
+  aus PostgreSQL übertragen;
+- statische Token-Metadaten werden nicht mehr in jedem Snapshot erneut projiziert;
+- der vorhandene Primary Key `(mint, observed_at)` bleibt die Grundlage des per-Mint
+  History-Scans;
+- keine neue Tabelle, Materialized View oder persistierte Summary wird für WP5 eingeführt.
 
-```json
-{
-  "token": {},
-  "summary": {}
-}
-```
-
-Der Summary ist unabhängig von der adaptiven 1m/5m-Deep-History. Für zeitabhängige
-Summary-Mediane und Ratios wird intern eine feste 5m-Zeitnormalisierung verwendet, damit
-eine höhere Snapshot-Frequenz eines Tokens dessen Median nicht künstlich stärker gewichtet.
-Diese internen 5m-Samples werden **nicht** als Zeitreihe an das LLM weitergegeben.
-
-Start, Current, Min, Max, Peak und Drawdown werden aus der kanonischen Observation-Serie
-abgeleitet. `stats1h` bleibt rollierende Source-Evidence und wird niemals über Samples
-summiert.
+Damit bleibt die Summary erweiterbar, ohne wieder die vollständigen Snapshot-Payloads oder
+Time-Bucket-Historien durch den Produktpfad zu transportieren.
 
 ### LLM Expert Contract
 
-Der System-Prompt soll nicht mehr vortäuschen, eine vollständige zeitliche Trajektorie zu
-sehen. Das Modell erhält nur den Summary und muss daraus eine versierte, aber begrenzte
-Expertenanalyse erzeugen. Es soll insbesondere:
+Das Modell soll Beziehungen zwischen den gelieferten Fakten analysieren, aber die Grenzen
+des Summary strikt respektieren. Insbesondere gilt:
 
-- Observation-Horizont und Evidence-Grenzen benennen;
-- Valuation anhand Change, Range, Peak und Drawdown diagnostizieren;
-- Liquidity relativ zur Valuation und `liquidity / market_cap` korrekt interpretieren;
-- Holder-Entwicklung und Ownership-Konzentration einordnen;
-- aktuelle `stats1h`-Aktivität gegen deren Median-Baseline vergleichen;
-- Buy/Sell-, Net-Flow- und Organic-Evidence gemeinsam beurteilen;
-- Cross-Metric-Bestätigung und Divergenzen suchen;
-- konstruktive Signale, Risiken und Unknowns priorisieren;
-- Facts und Interpretation auseinanderhalten;
-- mit einer kalibrierten Einschätzung und Confidence enden.
+- Observation Count beweist keine lückenlose Coverage;
+- Observation Window ist nicht Token Age;
+- `max` und `peak_at` gelten nur innerhalb des gelieferten Fensters und sind kein ATH;
+- Drawdown beweist keine individuelle Stundenrichtung;
+- keine erfundenen Phasen, Wendepunkte, linearen/parabolischen Verläufe oder Eventfolgen;
+- keine Behauptung von Bots, Fake Volume, Wash Trading, Whales, Manipulation,
+  Akkumulation oder Distribution aus aggregierten Metriken allein;
+- positive `num_net_buyers` bleiben positive Net Buyers, auch wenn sie unter Median liegen;
+- Veränderungen von `top_holders_pct` beschreiben Konzentration, nicht die Identität des
+  Käufers oder Verkäufers;
+- `dev_balance_pct` beschreibt eine Balance-Veränderung, nicht deren Mechanismus;
+- Missing bleibt Unknown;
+- rollierende `stats1h`-Werte werden niemals über Samples summiert;
+- Percentage Change und x-fold Growth werden mathematisch getrennt behandelt.
 
-Das Modell darf aus dem Summary **keine** Phasen, Wendepunkte, Event-Reihenfolge oder
-historischen Werte erfinden, die nicht enthalten sind. `current + median` ist insbesondere
-kein Ersatz für `start + min + max`.
+Die gewünschte Ausgabe priorisiert Evidence-Grenze, strukturelle Diagnose,
+Current-vs-Median, Cross-Metric-Divergenzen, stärkste Risiken/konstruktive Signale,
+Unknowns sowie eine kalibrierte Einschätzung mit Confidence.
 
-### Tool- und Storage-Grenzen
+### Inspector
 
-`get_token_temporal_context` erhält ausschließlich den aktuell ausgewählten Mint. Der
-Server validiert die Mint-Bindung. Keine freie SQL-Abfrage, kein eigener Zeitraum und keine
-andere Mint-Auswahl sind erlaubt.
+`tools/inspect_token_history.py` ist jetzt ein Summary-Proof und erzeugt nur noch:
 
-Die zugrunde liegende Snapshot-Abfrage ist zusätzlich zur operativen Retention explizit
-auf die letzten 24 Stunden begrenzt. Das Observatory baut daraus nur den Standalone
-Summary. `src/temporal_context.py` bleibt der gemeinsame Code-Owner; der Inspector darf
-weiterhin zusätzlich den Deep-Context als Research-Artefakt erzeugen.
+```text
+summary_context.json
+report.json
+```
+
+Er zeigt zusätzlich die DB-Laufzeit und die Anzahl der internen repräsentativen Samples.
+`llm_context.json` sowie adaptive 1m/5m-History wurden entfernt.
 
 ### Vorbereitung auf Multi-Token-Vergleich
 
-Die Summary-Grenze ist zugleich die Vorbereitung auf einen späteren bounded Vergleich:
+Der Standalone Summary bleibt bewusst pro Token eigenständig:
 
 ```text
 Token A -> summary A
@@ -227,23 +227,21 @@ Token D -> summary D
 compact LLM comparison
 ```
 
-WP5 implementiert **noch kein** Multi-Token-Tool. Es beweist zunächst, ob ein einzelner
-Summary mit einem stärkeren Expertenprompt genug analytischen Wert liefert. Erst danach
-wird entschieden, ob der Summary zusätzliche deterministische Informationen aus der
-Time-Bucket-Research-Projektion aufnehmen soll.
+WP5 implementiert noch kein Multi-Token-Tool. Die Modulgrenze erlaubt es später jedoch,
+mehrere kleine Summaries zu bündeln, ohne Historien mitzuschicken.
 
 ### Visible proof / Stop condition
 
-WP5 ist abgeschlossen, wenn der reale Browser mindestens bestätigt:
+WP5 ist abgeschlossen, wenn der reale lokale Test bestätigt:
 
-- Tool-Mint == aktuell ausgewählter Mint;
-- genau ein `get_token_temporal_context` Tool Call;
-- an Mistral geht `token + summary`, aber **kein** `temporal_history`;
+- Summary-Unit-Tests und bestehende Analyst-/Tool-Tests bleiben grün;
+- Inspector erzeugt nur `summary_context.json` und `report.json`;
+- die DB-Laufzeit ist gegenüber der früheren Full-Payload-Projektion praktisch verbessert;
+- Tool-Mint entspricht exakt der aktuellen Selection;
+- an Mistral geht `token + summary`, aber keine History;
 - Zeitspanne, Observation-Anzahl und grobe Summary-Inputgröße sind sichtbar;
-- die Antwort analysiert Beziehungen zwischen Metriken statt den Summary nur abzuschreiben;
-- die Antwort behauptet keine nicht gelieferte Chronologie oder Bucket-Evidence;
-- Missing bleibt Unknown;
-- Laufzeit ist gegenüber dem ~100k-Deep-Context praktisch nutzbar;
+- die Antwort analysiert Beziehungen, ohne nicht gelieferte Chronologie zu erfinden;
+- spätestens nach 45s folgt eine Antwort oder ein sichtbarer Mistral-Fehler/Timeout;
 - Current Data und Web Research funktionieren unverändert.
 
 ## Nicht Teil der funktionalen Foundation
@@ -251,8 +249,7 @@ WP5 ist abgeschlossen, wenn der reale Browser mindestens bestätigt:
 - Bubble Map oder Designumbau;
 - persistierte OHLC- oder Langzeit-History-Plattform;
 - benutzerdefinierte Zeiträume oder Auflösungen;
-- Raw-, Full- oder 15m-LLM-Payloads;
-- 1m/5m-History als Standard-Payload in WP5;
+- Raw-, Full-, 1m-, 5m- oder 15m-LLM-History-Payloads;
 - Multi-Token-Tool oder Cross-Token-History-Vergleich in WP5;
 - Prognosen oder automatische Trading-Aktionen;
 - Bubble-Größe, Pulsieren, Farbe, Layout oder Physics;
