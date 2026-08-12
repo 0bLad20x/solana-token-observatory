@@ -204,10 +204,11 @@ Lifecycle v0.1
 Survivor Population
 ```
 
-Die aktive nächste Arbeit ist WP4: Aus den bestehenden SSE-Snapshots wird ein kompakter
-Top-5-Feed für positive Änderungen des rollierenden 5-Minuten-Volumens relativ zur
-Market Cap abgeleitet. Dafür entsteht weder ein neuer Datenbankpfad noch historische
-Analyse. Spatial-Arbeit, Node-Geometrie und Animation sind nicht Teil dieses Slices.
+Die aktive nächste Arbeit ist WP5: Für den exakt ausgewählten Mint werden höchstens die
+fünf jüngsten immutable `mint_snapshots` über einen bounded read-only Tool Call
+bereitgestellt. Damit kann der Analyst jüngste beobachtete Änderungen erklären, ohne
+eine allgemeine History-Schicht einzuführen. Spatial-Arbeit, freie Zeiträume, Charts,
+Prognosen und operative Mutationen sind nicht Teil dieses Slices.
 
 Der aktuelle Zielrahmen steht in [`MILESTONES.md`](MILESTONES.md).
 

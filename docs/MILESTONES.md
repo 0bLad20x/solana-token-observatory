@@ -81,7 +81,7 @@ auffindbar und auswählbar ist und ein `query_tokens`-Treffer dieselbe Selection
 
 Der Slice wurde nach realer Browservalidierung als PR #12 gemergt.
 
-## Aktiv — WP4 Volume Activity Deltas
+## WP4 Volume Activity Deltas — abgeschlossen
 
 WP4 ersetzt die lange Liste beliebiger State Events durch genau eine kleine aktuelle
 Projektion:
@@ -105,12 +105,38 @@ WP4 ist abgeschlossen, wenn im realen Browser höchstens fünf unterschiedliche 
 korrekt gerankt werden, Mehrfachupdates pro Mint zu einer Zeile führen und Einträge nach
 60 Sekunden verschwinden.
 
-## Nicht Teil von WP4
+Der Feed verwendet dieselbe Selection wie Suche und Bubble. Der Slice wurde nach realer
+Browservalidierung als PR #13 gemergt.
+
+## Aktiv — WP5 Recent Token Context
+
+WP5 beantwortet für den ausgewählten Token genau eine neue Art von Frage:
+
+```text
+selected Mint
+      ↓
+five latest immutable snapshots
+      ↓
+bounded get_token_snapshots Tool Call
+      ↓
+grounded answer about recent change
+```
+
+Die fünf Snapshots enthalten ausschließlich Zeitstempel, Market Cap, Liquidity, Holders,
+Trades 5m, Traders 5m und Volume 5m. Missing bleibt Missing. Vollständige Historien,
+freie Zeiträume, Charts, Prognosen und Cross-Token-Vergleiche gehören nicht zu WP5.
+
+WP5 ist abgeschlossen, wenn der reale Browser für einen ausgewählten Token genau diesen
+read-only Tool Call ausführt und eine Antwort ausschließlich aus den maximal fünf
+gelieferten Snapshots erzeugt.
+
+## Nicht Teil der funktionalen Foundation
 
 - Bubble Map oder Designumbau;
-- historische Analyse;
+- vollständige historische Analyse und freie Zeiträume;
 - Bubble-Größe, Pulsieren, Farbe, Layout oder Physics;
 - Price-Change-Proxies;
 - Datenbank-, Collector- oder Lifecycle-Änderungen.
 
-Der nächste Slice wird erst nach der Browservalidierung von WP4 festgelegt.
+Nach WP5 ist kein WP6 vorab definiert. Visual Redesign, zusätzliche interne Tools und
+Discovery Provenance werden erst nach der Browservalidierung neu bewertet.
