@@ -1,9 +1,23 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { ActivityTracker } from "../src/observatory/static/js/activity.js";
 import { connectUniverseStream } from "../src/observatory/static/js/api.js";
 import { ObservatoryState } from "../src/observatory/static/js/state.js";
+
+const appSource = readFileSync(
+  new URL("../src/observatory/static/js/app.js", import.meta.url),
+  "utf8",
+);
+const apiSource = readFileSync(
+  new URL("../src/observatory/static/js/api.js", import.meta.url),
+  "utf8",
+);
+const viewSource = readFileSync(
+  new URL("../src/observatory/static/js/views/simple-token-view.js", import.meta.url),
+  "utf8",
+);
 
 class FakeEventSource {
   static latest = null;
@@ -50,6 +64,21 @@ test("stream exposes synchronization snapshot separately from deltas", () => {
     globalThis.EventSource = previous;
     FakeEventSource.latest = null;
   }
+});
+
+test("browser population bootstrap has no parallel HTTP read path", () => {
+  assert.doesNotMatch(appSource, /fetchUniverse|fetchToken/);
+  assert.doesNotMatch(apiSource, /export async function fetchUniverse|export async function fetchToken/);
+  assert.match(appSource, /onSnapshot:\s*applySnapshot/);
+  assert.match(appSource, /state\.load\(tokens\)/);
+});
+
+test("proof view consumes canonical state without owning a second population", () => {
+  assert.doesNotMatch(viewSource, /this\.tokens|this\.selectedMint|applyEvents\(|setSelectedMint\(/);
+  assert.match(viewSource, /render\(\{ tokens, selectedMint \}\)/);
+  assert.match(appSource, /tokens:\s*state\.values\(\)/);
+  assert.match(appSource, /selectedMint:\s*state\.selectedMint/);
+  assert.match(appSource, /events,/);
 });
 
 test("population state has no arbitrary detail upsert path", () => {
