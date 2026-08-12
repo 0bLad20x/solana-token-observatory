@@ -21,6 +21,7 @@ from lifecycle_rules import (
     classify_rule2,
     classify_rule3,
     classify_rule6,
+    classify_rule7,
 )
 from repository import MintRepository
 
@@ -28,13 +29,21 @@ from repository import MintRepository
 RULE1_MAX_POLL_LAG_SECONDS = 60.0
 INTERVAL_SECONDS = 15.0
 
-RULE_KEYS = ("rule1", "rule2", "rule3", "rule4", "rule5", "rule6")
+RULE_KEYS = (
+    "rule1",
+    "rule2",
+    "rule3",
+    "rule4",
+    "rule5",
+    "rule6",
+    "rule7",
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Lifecycle hard-retire engine. Rule 1-6 disable dead tokens "
+            "Lifecycle hard-retire engine. Rule 1-7 disable dead tokens "
             "by setting tracking_enabled=false."
         ),
     )
@@ -79,7 +88,7 @@ def run_cycle(
     }
 
     # Rule 1 — current state after T+10.
-    # This is the only rule that needs current collector freshness.
+    # This is the only snapshot rule that needs current collector freshness.
     candidates = []
     for row in queries.fetch_mature_active_state(
         OBSERVATION_MINUTES * 60
@@ -184,6 +193,25 @@ def run_cycle(
 
     acted["rule6"] = _act(repository, candidates, apply)
     already_flagged.update(row["mint"] for row in acted["rule6"])
+
+    # Rule 7 — successful polling but no new Jupiter source version for 24h.
+    # This rule intentionally uses durable mints timestamps, not raw snapshots.
+    candidates = []
+    for row in queries.fetch_active_source_state():
+        if row["mint"] in already_flagged:
+            continue
+
+        reason = classify_rule7(
+            first_observed_at=row["first_observed_at"],
+            last_polled_at=row["last_polled_at"],
+            last_changed_at=row["last_changed_at"],
+            now=now,
+        )
+        if reason is not None:
+            candidates.append({**row, "reason": reason})
+
+    acted["rule7"] = _act(repository, candidates, apply)
+    already_flagged.update(row["mint"] for row in acted["rule7"])
 
     breakdown = {
         key: len(acted[key])
