@@ -29,6 +29,10 @@ Evidence rules:
 - Missing means unknown, never safe.
 - The delivered JSON is a deterministic metadata projection of the raw RugCheck report.
   The complete provider report remains available through the direct evidence endpoint.
+- The supplied semantics define how RugCheck score/risk fields and our deterministic
+  aggregates must be understood. Use them directly; do not invent score formulas,
+  probability meanings, category thresholds or alternative metric definitions.
+- Each risk description is RugCheck provider text explaining that detected risk.
 - Wallet addresses, individual top-holder rows, individual market rows and repeated raw
   account snapshots are intentionally not sent to you. Their relevant measurable
   properties are represented as deterministic aggregates.
@@ -160,7 +164,7 @@ async def analyze_rugcheck_report(
         "scope": "rugcheck",
         "evidence": {
             "type": "rugcheck_token_report",
-            "mode": projection.get("type", "rugcheck_analysis_v2"),
+            "mode": projection.get("type", "rugcheck_analysis_v3"),
             "source": "rugcheck",
             "mint": evidence["mint"],
             "fetched_at": evidence["fetched_at"],
