@@ -10,7 +10,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from observatory.analyst import TEMPORAL_MAX_OUTPUT_TOKENS, analyze_temporal_token
+from observatory.analyst import (
+    TEMPORAL_MAX_OUTPUT_TOKENS,
+    TEMPORAL_REQUEST_TIMEOUT_SECONDS,
+    analyze_temporal_token,
+)
 from observatory.tools import (
     TemporalToolError,
     temporal_context_tool,
@@ -40,6 +44,7 @@ class TemporalAnalystTests(unittest.TestCase):
 
     def test_temporal_analysis_sends_summary_only_and_returns_evidence_meta(self) -> None:
         captured: list[dict[str, object]] = []
+        client_options: list[dict[str, object]] = []
         responses = [
             {
                 "choices": [
@@ -113,8 +118,12 @@ class TemporalAnalystTests(unittest.TestCase):
                 captured.append({"url": url, **kwargs})
                 return FakeResponse(responses.pop(0))
 
+        def fake_client(**kwargs: object) -> FakeClient:
+            client_options.append(kwargs)
+            return FakeClient()
+
         fake_httpx = SimpleNamespace(
-            AsyncClient=lambda **_: FakeClient(),
+            AsyncClient=fake_client,
             HTTPStatusError=type("HTTPStatusError", (Exception,), {}),
             RequestError=type("RequestError", (Exception,), {}),
         )
@@ -142,6 +151,7 @@ class TemporalAnalystTests(unittest.TestCase):
             )
 
         self.assertEqual(loaded, [MINT])
+        self.assertEqual(client_options[0]["timeout"], TEMPORAL_REQUEST_TIMEOUT_SECONDS)
         first_request = captured[0]["json"]
         self.assertEqual(
             first_request["tools"][0]["function"]["name"],
