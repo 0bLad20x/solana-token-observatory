@@ -36,6 +36,24 @@ function renderDerivedState(now = Date.now()) {
   activityUI.render(ranked);
 }
 
+function applySnapshot(snapshot) {
+  const selectedBefore = state.selectedMint;
+  const tokens = Array.isArray(snapshot?.tokens) ? snapshot.tokens : [];
+  const timestamp = Date.parse(snapshot?.generated_at);
+
+  activity.reset();
+  state.load(tokens);
+  currentView.load(tokens);
+  currentView.setSelectedMint(state.selectedMint);
+  tokenUI.renderSelected();
+  tokenUI.refreshSearch();
+
+  if (state.selectedMint !== selectedBefore) analystUI.selectionChanged();
+  else analystUI.populationChanged();
+
+  renderDerivedState(Number.isFinite(timestamp) ? timestamp : Date.now());
+}
+
 function applyDelta(events, generatedAt) {
   const timestamp = Date.parse(generatedAt);
   for (const event of events) {
@@ -69,6 +87,7 @@ async function bootstrap() {
   connectUniverseStream({
     onOpen: () => setStreamStatus("live", "Live"),
     onError: () => setStreamStatus("error", "Reconnecting"),
+    onSnapshot: applySnapshot,
     onDelta: delta => applyDelta(delta.events || [], delta.generated_at),
   });
 }
@@ -78,11 +97,12 @@ setInterval(() => {
 }, 1000);
 
 setInterval(async () => {
-  if (!state.selectedMint || !tokenUI) return;
+  const mint = state.selectedMint;
+  if (!mint || !tokenUI) return;
   try {
-    const token = await fetchToken(state.selectedMint);
-    state.upsert(token);
-    tokenUI.renderSelected();
+    const token = await fetchToken(mint);
+    if (state.selectedMint !== mint) return;
+    tokenUI.renderDetail(token);
   } catch (error) {
     console.warn("Token detail refresh failed", error);
   }
