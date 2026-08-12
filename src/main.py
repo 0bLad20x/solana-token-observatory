@@ -12,6 +12,7 @@ from discovery import (
     meteora_dlmm_loop,
     pump_loop,
 )
+from maintenance import snapshot_retention_loop
 from refresh import refresh_system
 from repository import MintRepository
 
@@ -31,6 +32,7 @@ async def run(settings: Settings, repository: MintRepository) -> None:
         meteora_damm_v2_loop(settings, repository),
         meteora_dlmm_loop(settings, repository),
         refresh_system(settings, repository, priority=1),
+        snapshot_retention_loop(repository),
     )
 
 
