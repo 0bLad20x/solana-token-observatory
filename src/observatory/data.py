@@ -70,7 +70,7 @@ class FrontendReader:
                 (
                     m.tracking_enabled = true
                     OR COALESCE(
-                        NULLIF(to_jsonb(m)->>'disabled_at', '')::timestamptz,
+                        m.disabled_at,
                         '-infinity'::timestamptz
                     ) >= NOW() - (%s * INTERVAL '1 minute')
                 )
@@ -95,8 +95,8 @@ class FrontendReader:
                 m.last_polled_at,
                 m.last_changed_at,
                 m.source_updated_at,
-                to_jsonb(m)->>'disabled_at' AS disabled_at,
-                to_jsonb(m)->>'disabled_reason' AS disabled_reason,
+                m.disabled_at,
+                m.disabled_reason,
                 s.observed_at AS snapshot_observed_at,
                 COALESCE(NULLIF(s.payload->>'launchpad', ''), 'unknown') AS launchpad,
                 NULLIF(s.payload->>'mcap', '')::double precision AS market_cap,

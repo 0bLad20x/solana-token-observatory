@@ -10,16 +10,6 @@ async function readJson(response, fallbackMessage) {
   return payload;
 }
 
-export async function fetchUniverse() {
-  const response = await fetch("/api/universe");
-  return readJson(response, "Universe request failed");
-}
-
-export async function fetchToken(mint) {
-  const response = await fetch(`/api/token/${encodeURIComponent(mint)}`);
-  return readJson(response, "Token request failed");
-}
-
 export async function fetchTelemetry() {
   const response = await fetch("/api/telemetry");
   return readJson(response, "Telemetry request failed");

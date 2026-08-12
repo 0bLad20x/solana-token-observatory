@@ -8,6 +8,14 @@ from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
 
+from .mistral import (
+    AnalystError,
+    MISTRAL_CHAT_URL,
+    MISTRAL_CONVERSATIONS_URL,
+    chat_message as _chat_message,
+    message_text as _message_text,
+    post_json as _post_json,
+)
 from .tools import (
     QueryToolError,
     query_capabilities,
@@ -15,8 +23,6 @@ from .tools import (
     query_tokens_tool,
 )
 
-MISTRAL_CONVERSATIONS_URL = "https://api.mistral.ai/v1/conversations"
-MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions"
 WEB_SEARCH_MODES = frozenset({"web_search", "web_search_premium"})
 UNSUPPORTED_QUERY_ANSWER = (
     "This question cannot be mapped unambiguously to the current token data."
@@ -24,10 +30,6 @@ UNSUPPORTED_QUERY_ANSWER = (
 TEMPORAL_MAX_OUTPUT_TOKENS = 1800
 TEMPORAL_REQUEST_TIMEOUT_SECONDS = 45.0
 logger = logging.getLogger(__name__)
-
-
-class AnalystError(RuntimeError):
-    """Visible, sanitized failure at the external analyst boundary."""
 
 
 def validate_search_mode(value: str) -> str:
@@ -113,60 +115,6 @@ def _parse_response(payload: dict[str, Any], search_mode: str) -> dict[str, Any]
         "sources": sources,
         "search_mode": search_mode,
     }
-
-
-async def _post_json(
-    *, client: Any, httpx: Any, url: str, api_key: str, request: dict[str, Any]
-) -> dict[str, Any]:
-    try:
-        response = await client.post(
-            url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=request,
-        )
-        response.raise_for_status()
-    except httpx.HTTPStatusError as error:
-        status = error.response.status_code
-        raise AnalystError(f"Mistral request failed with status {status}") from error
-    except httpx.RequestError as error:
-        timeout_type = getattr(httpx, "TimeoutException", None)
-        if timeout_type is not None and isinstance(error, timeout_type):
-            raise AnalystError("Mistral request timed out") from error
-        raise AnalystError("Mistral request failed") from error
-
-    try:
-        payload = response.json()
-    except ValueError as error:
-        raise AnalystError("Mistral returned invalid JSON") from error
-    if not isinstance(payload, dict):
-        raise AnalystError("Mistral returned an invalid response")
-    return payload
-
-
-def _chat_message(payload: dict[str, Any]) -> dict[str, Any]:
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise AnalystError("Mistral returned no chat choices")
-    message = choices[0].get("message")
-    if not isinstance(message, dict):
-        raise AnalystError("Mistral returned no chat message")
-    return message
-
-
-def _message_text(message: dict[str, Any]) -> str:
-    content = message.get("content")
-    if isinstance(content, str):
-        return content.strip()
-    if not isinstance(content, list):
-        return ""
-    parts = [
-        item["text"]
-        for item in content
-        if isinstance(item, dict)
-        and item.get("type") == "text"
-        and isinstance(item.get("text"), str)
-    ]
-    return "".join(parts).strip()
 
 
 def _tool_call(

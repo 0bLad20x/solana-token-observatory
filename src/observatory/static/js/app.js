@@ -1,6 +1,6 @@
 import { ActivityTracker } from "./activity.js";
 import { ActivityUI } from "./activity-ui.js";
-import { connectTelemetryStream, connectUniverseStream, fetchToken, fetchUniverse, requestAnalyst } from "./api.js";
+import { connectTelemetryStream, connectUniverseStream, requestAnalyst } from "./api.js";
 import { AnalystUI } from "./analyst-ui.js";
 import { ObservatoryState } from "./state.js";
 import { TelemetryUI } from "./telemetry-ui.js";
@@ -23,9 +23,17 @@ function setStreamStatus(mode, label) {
   streamStatus.querySelector("span").textContent = label;
 }
 
+function renderView(events = []) {
+  currentView.render({
+    tokens: state.values(),
+    selectedMint: state.selectedMint,
+    events,
+  });
+}
+
 function selectToken(mint) {
   if (!state.select(mint)) return false;
-  currentView.setSelectedMint(mint);
+  renderView();
   tokenUI.renderSelected();
   analystUI.selectionChanged();
   return true;
@@ -45,8 +53,8 @@ function applySnapshot(snapshot) {
 
   activity.reset();
   state.load(tokens);
-  currentView.load(tokens);
-  currentView.setSelectedMint(state.selectedMint);
+  renderView();
+  tokenUI.enableSearch();
   tokenUI.renderSelected();
   tokenUI.refreshSearch();
 
@@ -63,7 +71,7 @@ function applyDelta(events, generatedAt) {
     activity.applyEvent(event, timestamp);
   }
 
-  currentView.applyEvents(events);
+  renderView(events);
   tokenUI.renderSelected();
   tokenUI.refreshSearch();
   analystUI.populationChanged();
@@ -77,14 +85,7 @@ async function bootstrap() {
   tokenUI = new TokenUI({ state, onSelect: selectToken });
   activityUI = new ActivityUI({ state, onSelect: selectToken });
   analystUI = new AnalystUI({ state, requestAnalyst, onSelect: selectToken });
-
-  const payload = await fetchUniverse();
-  state.load(payload.tokens);
-  currentView.load(payload.tokens);
-  tokenUI.enableSearch();
-  tokenUI.renderSelected();
   analystUI.sync(false);
-  renderDerivedState();
 
   connectUniverseStream({
     onOpen: () => setStreamStatus("live", "Live"),
@@ -105,18 +106,6 @@ setInterval(() => {
   if (tokenUI && activityUI) renderDerivedState();
   telemetryUI.render();
 }, 1000);
-
-setInterval(async () => {
-  const mint = state.selectedMint;
-  if (!mint || !tokenUI) return;
-  try {
-    const token = await fetchToken(mint);
-    if (state.selectedMint !== mint) return;
-    tokenUI.renderDetail(token);
-  } catch (error) {
-    console.warn("Token detail refresh failed", error);
-  }
-}, 5000);
 
 bootstrap().catch(error => {
   console.error(error);

@@ -4,7 +4,7 @@
 
 **Authority:** funktionale Frontend-/Analyst-Grenzen  
 **Scope:** read-only Consumer des operativen Token-Systems  
-**Current checkpoint:** Functional Core abgeschlossen; Live Operational Telemetry als flüchtiger read-only Runtime-Proof ergänzt  
+**Current checkpoint:** Functional Core abgeschlossen; Live Operational Telemetry als flüchtiger read-only Runtime-Proof ergänzt; redundante Browser-State-Pfade vor Visual-Arbeit entfernt  
 **Analyst:** Current Data, Web, Temporal und RugCheck produktiv bewiesen  
 **Visual design:** bewusst getrennt; Operational-Flow-Visualisierung kann auf bewiesener Telemetrie aufbauen, Issue #9 bleibt separater Token-Visual-/Spatial-Research-Schritt
 
@@ -150,22 +150,22 @@ Composition und Wiring:
 
 - Module erzeugen;
 - gemeinsame Selection verbinden;
-- Bootstrap koordinieren;
-- Token-Stream-Snapshot und Deltas verteilen;
+- Token-Stream als einzigen Browser-Population-Bootstrap verbinden;
+- `universe_snapshot` und `universe_delta` auf den kanonischen State anwenden;
+- aktuellen State plus optionalen Delta-Event-Kontext an die konkrete View weiterreichen;
 - Telemetry-Stream an die Telemetry-UI weiterreichen;
 - Shell-Level Connection Status.
 
 ### `api.js`
 
-Ein Browser-Owner für HTTP/SSE:
+Ein Browser-Owner für tatsächlich verwendetes HTTP/SSE:
 
-- `GET /api/universe`;
-- `GET /api/token/{mint}`;
 - `POST /api/analyst`;
+- optionaler `GET /api/telemetry` Snapshot-Read;
 - `EventSource /api/events`;
 - `EventSource /api/telemetry/events`.
 
-UI-Module kennen keine Fetch-/EventSource-Details.
+`GET /api/universe` und `GET /api/token/{mint}` bleiben stabile read-only Backend-Capabilities, sind aber keine parallelen Browser-Population-Pfade. UI-Module kennen keine Fetch-/EventSource-Details.
 
 ### `state.js`
 
@@ -189,7 +189,7 @@ WP4 Volume Activity und 60s Changed-Mint Count sind deterministische Derived Sig
 
 ### `token-ui.js`
 
-Search- und Inspector-DOM. Der Selected-Detail-Read darf aktuelle Detaildarstellung aktualisieren, aber nicht die Population als zweiten Domain-Updatepfad überschreiben.
+Search- und Inspector-DOM. Der aktuelle Inspector rendert den selektierten Token aus dem kanonischen Population-State und besitzt keinen separaten 5s Selected-token Poll.
 
 ### `activity-ui.js`
 
@@ -207,21 +207,25 @@ Rendert ausschließlich flüchtige Runtime-Telemetrie. Der Browser aggregiert bz
 
 Konkrete Darstellung als Consumer des funktionalen Zustands.
 
-`SimpleTokenView` ist absichtlich ein kleiner vertikaler Proof und kein Designvorschlag. Erst bei einer realen zweiten View wird geprüft, welche gemeinsame View-Abstraktion tatsächlich existiert.
+`SimpleTokenView` ist absichtlich ein kleiner vertikaler Proof und kein Designvorschlag. Sie besitzt weder eine zweite Token-Population noch eine zweite Selection-Authority. Erst bei einer realen neuen View wird entschieden, welche zusätzliche Presentation-State oder Rendering-Technik tatsächlich erforderlich ist.
 
-## 6. Current View Contract
+## 6. Current View Integration
 
-Der aktuelle Proof-View benötigt nur die heute reale Integrationsfläche:
+Die aktuelle Proof-View besitzt nur die heute notwendige Integrationsfläche:
 
 ```text
 init()
-load(tokens)
-applyEvents(events)
-setSelectedMint(mint)
+render({
+    tokens,        // vollständige kanonische State-Projektion
+    selectedMint,  // kanonische Selection
+    events         // optionaler aktueller Delta-Kontext für spätere Transitions
+})
 destroy()
 ```
 
-Diese Methoden sind kein universeller Visualization Standard. Es gibt keine generische ViewSpec-/Visualization-DSL im Functional Core.
+`SimpleTokenView` nutzt aktuell nur `tokens` und `selectedMint`. `app.js` hält den Delta-Event-Kontext an derselben Boundary verfügbar, damit eine spätere Visual-View inkrementelle Transitions darstellen kann, ohne eine zweite Domain-Population zu besitzen.
+
+Diese Signatur ist **kein universeller Visualization Standard**. Eine zukünftige View darf ihre konkrete Rendering-Integration im ausdrücklich beauftragten Visual-Slice ändern. Es gibt keine generische ViewSpec-/Visualization-DSL und keine View-Base-Class im Functional Core.
 
 ## 7. Backend Contract
 
@@ -240,25 +244,25 @@ POST /api/analyst
 
 ### `/api/universe`
 
-Bootstrap der aktuellen Observatory-Population.
+Read-only One-shot Snapshot der aktuellen Observatory-Population. Der Endpoint bleibt als Capability erhalten, ist aber nicht mehr der normale Browser-Bootstrap.
 
 ### `/api/token/{mint}`
 
-Selected-token Detail-Read, einschließlich kürzlich retired Context wenn verfügbar. Die Antwort wird nicht als zweiter Population-Updatepfad verwendet.
+Read-only Selected-token Detail-Capability, einschließlich kürzlich retired Context wenn verfügbar. Der aktuelle Browser pollt diesen Endpoint nicht und verwendet seine Antwort nicht als zweiten Population-Updatepfad. Eine spätere View darf ihn für zusätzliche bounded Detailfelder verwenden, wenn dafür eine konkrete Verantwortung entsteht.
 
 ### `/api/events`
 
-SSE besitzt eine explizite Synchronisationsgrenze:
+SSE besitzt die autoritative Browser-Synchronisationsgrenze:
 
 ```text
-connect / reconnect
+browser start / reconnect
       ↓
 universe_snapshot
       ↓
 universe_delta*
 ```
 
-Jede Verbindung beginnt mit genau einem vollständigen `universe_snapshot`. Derselbe Snapshot ist die Server-Baseline für alle nachfolgenden Deltas. Damit existiert keine undefinierte Lücke zwischen Browserzustand und Stream-Baseline.
+Jede Verbindung beginnt mit genau einem vollständigen `universe_snapshot`. Derselbe Snapshot ist die Server-Baseline für alle nachfolgenden Deltas. Damit existiert weder ein separater Bootstrap-Read noch eine undefinierte Lücke zwischen Browserzustand und Stream-Baseline.
 
 Delta-Typen:
 
@@ -355,6 +359,8 @@ rugcheck     -> STRONG -> mistral-large-latest
 
 Die UI kennt keine Modellnamen. Der FAST-Default wurde gegen den realen `query_tokens`-Contract ausgewählt; der Tool-Vertrag wurde nicht abgeschwächt, um ein kleineres Modell passend zu machen.
 
+Die gemeinsam benötigte Mistral-HTTP-/Chat-Parsing-Mechanik besitzt genau einen kleinen Transport-Owner. Scope-spezifische Prompts, Timeouts, Tools, Evidence und Output-Limits bleiben in ihren jeweiligen Use Cases; daraus entsteht kein generischer Agent-/Provider-Framework-Vertrag.
+
 ### Current Data
 
 ```text
@@ -422,7 +428,9 @@ Der bewiesene Browserpfad ist:
 ```text
 PostgreSQL
    ↓
-/api/universe
+/api/events
+   ↓
+universe_snapshot
    ↓
 Population State
    ↓
@@ -435,14 +443,14 @@ shared selected Mint
    ├── Inspector
    └── selected-token Analyst
    ↓
-SSE connect/reconnect snapshot
-   ↓
-SSE add/update/retire deltas
+universe_delta*
    ├── State
    ├── View
    ├── Inspector
    └── WP4 Activity
 ```
+
+Der Token-Stream ist damit sowohl Start-/Reconnect-Synchronisation als auch anschließender Live-Updatepfad. `GET /api/universe` und `GET /api/token/{mint}` bleiben read-only Capabilities, aber nicht parallele Browser-State-Owner.
 
 Zusätzlich bewiesen:
 
@@ -550,4 +558,4 @@ Ohne einen neuen expliziten fachlichen Grund wird der Functional Core nicht erwe
 
 ## Completion Principle
 
-Der Functional Core ist richtig geschnitten, wenn eine heute unbekannte zukünftige View oder ein zusätzlicher read-only Evidence-Consumer hinzugefügt werden kann, ohne Population, Search, Selection, SSE, Inspector oder bestehende Analyst-Pfade grundlegend neu zu bauen. Der Telemetrie-Pfad ist richtig geschnitten, wenn er den realen operativen Flow beobachtbar macht, ohne selbst Teil dieses operativen Flows zu werden.
+Der Functional Core ist richtig geschnitten, wenn eine heute unbekannte zukünftige View oder ein zusätzlicher read-only Evidence-Consumer hinzugefügt werden kann, ohne Population, Search, Selection, SSE, Inspector oder bestehende Analyst-Pfade grundlegend neu zu bauen. Eine konkrete View erhält die kanonische State-Projektion und kann zusätzlich den aktuellen Delta-Kontext für Motion/Transitions nutzen, ohne Domain State zu duplizieren. Der Telemetrie-Pfad ist richtig geschnitten, wenn er den realen operativen Flow beobachtbar macht, ohne selbst Teil dieses operativen Flows zu werden.
