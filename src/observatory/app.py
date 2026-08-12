@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -81,6 +82,33 @@ def _changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
         "traders_5m": _numeric_change(before.get("traders_5m"), after.get("traders_5m")),
         "volume_5m": _numeric_change(before.get("volume_5m"), after.get("volume_5m")),
     }
+
+
+def _traced_temporal_context(mint: str) -> dict[str, Any] | None:
+    started = perf_counter()
+    logger.warning("[temporal] context_load_start mint=%s", mint)
+    context = reader.temporal_context(mint)
+    elapsed = perf_counter() - started
+    if context is None:
+        logger.warning(
+            "[temporal] context_load_done mint=%s elapsed=%.2fs result=missing",
+            mint,
+            elapsed,
+        )
+        return None
+
+    history = context.get("summary", {}).get("history", {})
+    temporal = context.get("temporal_history", {})
+    buckets = temporal.get("buckets")
+    logger.warning(
+        "[temporal] context_load_done mint=%s elapsed=%.2fs observations=%s resolution=%sm buckets=%s",
+        mint,
+        elapsed,
+        history.get("observations"),
+        temporal.get("resolution_minutes"),
+        len(buckets) if isinstance(buckets, list) else None,
+    )
+    return context
 
 
 @asynccontextmanager
@@ -160,13 +188,25 @@ async def analyst(request: AnalystRequest) -> dict[str, Any]:
                 question=question,
             )
 
-        return await analyze_temporal_token(
+        started = perf_counter()
+        logger.warning(
+            "[temporal] request_start mint=%s model=%s",
+            request.mint,
+            MISTRAL_MODEL,
+        )
+        result = await analyze_temporal_token(
             api_key=MISTRAL_API_KEY,
             model=MISTRAL_MODEL,
             token=token,
             question=question,
-            context_loader=reader.temporal_context,
+            context_loader=_traced_temporal_context,
         )
+        logger.warning(
+            "[temporal] request_done mint=%s elapsed=%.2fs",
+            request.mint,
+            perf_counter() - started,
+        )
+        return result
     except AnalystError as error:
         logger.warning("Analyst request failed: %s", error)
         raise HTTPException(status_code=502, detail=str(error)) from error
