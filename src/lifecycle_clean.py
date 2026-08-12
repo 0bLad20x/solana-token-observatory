@@ -21,6 +21,7 @@ from lifecycle_rules import (
     classify_rule3,
 )
 from repository import MintRepository
+from telemetry import TelemetryEmitter
 
 
 RULE1_MAX_POLL_LAG_SECONDS = 60.0
@@ -198,24 +199,38 @@ def print_result(result: dict[str, Any]) -> None:
 def main() -> None:
     args = parse_args()
     settings = Settings.from_env()
+    telemetry = TelemetryEmitter.from_env()
 
-    with Database(settings.database_url) as database:
-        repository = MintRepository(database)
-        queries = LifecycleQueries(database)
+    try:
+        with Database(settings.database_url) as database:
+            repository = MintRepository(database)
+            queries = LifecycleQueries(database)
 
-        while True:
-            result = run_cycle(
-                repository=repository,
-                queries=queries,
-                apply=args.apply,
-            )
-            print_result(result)
+            while True:
+                started = time.monotonic()
+                result = run_cycle(
+                    repository=repository,
+                    queries=queries,
+                    apply=args.apply,
+                )
+                duration_ms = (time.monotonic() - started) * 1000
+                print_result(result)
+                telemetry.emit(
+                    "lifecycle_tick",
+                    apply=result["apply"],
+                    affected_count=result["candidate_or_deactivated_count"],
+                    breakdown=result["breakdown"],
+                    active_remaining=result["active_remaining"],
+                    duration_ms=round(duration_ms),
+                )
 
-            if args.once:
-                break
+                if args.once:
+                    break
 
-            print(f"\nNext cycle in {INTERVAL_SECONDS:.1f}s...\n")
-            time.sleep(INTERVAL_SECONDS)
+                print(f"\nNext cycle in {INTERVAL_SECONDS:.1f}s...\n")
+                time.sleep(INTERVAL_SECONDS)
+    finally:
+        telemetry.close()
 
 
 if __name__ == "__main__":
