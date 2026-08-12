@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from observatory.analyst import analyze_temporal_token
+from observatory.tools import (
+    TemporalToolError,
+    temporal_context_tool,
+    validate_temporal_context_arguments,
+)
+
+
+MINT = "11111111111111111111111111111111"
+
+
+class TemporalAnalystTests(unittest.TestCase):
+    def test_tool_schema_and_validation_are_bound_to_selected_mint(self) -> None:
+        tool = temporal_context_tool(MINT)
+        mint_schema = tool["function"]["parameters"]["properties"]["mint"]
+        self.assertEqual(mint_schema["enum"], [MINT])
+        self.assertEqual(
+            validate_temporal_context_arguments({"mint": MINT}, MINT),
+            MINT,
+        )
+        with self.assertRaises(TemporalToolError):
+            validate_temporal_context_arguments({"mint": "other"}, MINT)
+        with self.assertRaises(TemporalToolError):
+            validate_temporal_context_arguments(
+                {"mint": MINT, "hours": 24},
+                MINT,
+            )
+
+    def test_temporal_analysis_requires_one_tool_call_and_returns_visible_evidence_meta(self) -> None:
+        captured: list[dict[str, object]] = []
+        responses = [
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-temporal",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "get_token_temporal_context",
+                                        "arguments": json.dumps({"mint": MINT}),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "The early history was weaker, while later buckets "
+                                "showed improving market cap and holder growth."
+                            )
+                        }
+                    }
+                ]
+            },
+        ]
+        context = {
+            "token": {"mint": MINT, "name": "Example", "symbol": "EX"},
+            "summary": {
+                "history": {
+                    "hours": 8.0,
+                    "observations": 123,
+                    "from": "2026-08-12T00:00:00+00:00",
+                    "to": "2026-08-12T08:00:00+00:00",
+                },
+                "market_cap": {"start": 10, "current": 20},
+            },
+            "temporal_history": {
+                "resolution_minutes": 5,
+                "buckets": [
+                    {"bucket_start": "2026-08-12T00:00:00+00:00"},
+                    {"bucket_start": "2026-08-12T07:55:00+00:00"},
+                ],
+            },
+        }
+
+        class FakeResponse:
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.payload = payload
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return self.payload
+
+        class FakeClient:
+            async def __aenter__(self) -> "FakeClient":
+                return self
+
+            async def __aexit__(self, *_: object) -> None:
+                return None
+
+            async def post(self, url: str, **kwargs: object) -> FakeResponse:
+                captured.append({"url": url, **kwargs})
+                return FakeResponse(responses.pop(0))
+
+        fake_httpx = SimpleNamespace(
+            AsyncClient=lambda **_: FakeClient(),
+            HTTPStatusError=type("HTTPStatusError", (Exception,), {}),
+            RequestError=type("RequestError", (Exception,), {}),
+        )
+
+        loaded: list[str] = []
+
+        def load_context(mint: str) -> dict[str, object]:
+            loaded.append(mint)
+            return context
+
+        with patch.dict(sys.modules, {"httpx": fake_httpx}):
+            result = asyncio.run(
+                analyze_temporal_token(
+                    api_key="secret",
+                    model="mistral-small-latest",
+                    token={
+                        "mint": MINT,
+                        "name": "Example",
+                        "symbol": "EX",
+                        "launchpad": "pump.fun",
+                    },
+                    question="How did this token develop?",
+                    context_loader=load_context,
+                )
+            )
+
+        self.assertEqual(loaded, [MINT])
+        first_request = captured[0]["json"]
+        self.assertEqual(
+            first_request["tools"][0]["function"]["name"],
+            "get_token_temporal_context",
+        )
+        self.assertIn("NOT sufficient evidence", first_request["messages"][0]["content"])
+        self.assertIn("temporal_history", first_request["messages"][0]["content"])
+
+        tool_message = captured[1]["json"]["messages"][-1]
+        delivered = json.loads(tool_message["content"])
+        self.assertEqual(delivered, context)
+        self.assertEqual(result["scope"], "temporal")
+        self.assertEqual(result["tool"]["mint"], MINT)
+        self.assertEqual(result["tool"]["resolution_minutes"], 5)
+        self.assertEqual(result["tool"]["buckets"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
