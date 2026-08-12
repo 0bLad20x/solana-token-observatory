@@ -7,10 +7,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from temporal_context import (
-    TEMPORAL_SOURCE_FIELDS,
-    build_temporal_summary_bundle,
-)
+from temporal_context import build_temporal_summary, load_temporal_summary_rows
 
 
 def _iso(value: Any) -> str | None:
@@ -37,19 +34,6 @@ def _int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _temporal_payload_sql() -> str:
-    parts = ",\n                ".join(
-        f"'{field}', payload->'{field}'" for field in TEMPORAL_SOURCE_FIELDS
-    )
-    return f"""
-        jsonb_strip_nulls(
-            jsonb_build_object(
-                {parts}
-            )
-        )
-    """
 
 
 class FrontendReader:
@@ -197,33 +181,16 @@ class FrontendReader:
         rows = self._rows(include_recent_disabled=True, mint=mint)
         return self._token(rows[0]) if rows else None
 
-    def token_history(self, mint: str) -> list[dict[str, Any]]:
-        """Load the bounded raw evidence needed by the shared temporal projection."""
+    def temporal_summary(self, mint: str) -> dict[str, Any] | None:
+        """Build the compact 24h summary without loading repeated full snapshot JSON."""
 
-        projection = _temporal_payload_sql()
         with psycopg.connect(
             self._database_url,
             row_factory=dict_row,
             autocommit=True,
             options="-c default_transaction_read_only=on -c statement_timeout=60000",
         ) as connection:
-            return list(
-                connection.execute(
-                    f"""
-                    SELECT observed_at, {projection} AS payload
-                    FROM mint_snapshots
-                    WHERE mint = %s
-                      AND observed_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
-                    ORDER BY observed_at ASC
-                    """,
-                    (mint,),
-                ).fetchall()
-            )
-
-    def temporal_context(self, mint: str) -> dict[str, Any] | None:
-        """Build the compact standalone temporal summary used by the Observatory LLM."""
-
-        rows = self.token_history(mint)
-        if not rows:
+            history_rows, sample_rows = load_temporal_summary_rows(connection, mint)
+        if not history_rows:
             return None
-        return build_temporal_summary_bundle(mint, rows)
+        return build_temporal_summary(history_rows, sample_rows)
