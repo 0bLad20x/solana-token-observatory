@@ -196,6 +196,7 @@ Der nächste Schritt ist deshalb **nicht automatisch ein neues Visual Design**. 
 
 ```powershell
 python -m compileall -q src tools
+python -m unittest discover -s tests -v
 node --test tests/test_frontend_state.mjs tests/test_frontend_sync.mjs
 python src/main.py --help
 python src/lifecycle_clean.py --help
