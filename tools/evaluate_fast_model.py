@@ -126,7 +126,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("MISTRAL_MODEL_FAST", "ministral-3b-latest"),
+        default=os.getenv("MISTRAL_MODEL_FAST", "ministral-14b-latest"),
     )
     args = parser.parse_args()
 
