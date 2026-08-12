@@ -235,19 +235,30 @@ Selected token:
 
 Evidence semantics:
 - The tool returns token identity plus a compact summary. It does NOT return time buckets.
-- history.from/to/hours describe the actual covered observation window.
+- history.from/to/hours describe the actual covered observation window, not token age.
+- Observation count does not prove continuous coverage or absence of gaps.
 - market_cap, liquidity and holders can contain start/current/min/max/change_pct.
-- market_cap may also contain peak_at and max_drawdown_pct.
+- market_cap peak_at and max refer only to the delivered observation window, never an ATH.
+- max_drawdown_pct does not prove that every individual hour was positive or negative.
 - activity_1h fields are rolling one-hour source metrics. Their summary values are
   descriptive snapshots such as current and median; NEVER sum rolling values.
-- Ratio summaries describe relationships between metrics. Interpret the direction
+- Ratio summaries describe relationships between metrics. Interpret their direction
   mathematically; do not infer causality merely because a ratio changed.
 - Missing means unknown, never zero. Do not invent proxies or unavailable chronology.
-- Do NOT claim phases, turning points, exact event order, or historical values that are
-  absent from the summary. In particular, current/median does not imply start/min/max.
+- Do NOT claim linear, parabolic, smooth or phased growth, turning points, exact event
+  order, or historical values that are absent from the summary.
+- Do NOT infer fake volume, wash trading, bots, whales, manipulation, accumulation,
+  distribution or coordinated behavior from aggregate metrics alone.
+- A lower but still positive num_net_buyers value is weaker positive net buying, not
+  outflow. A change in top_holders_pct is concentration change only; actor identity and
+  mechanism are unknown. A change in dev_balance_pct is balance change only.
+- Do not use overbought, oversold, support, resistance, breakout or similar technical-
+  analysis labels unless directly supported by delivered evidence.
+- Percentage change and multiplicative growth are different: use final/start for an x-fold
+  statement and change_pct for the percentage increase.
 
 Expert analysis requirements:
-1. Establish the observation horizon and data quality/coverage limits first.
+1. Establish the observation horizon and evidence limitations first.
 2. Diagnose valuation trajectory using market cap change, range, peak and drawdown.
 3. Diagnose liquidity resilience relative to valuation, including liquidity/market-cap
    behavior where available.
@@ -255,9 +266,8 @@ Expert analysis requirements:
 5. Compare CURRENT activity with its MEDIAN baseline: buy/sell pressure, trader activity,
    net flow and organic participation. Distinguish current conditions from the broader
    observed baseline.
-6. Look for cross-metric confirmation or divergence. Examples: valuation falling while
-   holders rise; liquidity holding while market cap falls; current buy pressure improving
-   despite a weak full-window trajectory. Explain why such combinations matter.
+6. Look for cross-metric confirmation or divergence. Explain relationships without
+   inventing causality or chronology.
 7. Identify the strongest constructive signals, strongest risk signals, and material
    unknowns. Do not manufacture a deterministic good/bad score.
 8. End with a calibrated expert assessment for the user's question: constructive,
@@ -367,7 +377,7 @@ async def analyze_temporal_token(
     model: str,
     token: dict[str, Any],
     question: str,
-    context_loader: Callable[[str], dict[str, Any] | None],
+    summary_loader: Callable[[str], dict[str, Any] | None],
 ) -> dict[str, Any]:
     """Execute one selected-mint summary tool call and return an expert diagnosis."""
 
@@ -408,9 +418,16 @@ async def analyze_temporal_token(
                 f"Invalid get_token_temporal_context arguments: {error}"
             ) from error
 
-        context = await asyncio.to_thread(context_loader, mint)
-        if context is None:
+        summary = await asyncio.to_thread(summary_loader, mint)
+        if summary is None:
             raise AnalystError("No temporal summary is available for the selected mint")
+
+        identity = {"mint": mint}
+        for key in ("name", "symbol", "launchpad"):
+            value = token.get(key)
+            if value not in (None, ""):
+                identity[key] = value
+        context = {"token": identity, "summary": summary}
 
         assistant_message = {
             "role": "assistant",
@@ -475,7 +492,7 @@ async def analyze_temporal_token(
             "Mistral returned no answer after get_token_temporal_context"
         )
 
-    history_meta = context["summary"]["history"]
+    history_meta = summary["history"]
     return {
         "answer": answer,
         "scope": "temporal",
