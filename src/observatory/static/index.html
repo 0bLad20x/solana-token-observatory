@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <title>Jupiter Token Observatory</title>
   <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/telemetry.css">
 </head>
 <body>
   <main class="shell">
@@ -145,6 +146,41 @@
           <ol id="event-feed" class="event-feed" aria-live="polite"></ol>
         </section>
       </aside>
+    </section>
+
+    <section class="telemetry-panel" aria-label="Live pipeline telemetry proof">
+      <div class="telemetry-heading">
+        <div>
+          <p class="toolbar-label">PIPELINE TELEMETRY · VOLATILE</p>
+          <h2>Operational dataflow proof</h2>
+        </div>
+        <div class="telemetry-meta">
+          <span id="telemetry-summary">0 lanes · 0 discovery paths · 10m volatile window</span>
+          <span id="telemetry-status" class="telemetry-status">Connecting</span>
+        </div>
+      </div>
+
+      <div class="telemetry-grid">
+        <article class="telemetry-card">
+          <h3>Discovery intake</h3>
+          <div id="telemetry-discovery" class="telemetry-stack"></div>
+        </article>
+
+        <article class="telemetry-card">
+          <h3>Write queue</h3>
+          <div id="telemetry-flush" class="telemetry-stack"></div>
+        </article>
+
+        <article class="telemetry-card search">
+          <h3>Jupiter Search lanes</h3>
+          <div id="telemetry-lanes" class="telemetry-lanes"></div>
+        </article>
+
+        <article class="telemetry-card search">
+          <h3>Lifecycle</h3>
+          <div id="telemetry-lifecycle" class="telemetry-stack"></div>
+        </article>
+      </div>
     </section>
   </main>
 

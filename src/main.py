@@ -15,6 +15,7 @@ from discovery import (
 from maintenance import snapshot_retention_loop
 from refresh import refresh_system
 from repository import MintRepository
+from telemetry import TelemetryEmitter
 
 
 def parser() -> argparse.ArgumentParser:
@@ -25,13 +26,17 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-async def run(settings: Settings, repository: MintRepository) -> None:
+async def run(
+    settings: Settings,
+    repository: MintRepository,
+    telemetry: TelemetryEmitter,
+) -> None:
     await asyncio.gather(
-        pump_loop(settings, repository),
-        jupiter_recent_loop(settings, repository),
-        meteora_damm_v2_loop(settings, repository),
-        meteora_dlmm_loop(settings, repository),
-        refresh_system(settings, repository, priority=1),
+        pump_loop(settings, repository, telemetry),
+        jupiter_recent_loop(settings, repository, telemetry),
+        meteora_damm_v2_loop(settings, repository, telemetry),
+        meteora_dlmm_loop(settings, repository, telemetry),
+        refresh_system(settings, repository, priority=1, telemetry=telemetry),
         snapshot_retention_loop(repository),
     )
 
@@ -52,10 +57,13 @@ def main() -> None:
             return
 
         repository = MintRepository(database)
+        telemetry = TelemetryEmitter.from_env()
         try:
-            asyncio.run(run(settings, repository))
+            asyncio.run(run(settings, repository, telemetry))
         except KeyboardInterrupt:
             pass
+        finally:
+            telemetry.close()
 
 
 if __name__ == "__main__":

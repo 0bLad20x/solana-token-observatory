@@ -171,11 +171,12 @@ static/js/
 ├── token-ui.js            Search + Inspector DOM
 ├── activity-ui.js         Activity DOM
 ├── analyst-ui.js          Analyst interaction
+├── telemetry-ui.js        volatile operational telemetry projection
 └── views/
     └── simple-token-view.js
 ```
 
-`state.js` besitzt die Domain-Population und `selectedMint`. Search, Activity und Presentation State gehören nicht hinein.
+`state.js` besitzt die Domain-Population und `selectedMint`. Search, Activity, Telemetry und Presentation State gehören nicht hinein.
 
 Die aktuelle `SimpleTokenView` ist ein austauschbarer funktionaler Proof und kein Designvertrag. Presentation-Werte wie `x/y`, Radius, Farbe, Opacity, D3/Pixi-State oder Clusterpositionen sind keine Functional-Core-Truth.
 
@@ -224,20 +225,69 @@ Fingerprint und numerische Changes werden aus demselben Contract abgeleitet. Mis
 
 Der heutige SSE-Producer erzeugt Deltas weiterhin durch per-Connection Snapshot/Diff-Polling. Das ist bewusst akzeptierte Skalierungsschuld, kein dauerhafter Event-Infrastrukturvertrag. Ein gemeinsamer Broadcaster oder Event Replay wird erst eingeführt, wenn reale Messungen oder neue Anforderungen ihn rechtfertigen.
 
-## 9. Observatory Backend-Endpunkte
+## 9. Live Operational Telemetry
+
+Die Live-Telemetrie ist ein separater flüchtiger Beobachtungspfad für den realen operativen Datenfluss. Sie besitzt keine Mutation- oder Persistenz-Authority.
+
+```text
+Discovery / Search / WriteQueue / Lifecycle
+                ↓
+       localhost UDP best effort
+                ↓
+      Observatory bounded RAM buffer
+                ↓
+      telemetry snapshot + SSE
+                ↓
+       deterministic <=1 Hz UI
+```
+
+Produzenten emittieren kleine strukturierte Events unmittelbar nach realer Arbeit:
+
+```text
+discovery_tick
+search_lane_tick
+search_flush
+lifecycle_tick
+```
+
+Der Observatory-Prozess bindet standardmäßig nur localhost, hält maximal zehn Minuten Telemetrie im RAM und verwirft sie bei Neustart. Es gibt keine Telemetrie-Tabelle, keine Disk-Persistenz, keinen Broker, kein Alerting und kein Event Sourcing. API Keys und Mint-Listen gehören nicht in Telemetrie-Payloads.
+
+Die Telemetrie besitzt einen eigenen Transportvertrag:
+
+```text
+GET /api/telemetry
+GET /api/telemetry/events
+```
+
+`/api/telemetry/events` startet mit `telemetry_snapshot` und liefert danach `telemetry_event`. Dieser Stream ist bewusst getrennt vom kanonischen Token-Stream `/api/events`.
+
+### Population semantics
+
+Zwei sichtbare Zahlen beantworten unterschiedliche Fragen:
+
+- Observatory `ACTIVE`: Größe der aktuell vom `FrontendReader` projizierten Token-Population. Der heutige Read-Model-Pfad benötigt `tracking_enabled=true` und einen verfügbaren jüngsten Raw-Snapshot.
+- Lifecycle Telemetry `TRACKING`: `active_remaining` aus dem operativen Lifecycle, also die Anzahl aller Rows in `mints` mit `tracking_enabled=true`.
+
+Beide Zahlen sollten im stabilen Betrieb eng zusammenliegen, sind aber **nicht als identische Messung definiert**. Kleine Abweichungen sind zulässig, weil Lifecycle und Observatory unabhängig lesen und weil ihre Projektionsgrenzen verschieden sind. Lifecycle v0.3 / Rule 7 entfernt langfristig frisch gepollte Mints ohne Source-Fortschritt und hat dadurch die zuvor große Differenz praktisch beseitigt; die Semantik der beiden Zähler bleibt trotzdem getrennt.
+
+`lifecycle_tick.breakdown` zeigt Rule 1–7. Telemetrie interpretiert diese Regeln nicht neu, sondern projiziert ausschließlich das Ergebnis des realen Lifecycle-Cycles.
+
+## 10. Observatory Backend-Endpunkte
 
 ```text
 GET  /api/health
 GET  /api/universe
 GET  /api/token/{mint}
 GET  /api/events
+GET  /api/telemetry
+GET  /api/telemetry/events
 GET  /api/evidence/rugcheck/{mint}
 POST /api/analyst
 ```
 
 `FrontendReader` verwendet read-only PostgreSQL-Verbindungen. Observatory-Endpunkte besitzen keine operative Mutation.
 
-## 10. Analyst und Model Policy
+## 11. Analyst und Model Policy
 
 Der Analyst besitzt vier explizite Use Cases. Modellwahl ist serverseitige Use-Case-Policy und keine UI-Verantwortung.
 
@@ -320,7 +370,7 @@ Der Fetch selbst benötigt keinen LLM Tool Call. Der vollständige Provider-Repo
 
 RugCheck bleibt externe Provider-Evidence. Es gibt keine Persistence, keinen internen Safety Score und keine Lifecycle-Mutation.
 
-## 11. Truth Layers
+## 12. Truth Layers
 
 Das Observatory unterscheidet vier Ebenen:
 
@@ -331,13 +381,15 @@ Das Observatory unterscheidet vier Ebenen:
 
 Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden.
 
-## 12. Generierte Artefakte
+Live Operational Telemetry ist flüchtige Beobachtung realer Runtime-Ereignisse und keine zusätzliche persistente Truth-Schicht.
+
+## 13. Generierte Artefakte
 
 Lokale oder eingecheckte Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
 
 Dauerhafte Regeln und Verträge gehören in Code oder die benannte Dokumentations-Authority. Große historische Analysis-Artefakte werden separat bewertet; dieser Architekturvertrag erklärt sie nicht automatisch zu dauerhaft benötigten Repository-Bestandteilen.
 
-## 13. Aktuelle Architekturgrenze
+## 14. Aktuelle Architekturgrenze
 
 Die operative und funktionale Foundation steht:
 
@@ -353,19 +405,20 @@ Lifecycle v0.3
 Survivor Population
    ↓
 Read-only Functional Observatory
+   ├── Live Operational Telemetry
    ├── Current Data
    ├── Web Evidence
    ├── Temporal Summary
    └── RugCheck Evidence
 ```
 
-Vor neuem Visual-/Spatial-Design wird entschieden, ob noch fachliche Evidence-/Relation-Grenzen fehlen. Kandidaten sind insbesondere Discovery Provenance, bounded Multi-Mint Comparison oder ein späterer Unified AI Router. Diese Kandidaten sind **keine implizite Implementierungsfreigabe**.
+Der nächste Visual-Slice darf den jetzt bewiesenen operativen Flow verwenden, muss aber seine Data-to-Visual-Semantik explizit definieren. Telemetrie-Metriken sind dabei Runtime-Evidence; sie werden nicht zu einer neuen operativen Steuerungsschicht.
 
-Issue #9 bleibt der separate Visual-/Spatial-Research-Schritt und beginnt erst mit einer konkreten analytischen Frage und einem expliziten Data-to-Visual-Vertrag.
+Issue #9 bleibt der separate Visual-/Spatial-Research-Schritt für Token-Darstellungen. Ein Operational-Flow-Visual kann unabhängig davon auf den bereits bewiesenen Telemetrie-Fakten aufbauen.
 
 Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
 
-## 14. Authority-Modell
+## 15. Authority-Modell
 
 | Frage | Authority |
 |---|---|
@@ -376,7 +429,7 @@ Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
 | Wo steht das Projekt und welche Entscheidung ist als Nächstes offen? | `docs/MILESTONES.md` |
 | Welche Regeln gelten für Repository-Änderungen? | `AGENTS.md` |
 
-## 15. Architekturprinzipien
+## 16. Architekturprinzipien
 
 1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Domain-Wahrheit.
 2. **Poll und Snapshot sind verschiedene Ereignisse.**
@@ -386,7 +439,8 @@ Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
 6. **Lifecycle-Semantik ist versioniert.** Retention ist Storage-Maintenance und keine Lifecycle-Regel.
 7. **Downstream ist read-only gegenüber operativem State.**
 8. **Presentation ist keine Functional-Core-Truth.**
-9. **External Evidence ist keine Jupiter- oder Lifecycle-Truth.**
-10. **LLM-Interpretation besitzt keine operative Authority.**
-11. **Generierte Daten sind Evidence, nicht Architektur.**
-12. **Roadmap ist keine Implementation.**
+9. **Operational Telemetry ist flüchtige Beobachtung, keine operative Authority.**
+10. **External Evidence ist keine Jupiter- oder Lifecycle-Truth.**
+11. **LLM-Interpretation besitzt keine operative Authority.**
+12. **Generierte Daten sind Evidence, nicht Architektur.**
+13. **Roadmap ist keine Implementation.**
