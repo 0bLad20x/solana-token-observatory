@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
 from .tools import (
     QueryToolError,
+    TemporalToolError,
     query_capabilities,
     query_tokens,
     query_tokens_tool,
+    temporal_context_tool,
+    validate_temporal_context_arguments,
 )
 
 MISTRAL_CONVERSATIONS_URL = "https://api.mistral.ai/v1/conversations"
@@ -159,19 +164,22 @@ def _message_text(message: dict[str, Any]) -> str:
     return "".join(parts).strip()
 
 
-def _tool_call(message: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+def _tool_call(
+    message: dict[str, Any],
+    expected_name: str = "query_tokens",
+) -> tuple[str, dict[str, Any]] | None:
     calls = message.get("tool_calls")
     if not calls:
         return None
     if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
-        raise AnalystError("Mistral must request exactly one query_tokens call")
+        raise AnalystError(f"Mistral must request exactly one {expected_name} call")
 
     call = calls[0]
     function = call.get("function")
     call_id = call.get("id")
     if (
         not isinstance(function, dict)
-        or function.get("name") != "query_tokens"
+        or function.get("name") != expected_name
         or not isinstance(call_id, str)
         or not call_id
     ):
@@ -202,6 +210,33 @@ zero. Keep the final answer concise and name the metric.
 
 Current query vocabulary:
 {vocabulary}
+"""
+
+
+def _temporal_instructions(token: dict[str, Any]) -> str:
+    return f"""Analyze exactly one selected Solana token over its delivered observation history.
+You MUST call get_token_temporal_context exactly once with the exact selected mint before
+answering. Do not request another mint, time range, resolution, SQL query, or hidden data.
+
+Selected token:
+- Mint: {token['mint']}
+- Name: {token.get('name') or 'unknown'}
+- Symbol: {token.get('symbol') or 'unknown'}
+- Launchpad: {token.get('launchpad') or 'unknown'}
+
+Evidence contract:
+- summary is deterministic derived context and is NOT sufficient evidence by itself.
+- You MUST independently inspect temporal_history before forming a conclusion.
+- Use the temporal sequence to confirm, qualify, or contradict the summary.
+- Explicitly describe the observed trajectory over time and ground important claims in
+  concrete evidence from different parts of the delivered history when the data permits.
+- If temporal_history conflicts with a simplified summary interpretation, state that
+  conflict and prioritize the timestamped history.
+- stats_1h values are rolling one-hour measurements. NEVER sum them across buckets.
+- Missing means unknown, never zero. Do not invent proxies for unavailable values.
+- Do not infer events or conditions outside the delivered observation span.
+- Separate observed facts from interpretation. Do not present a deterministic good/bad
+  score as system truth.
 """
 
 
@@ -293,6 +328,112 @@ async def query_current_tokens(
             "matched_count": result["matched_count"],
             "returned_count": result["returned_count"],
             "tokens": result["tokens"],
+        },
+    }
+
+
+async def analyze_temporal_token(
+    *,
+    api_key: str,
+    model: str,
+    token: dict[str, Any],
+    question: str,
+    context_loader: Callable[[str], dict[str, Any] | None],
+) -> dict[str, Any]:
+    """Execute one selected-mint temporal tool call and ground the answer in its history."""
+
+    import httpx
+
+    selected_mint = token["mint"]
+    messages = [
+        {"role": "system", "content": _temporal_instructions(token)},
+        {"role": "user", "content": question},
+    ]
+    request = {
+        "model": model,
+        "messages": messages,
+        "tools": [temporal_context_tool(selected_mint)],
+        "tool_choice": "auto",
+        "parallel_tool_calls": False,
+        "temperature": 0,
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        first_payload = await _post_json(
+            client=client,
+            httpx=httpx,
+            url=MISTRAL_CHAT_URL,
+            api_key=api_key,
+            request=request,
+        )
+        first_message = _chat_message(first_payload)
+        call = _tool_call(first_message, "get_token_temporal_context")
+        if call is None:
+            raise AnalystError("Mistral did not request temporal evidence")
+
+        call_id, arguments = call
+        try:
+            mint = validate_temporal_context_arguments(arguments, selected_mint)
+        except TemporalToolError as error:
+            raise AnalystError(
+                f"Invalid get_token_temporal_context arguments: {error}"
+            ) from error
+
+        context = await asyncio.to_thread(context_loader, mint)
+        if context is None:
+            raise AnalystError("No temporal history is available for the selected mint")
+
+        assistant_message = {
+            "role": "assistant",
+            "content": first_message.get("content") or "",
+            "tool_calls": first_message["tool_calls"],
+        }
+        final_request = {
+            "model": model,
+            "messages": [
+                *messages,
+                assistant_message,
+                {
+                    "role": "tool",
+                    "name": "get_token_temporal_context",
+                    "tool_call_id": call_id,
+                    "content": json.dumps(
+                        context,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                },
+            ],
+            "temperature": 0,
+        }
+        final_payload = await _post_json(
+            client=client,
+            httpx=httpx,
+            url=MISTRAL_CHAT_URL,
+            api_key=api_key,
+            request=final_request,
+        )
+
+    answer = _message_text(_chat_message(final_payload))
+    if not answer:
+        raise AnalystError(
+            "Mistral returned no answer after get_token_temporal_context"
+        )
+
+    history_meta = context["summary"]["history"]
+    temporal_history = context["temporal_history"]
+    return {
+        "answer": answer,
+        "scope": "temporal",
+        "tool": {
+            "name": "get_token_temporal_context",
+            "mint": mint,
+            "from": history_meta["from"],
+            "to": history_meta["to"],
+            "history_hours": history_meta["hours"],
+            "observations": history_meta["observations"],
+            "resolution_minutes": temporal_history["resolution_minutes"],
+            "buckets": len(temporal_history["buckets"]),
         },
     }
 
