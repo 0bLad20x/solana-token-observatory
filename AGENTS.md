@@ -160,6 +160,8 @@ python -m compileall -q src tools
 python -m unittest discover -s tests -v
 ```
 
+Der repository-weite `unittest discover` besitzt aktuell zwei bereits auf `main` vorhandene Importfehler in veralteten `diagnostics`-Tests. Änderungen dürfen diesen Baseline-Zustand nicht verschlechtern; betroffene neue Funktionalität muss zusätzlich gezielt getestet werden.
+
 Für Änderungen an den geerbten Lifecycle-Regeln 1–5 zusätzlich:
 
 ```powershell
