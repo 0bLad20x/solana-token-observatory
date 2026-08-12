@@ -4,6 +4,8 @@ import json
 from collections import Counter
 from typing import Any
 
+_MISSING = object()
+
 
 def _json_bytes(value: Any) -> int:
     payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -22,14 +24,24 @@ def _rounded(value: float | None) -> float | None:
     return round(value, 6)
 
 
-def _authority_present(value: Any) -> bool:
+def _presence(value: Any) -> bool | None:
+    if value is _MISSING:
+        return None
     return value not in (None, "", {}, [])
 
 
+def _nested_or_top(
+    nested: dict[str, Any], nested_key: str, report: dict[str, Any], top_key: str
+) -> Any:
+    if nested_key in nested:
+        return nested[nested_key]
+    if top_key in report:
+        return report[top_key]
+    return _MISSING
+
+
 def _risk_summary(value: Any) -> list[dict[str, Any]] | None:
-    if value is None:
-        return None
-    if not isinstance(value, list):
+    if value is _MISSING or value is None or not isinstance(value, list):
         return None
 
     rows: list[dict[str, Any]] = []
@@ -52,8 +64,11 @@ def _token_metadata(report: dict[str, Any]) -> dict[str, Any]:
     token = report.get("token")
     token = token if isinstance(token, dict) else {}
 
-    mint_authority = token.get("mintAuthority", report.get("mintAuthority"))
-    freeze_authority = token.get("freezeAuthority", report.get("freezeAuthority"))
+    mint_authority = _nested_or_top(token, "mintAuthority", report, "mintAuthority")
+    freeze_authority = _nested_or_top(token, "freezeAuthority", report, "freezeAuthority")
+    update_authority = (
+        token_meta["updateAuthority"] if "updateAuthority" in token_meta else _MISSING
+    )
 
     result: dict[str, Any] = {
         "token_program": report.get("tokenProgram"),
@@ -61,32 +76,39 @@ def _token_metadata(report: dict[str, Any]) -> dict[str, Any]:
         "deploy_platform": report.get("deployPlatform"),
         "launchpad": report.get("launchpad"),
         "detected_at": report.get("detectedAt"),
-        "mint_authority_present": _authority_present(mint_authority),
-        "freeze_authority_present": _authority_present(freeze_authority),
+        "mint_authority_present": _presence(mint_authority),
+        "freeze_authority_present": _presence(freeze_authority),
         "metadata_mutable": token_meta.get("mutable"),
-        "metadata_update_authority_present": _authority_present(
-            token_meta.get("updateAuthority")
-        ),
+        "metadata_update_authority_present": _presence(update_authority),
     }
 
-    transfer_fee = report.get("transferFee")
-    if isinstance(transfer_fee, dict):
-        fee: dict[str, Any] = {
-            "authority_present": _authority_present(transfer_fee.get("authority"))
-        }
-        for key in ("basisPoints", "maxAmount"):
-            if key in transfer_fee:
-                fee[key] = transfer_fee[key]
-        result["transfer_fee"] = fee
-    elif transfer_fee is not None:
-        result["transfer_fee"] = transfer_fee
+    if "transferFee" in report:
+        transfer_fee = report["transferFee"]
+        if isinstance(transfer_fee, dict):
+            fee: dict[str, Any] = {
+                "authority_present": _presence(
+                    transfer_fee["authority"]
+                    if "authority" in transfer_fee
+                    else _MISSING
+                )
+            }
+            for key in ("basisPoints", "maxAmount"):
+                if key in transfer_fee:
+                    fee[key] = transfer_fee[key]
+            result["transfer_fee"] = fee
+        else:
+            result["transfer_fee"] = transfer_fee
+    else:
+        result["transfer_fee"] = None
 
     return result
 
 
 def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
-    holders = report.get("topHolders")
-    holders = holders if isinstance(holders, list) else []
+    holders_value = report.get("topHolders", _MISSING)
+    holders_known = isinstance(holders_value, list)
+    holders = holders_value if holders_known else []
+
     known_accounts = report.get("knownAccounts")
     known_accounts = known_accounts if isinstance(known_accounts, dict) else {}
 
@@ -148,17 +170,19 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
             if isinstance(account_type, str) and account_type:
                 known_types[account_type] += 1
 
-    creator_tokens = report.get("creatorTokens")
-    creator_tokens_count = len(creator_tokens) if isinstance(creator_tokens, list) else None
+    creator_tokens = report.get("creatorTokens", _MISSING)
+    creator_tokens_count = (
+        len(creator_tokens) if isinstance(creator_tokens, list) else None
+    )
 
     result: dict[str, Any] = {
         "total_holders": report.get("totalHolders"),
-        "top_holders_reported": len(holders),
+        "top_holders_reported": len(holders) if holders_known else None,
         "top1_pct": concentration(1),
         "top5_pct": concentration(5),
         "top10_pct": concentration(10),
         "top20_pct": concentration(20),
-        "insiders_in_top_holders": insider_count,
+        "insiders_in_top_holders": insider_count if holders_known else None,
         "insider_pct_in_top_holders": (
             _rounded(insider_pct) if insider_pct_known else None
         ),
@@ -169,10 +193,10 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
         "creator_tokens_count": creator_tokens_count,
     }
 
-    insider_networks = report.get("insiderNetworks")
+    insider_networks = report.get("insiderNetworks", _MISSING)
     if isinstance(insider_networks, (list, dict)):
         result["insider_networks"] = len(insider_networks)
-    elif insider_networks is None:
+    else:
         result["insider_networks"] = None
 
     if known_types:
@@ -183,8 +207,10 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def _market_metadata(report: dict[str, Any]) -> dict[str, Any]:
-    markets = report.get("markets")
-    markets = markets if isinstance(markets, list) else []
+    markets_value = report.get("markets", _MISSING)
+    markets_known = isinstance(markets_value, list)
+    markets = markets_value if markets_known else []
+
     market_types: Counter[str] = Counter()
     market_liquidities: list[float] = []
     with_positive_lock = 0
@@ -201,9 +227,10 @@ def _market_metadata(report: dict[str, Any]) -> dict[str, Any]:
         lp = market.get("lp")
         if not isinstance(lp, dict):
             continue
-        base_usd = _number(lp.get("baseUSD")) or 0.0
-        quote_usd = _number(lp.get("quoteUSD")) or 0.0
-        market_liquidities.append(base_usd + quote_usd)
+        base_usd = _number(lp.get("baseUSD"))
+        quote_usd = _number(lp.get("quoteUSD"))
+        if base_usd is not None or quote_usd is not None:
+            market_liquidities.append((base_usd or 0.0) + (quote_usd or 0.0))
 
         locked_pct = _number(lp.get("lpLockedPct"))
         if locked_pct is not None:
@@ -221,20 +248,20 @@ def _market_metadata(report: dict[str, Any]) -> dict[str, Any]:
         else None
     )
 
-    lockers = report.get("lockers")
+    lockers = report.get("lockers", _MISSING)
     locker_count = len(lockers) if isinstance(lockers, (list, dict)) else None
 
     return {
-        "market_count": len(markets),
-        "market_types": dict(sorted(market_types.items())),
+        "market_count": len(markets) if markets_known else None,
+        "market_types": dict(sorted(market_types.items())) if markets_known else None,
         "total_market_liquidity": report.get("totalMarketLiquidity"),
         "total_stable_liquidity": report.get("totalStableLiquidity"),
         "total_lp_providers": report.get("totalLPProviders"),
         "largest_market_liquidity_usd": _rounded(largest_market),
         "largest_market_share_pct": _rounded(largest_share),
-        "markets_with_lp_lock_data": with_lock_data,
-        "markets_with_positive_lp_lock": with_positive_lock,
-        "markets_with_zero_lp_lock": with_zero_lock,
+        "markets_with_lp_lock_data": with_lock_data if markets_known else None,
+        "markets_with_positive_lp_lock": with_positive_lock if markets_known else None,
+        "markets_with_zero_lp_lock": with_zero_lock if markets_known else None,
         "locker_count": locker_count,
         "locker_scan_status": report.get("lockerScanStatus"),
     }
@@ -246,7 +273,7 @@ def _compact_summary(report: dict[str, Any]) -> dict[str, Any]:
             "score": report.get("score"),
             "score_normalised": report.get("score_normalised"),
             "rugged": report.get("rugged"),
-            "risks": _risk_summary(report.get("risks")),
+            "risks": _risk_summary(report.get("risks", _MISSING)),
         },
         "token_control": _token_metadata(report),
         "ownership": _holder_metadata(report),
@@ -259,7 +286,8 @@ def project_rugcheck_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
 
     The direct evidence adapter remains raw and complete. The LLM receives aggregates and
     provider labels rather than wallet addresses, per-market account snapshots or provider
-    registries. This is a deterministic projection: it does not create a new safety score.
+    registries. Missing provider evidence remains unknown. No internal safety score is
+    created.
     """
 
     report = evidence.get("report")
