@@ -14,12 +14,6 @@ export class ObservatoryState {
     if (this.selectedMint && !this.tokens.has(this.selectedMint)) this.selectedMint = null;
   }
 
-  upsert(token) {
-    if (!token?.mint) return false;
-    this.tokens.set(token.mint, token);
-    return true;
-  }
-
   applyEvent(event) {
     const token = event?.token;
     if (!token?.mint) return false;
