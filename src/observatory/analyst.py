@@ -10,12 +10,9 @@ from urllib.parse import urlparse
 
 from .tools import (
     QueryToolError,
-    TemporalToolError,
     query_capabilities,
     query_tokens,
     query_tokens_tool,
-    temporal_context_tool,
-    validate_temporal_context_arguments,
 )
 
 MISTRAL_CONVERSATIONS_URL = "https://api.mistral.ai/v1/conversations"
@@ -223,9 +220,9 @@ Current query vocabulary:
 
 def _temporal_instructions(token: dict[str, Any]) -> str:
     return f"""Act as a senior Solana token-market analyst. Analyze exactly one selected token
-from a deterministic temporal SUMMARY derived from the available observation window.
-You MUST call get_token_temporal_context exactly once with the exact selected mint before
-answering. Do not request another mint, SQL, hidden data, a custom range, or a resolution.
+from the deterministic temporal SUMMARY supplied with the user request. The Summary is
+derived from the available retained observation window; no raw history or time buckets
+are available to you.
 
 Selected token:
 - Mint: {token['mint']}
@@ -234,19 +231,18 @@ Selected token:
 - Launchpad: {token.get('launchpad') or 'unknown'}
 
 Evidence semantics:
-- The tool returns token identity plus a compact summary. It does NOT return time buckets.
 - history.from/to/hours describe the actual covered observation window, not token age.
 - Observation count does not prove continuous coverage or absence of gaps.
 - market_cap, liquidity and holders can contain start/current/min/max/change_pct.
 - market_cap peak_at and max refer only to the delivered observation window, never an ATH.
 - max_drawdown_pct does not prove that every individual hour was positive or negative.
-- activity_1h fields are rolling one-hour source metrics. Their summary values are
+- activity_1h fields are rolling one-hour source metrics. Their Summary values are
   descriptive snapshots such as current and median; NEVER sum rolling values.
 - Ratio summaries describe relationships between metrics. Interpret their direction
   mathematically; do not infer causality merely because a ratio changed.
 - Missing means unknown, never zero. Do not invent proxies or unavailable chronology.
 - Do NOT claim linear, parabolic, smooth or phased growth, turning points, exact event
-  order, or historical values that are absent from the summary.
+  order, or historical values that are absent from the Summary.
 - Do NOT infer fake volume, wash trading, bots, whales, manipulation, accumulation,
   distribution or coordinated behavior from aggregate metrics alone.
 - A lower but still positive num_net_buyers value is weaker positive net buying, not
@@ -379,132 +375,88 @@ async def analyze_temporal_token(
     question: str,
     summary_loader: Callable[[str], dict[str, Any] | None],
 ) -> dict[str, Any]:
-    """Execute one selected-mint summary tool call and return an expert diagnosis."""
+    """Load one selected-token Summary and answer with one Mistral request."""
 
     import httpx
 
-    selected_mint = token["mint"]
-    messages = [
-        {"role": "system", "content": _temporal_instructions(token)},
-        {"role": "user", "content": question},
-    ]
+    mint = token["mint"]
+    summary = await asyncio.to_thread(summary_loader, mint)
+    if summary is None:
+        raise AnalystError("No temporal summary is available for the selected mint")
+
+    identity = {"mint": mint}
+    for key in ("name", "symbol", "launchpad"):
+        value = token.get(key)
+        if value not in (None, ""):
+            identity[key] = value
+    context = {"token": identity, "summary": summary}
+    context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+    context_bytes = len(context_json.encode("utf-8"))
+    rough_summary_tokens = (len(context_json) + 3) // 4
+
     request = {
         "model": model,
-        "messages": messages,
-        "tools": [temporal_context_tool(selected_mint)],
-        "tool_choice": "required",
-        "parallel_tool_calls": False,
+        "messages": [
+            {"role": "system", "content": _temporal_instructions(token)},
+            {
+                "role": "user",
+                "content": (
+                    f"User question:\n{question}\n\n"
+                    f"Deterministic temporal evidence JSON:\n{context_json}"
+                ),
+            },
+        ],
         "temperature": 0,
+        "max_tokens": TEMPORAL_MAX_OUTPUT_TOKENS,
     }
 
-    async with httpx.AsyncClient(timeout=TEMPORAL_REQUEST_TIMEOUT_SECONDS) as client:
-        first_payload = await _post_json(
-            client=client,
-            httpx=httpx,
-            url=MISTRAL_CHAT_URL,
-            api_key=api_key,
-            request=request,
-        )
-        first_message = _chat_message(first_payload)
-        call = _tool_call(first_message, "get_token_temporal_context")
-        if call is None:
-            raise AnalystError("Mistral did not request temporal summary evidence")
-
-        call_id, arguments = call
-        try:
-            mint = validate_temporal_context_arguments(arguments, selected_mint)
-        except TemporalToolError as error:
-            raise AnalystError(
-                f"Invalid get_token_temporal_context arguments: {error}"
-            ) from error
-
-        summary = await asyncio.to_thread(summary_loader, mint)
-        if summary is None:
-            raise AnalystError("No temporal summary is available for the selected mint")
-
-        identity = {"mint": mint}
-        for key in ("name", "symbol", "launchpad"):
-            value = token.get(key)
-            if value not in (None, ""):
-                identity[key] = value
-        context = {"token": identity, "summary": summary}
-
-        assistant_message = {
-            "role": "assistant",
-            "content": first_message.get("content") or "",
-            "tool_calls": first_message["tool_calls"],
-        }
-        context_json = json.dumps(
-            context,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-        context_bytes = len(context_json.encode("utf-8"))
-        rough_tokens = (len(context_json) + 3) // 4
-        final_request = {
-            "model": model,
-            "messages": [
-                *messages,
-                assistant_message,
-                {
-                    "role": "tool",
-                    "name": "get_token_temporal_context",
-                    "tool_call_id": call_id,
-                    "content": context_json,
-                },
-            ],
-            "temperature": 0,
-            "max_tokens": TEMPORAL_MAX_OUTPUT_TOKENS,
-        }
-        final_started = perf_counter()
-        logger.warning(
-            "[temporal] final_mistral_start mint=%s model=%s bytes=%s rough_tokens=%s max_tokens=%s",
-            mint,
-            model,
-            context_bytes,
-            rough_tokens,
-            TEMPORAL_MAX_OUTPUT_TOKENS,
-        )
-        try:
-            final_payload = await _post_json(
+    started = perf_counter()
+    logger.warning(
+        "[temporal] mistral_start mint=%s model=%s bytes=%s rough_summary_tokens=%s max_tokens=%s",
+        mint,
+        model,
+        context_bytes,
+        rough_summary_tokens,
+        TEMPORAL_MAX_OUTPUT_TOKENS,
+    )
+    try:
+        async with httpx.AsyncClient(timeout=TEMPORAL_REQUEST_TIMEOUT_SECONDS) as client:
+            payload = await _post_json(
                 client=client,
                 httpx=httpx,
                 url=MISTRAL_CHAT_URL,
                 api_key=api_key,
-                request=final_request,
+                request=request,
             )
-        except AnalystError:
-            logger.warning(
-                "[temporal] final_mistral_failed mint=%s elapsed=%.2fs",
-                mint,
-                perf_counter() - final_started,
-            )
-            raise
+    except AnalystError:
         logger.warning(
-            "[temporal] final_mistral_done mint=%s elapsed=%.2fs",
+            "[temporal] mistral_failed mint=%s elapsed=%.2fs",
             mint,
-            perf_counter() - final_started,
+            perf_counter() - started,
         )
+        raise
+    logger.warning(
+        "[temporal] mistral_done mint=%s elapsed=%.2fs",
+        mint,
+        perf_counter() - started,
+    )
 
-    answer = _message_text(_chat_message(final_payload))
+    answer = _message_text(_chat_message(payload))
     if not answer:
-        raise AnalystError(
-            "Mistral returned no answer after get_token_temporal_context"
-        )
+        raise AnalystError("Mistral returned no temporal summary answer")
 
     history_meta = summary["history"]
     return {
         "answer": answer,
         "scope": "temporal",
-        "tool": {
-            "name": "get_token_temporal_context",
-            "evidence": "summary_only",
+        "evidence": {
+            "type": "temporal_summary",
             "mint": mint,
             "from": history_meta["from"],
             "to": history_meta["to"],
             "history_hours": history_meta["hours"],
             "observations": history_meta["observations"],
-            "rough_input_tokens": rough_tokens,
+            "rough_summary_tokens": rough_summary_tokens,
         },
     }
 
