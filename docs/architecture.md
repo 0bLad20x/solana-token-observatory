@@ -99,7 +99,7 @@ Jupiter Search erfolgreich
 
 Der operative Lifecycle ist ein eigenständiger Mutationspfad und darf `tracking_enabled=false` setzen.
 
-Die fachliche Semantik von Rule 1–5 ist in [`LIFECYCLE_CONTRACT.md`](LIFECYCLE_CONTRACT.md) als Contract v0.1 eingefroren. Änderungen an Thresholds, Zeitfenstern, T0, Evidence-Auswahl, Missing-Semantik, Reasons oder Regelreihenfolge sind Contract-Änderungen.
+Die fachliche Semantik von Rule 1–6 ist in [`LIFECYCLE_CONTRACT.md`](LIFECYCLE_CONTRACT.md) als Contract v0.2 eingefroren. Rule 1–5 sind unverändert aus v0.1 übernommen. Rule 6 ergänzt einen catch-up-fähigen T+30-Checkpoint auf frühe Holder-Distribution: Bei vorhandener Checkpoint-Evidence führt `holderCount < 5` zur Deaktivierung; fehlender `holderCount` bleibt unknown. Änderungen an Thresholds, Zeitfenstern, T0, Evidence-Auswahl, Missing-Semantik, Reasons oder Regelreihenfolge sind Contract-Änderungen.
 
 ```text
 LifecycleQueries
@@ -120,7 +120,7 @@ tracking_enabled=false
 - `src/lifecycle_clean.py`: Orchestrierung und Dry-Run/Apply-Modus;
 - `MintRepository.disable_mints()`: operative Deaktivierung.
 
-Vor einer reinen Lifecycle-Simplification vergleicht `tools/verify_lifecycle_contract_v01.py` aktuelle Implementierung und eingefrorene v0.1-Referenz auf demselben PostgreSQL-Snapshot.
+`tools/verify_lifecycle_contract_v01.py` bleibt bewusst auf Rule 1–5 begrenzt und beweist deren Äquivalenz zur eingefrorenen v0.1-Referenz. Rule 6 wird separat über Contract v0.2, Unit-Tests und den realen Dry-Run/Apply-Pfad validiert.
 
 ## 6. Read-only Downstream Boundary
 
@@ -346,7 +346,7 @@ Monitoring
    ↓
 24h Raw Observations
    ↓
-Lifecycle v0.1
+Lifecycle v0.2
    ↓
 Survivor Population
    ↓
