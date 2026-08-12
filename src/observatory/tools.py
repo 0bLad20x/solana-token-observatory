@@ -141,8 +141,9 @@ def temporal_context_tool(selected_mint: str) -> dict[str, Any]:
         "function": {
             "name": "get_token_temporal_context",
             "description": (
-                "Load the bounded temporal evidence for exactly the currently selected "
-                "Solana mint. Resolution and time range are server-controlled."
+                "Load a compact deterministic temporal summary for exactly the currently "
+                "selected Solana mint. The server controls the observation window; no "
+                "time buckets or raw history are returned to the model."
             ),
             "parameters": {
                 "type": "object",
