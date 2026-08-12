@@ -3,8 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
+
+from temporal_context import (
+    TEMPORAL_SOURCE_FIELDS,
+    build_temporal_context,
+)
 
 
 def _iso(value: Any) -> str | None:
@@ -33,10 +39,24 @@ def _int(value: Any) -> int | None:
         return None
 
 
+def _temporal_payload_sql() -> str:
+    parts = ",\n                ".join(
+        f"'{field}', payload->'{field}'" for field in TEMPORAL_SOURCE_FIELDS
+    )
+    return f"""
+        jsonb_strip_nulls(
+            jsonb_build_object(
+                {parts}
+            )
+        )
+    """
+
+
 class FrontendReader:
     """Read-only projection of operational token state for the Observatory."""
 
     def __init__(self, database_url: str, recent_disabled_minutes: int) -> None:
+        self._database_url = database_url
         self._recent_disabled_minutes = recent_disabled_minutes
         self._pool = ConnectionPool(
             database_url,
@@ -176,3 +196,32 @@ class FrontendReader:
     def token(self, mint: str) -> dict[str, Any] | None:
         rows = self._rows(include_recent_disabled=True, mint=mint)
         return self._token(rows[0]) if rows else None
+
+    def token_history(self, mint: str) -> list[dict[str, Any]]:
+        """Load the bounded raw evidence needed by the shared temporal projection."""
+
+        projection = _temporal_payload_sql()
+        with psycopg.connect(
+            self._database_url,
+            row_factory=dict_row,
+            autocommit=True,
+            options="-c default_transaction_read_only=on -c statement_timeout=60000",
+        ) as connection:
+            return list(
+                connection.execute(
+                    f"""
+                    SELECT observed_at, {projection} AS payload
+                    FROM mint_snapshots
+                    WHERE mint = %s
+                      AND observed_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+                    ORDER BY observed_at ASC
+                    """,
+                    (mint,),
+                ).fetchall()
+            )
+
+    def temporal_context(self, mint: str) -> dict[str, Any] | None:
+        rows = self.token_history(mint)
+        if not rows:
+            return None
+        return build_temporal_context(mint, rows)
