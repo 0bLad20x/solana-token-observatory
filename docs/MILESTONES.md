@@ -17,6 +17,8 @@ Die operative Basis steht:
 
 Lifecycle v0.2 übernimmt Rule 1–5 unverändert aus v0.1 und ergänzt Rule 6 `Early Holder Failure`: T0 ist `first_observed_at`, der Decision-Checkpoint liegt bei T+30 und `holderCount < 5` führt bei vorhandener Checkpoint-Evidence zur Deaktivierung. Der erste reale Apply auf der bestehenden Population deaktivierte 2.313 Mints, davon 2.125 über Rule 6, und reduzierte die aktive Population in diesem Lauf von 4.602 auf 2.348.
 
+Die zuvor identifizierte Kohorte aktiver Mints ohne verbleibenden Raw-Snapshot wird durch Rule 6 nicht rückwirkend rekonstruiert. Retention bleibt Storage-Maintenance; ein möglicher stale-source/inactivity-Fall ist eine separate Lifecycle-Frage und nicht Bestandteil von v0.2.
+
 ## Observatory Functional Foundation — abgeschlossen
 
 Die vertikalen Slices haben die funktionale Basis bewiesen:
