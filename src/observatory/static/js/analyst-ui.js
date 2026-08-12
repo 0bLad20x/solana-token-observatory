@@ -1,5 +1,48 @@
 import { integerFormat, tokenIdentity } from "./format.js";
 
+const SCOPE_CONFIG = {
+  current_data: {
+    title: "Current token data",
+    chip: "CURRENT DATA",
+    submit: "Ask",
+    pendingSubmit: "Querying…",
+    pendingStatus: "Translating question into query_tokens…",
+    placeholder: "Which five tokens have the highest market cap?",
+    needsToken: false,
+    contextVerb: "",
+  },
+  web: {
+    title: "Token web research",
+    chip: "EXTERNAL EVIDENCE",
+    submit: "Research",
+    pendingSubmit: "Researching…",
+    pendingStatus: "Searching the web…",
+    placeholder: "What can be verified about this token?",
+    needsToken: true,
+    contextVerb: "Researching",
+  },
+  temporal: {
+    title: "Temporal summary analysis",
+    chip: "SUMMARY ANALYSIS",
+    submit: "Analyze",
+    pendingSubmit: "Analyzing…",
+    pendingStatus: "Loading compact temporal summary…",
+    placeholder: "Give an expert assessment of this token from its observed summary.",
+    needsToken: true,
+    contextVerb: "Analyzing",
+  },
+  rugcheck: {
+    title: "RugCheck safety evidence",
+    chip: "RUGCHECK EVIDENCE",
+    submit: "Check",
+    pendingSubmit: "Checking…",
+    pendingStatus: "Fetching exact-mint RugCheck report…",
+    placeholder: "Assess the safety evidence for this token.",
+    needsToken: true,
+    contextVerb: "Checking",
+  },
+};
+
 export class AnalystUI {
   constructor({ state, requestAnalyst, onSelect }) {
     this.state = state;
@@ -30,37 +73,23 @@ export class AnalystUI {
 
   sync(clearResult = false) {
     const token = this.state.selectedToken();
-    const isWeb = this.scope === "web";
-    const isTemporal = this.scope === "temporal";
-    const needsToken = isWeb || isTemporal;
+    const config = SCOPE_CONFIG[this.scope];
 
-    this.title.textContent = isWeb
-      ? "Token web research"
-      : isTemporal
-        ? "Temporal summary analysis"
-        : "Current token data";
-    this.chip.textContent = isWeb
-      ? "EXTERNAL EVIDENCE"
-      : isTemporal
-        ? "SUMMARY ANALYSIS"
-        : "CURRENT DATA";
+    this.title.textContent = config.title;
+    this.chip.textContent = config.chip;
     this.chip.classList.toggle("current", this.scope === "current_data");
 
     for (const button of this.modes) {
       button.classList.toggle("active", button.dataset.analystScope === this.scope);
     }
 
-    this.question.disabled = needsToken && !token;
-    this.submit.disabled = needsToken && !token;
-    this.submit.textContent = isWeb ? "Research" : isTemporal ? "Analyze" : "Ask";
-    this.question.placeholder = isWeb
-      ? "What can be verified about this token?"
-      : isTemporal
-        ? "Give an expert assessment of this token from its observed summary."
-        : "Which five tokens have the highest market cap?";
-    this.context.textContent = needsToken
+    this.question.disabled = config.needsToken && !token;
+    this.submit.disabled = config.needsToken && !token;
+    this.submit.textContent = config.submit;
+    this.question.placeholder = config.placeholder;
+    this.context.textContent = config.needsToken
       ? token
-        ? `${isWeb ? "Researching" : "Analyzing"} ${tokenIdentity(token)} · exact mint`
+        ? `${config.contextVerb} ${tokenIdentity(token)} · exact mint`
         : "Select a token first"
       : `Ask about ${integerFormat.format(this.state.stats().active)} active tokens`;
 
@@ -86,26 +115,18 @@ export class AnalystUI {
     event.preventDefault();
     const question = this.question.value.trim();
     const requestScope = this.scope;
+    const config = SCOPE_CONFIG[requestScope];
     const mint = this.state.selectedMint;
-    const needsToken = requestScope === "web" || requestScope === "temporal";
-    if (!question || (needsToken && !mint)) return;
+    if (!question || (config.needsToken && !mint)) return;
 
     this.submit.disabled = true;
-    this.submit.textContent = requestScope === "web"
-      ? "Researching…"
-      : requestScope === "temporal"
-        ? "Analyzing…"
-        : "Querying…";
-    this.status.textContent = requestScope === "web"
-      ? "Searching the web…"
-      : requestScope === "temporal"
-        ? "Loading compact temporal summary…"
-        : "Translating question into query_tokens…";
+    this.submit.textContent = config.pendingSubmit;
+    this.status.textContent = config.pendingStatus;
     this.result.classList.add("hidden");
 
     try {
       const body = { scope: requestScope, question };
-      if (needsToken) body.mint = mint;
+      if (config.needsToken) body.mint = mint;
       const payload = await this.requestAnalyst(body);
       if (this.scope === requestScope) this.#render(payload);
     } catch (error) {
@@ -130,6 +151,9 @@ export class AnalystUI {
     } else if (payload.scope === "temporal") {
       this.#renderTemporalEvidence(payload.evidence);
       this.status.textContent = "Temporal summary analysis completed";
+    } else if (payload.scope === "rugcheck") {
+      this.#renderRugCheckEvidence(payload.evidence);
+      this.status.textContent = "RugCheck evidence analysis completed";
     } else if (payload.sources.length) {
       const heading = document.createElement("strong");
       heading.textContent = "Sources";
@@ -207,5 +231,23 @@ export class AnalystUI {
     const range = document.createElement("span");
     range.textContent = `${evidence.from} → ${evidence.to}`;
     this.sources.append(trace, span, range);
+  }
+
+  #renderRugCheckEvidence(evidence) {
+    const trace = document.createElement("strong");
+    trace.textContent = `rugcheck_token_report · ${evidence.mode} · ~${integerFormat.format(evidence.analysis_rough_tokens)} analysis tokens`;
+    const size = document.createElement("span");
+    size.textContent = `raw ${integerFormat.format(evidence.raw_report_bytes)} bytes → metadata ${integerFormat.format(evidence.analysis_context_bytes)} bytes · source RugCheck`;
+    const coverage = document.createElement("span");
+    const markets = evidence.markets_observed == null
+      ? "markets unavailable"
+      : `${integerFormat.format(evidence.markets_observed)} markets aggregated`;
+    const holders = evidence.top_holders_observed == null
+      ? "top holders unavailable"
+      : `${integerFormat.format(evidence.top_holders_observed)} top holders aggregated`;
+    coverage.textContent = `${markets} · ${holders} · ${integerFormat.format(evidence.wallet_addresses_sent_to_llm || 0)} wallet addresses sent`;
+    const fetched = document.createElement("span");
+    fetched.textContent = `Fetched ${evidence.fetched_at}`;
+    this.sources.append(trace, size, coverage, fetched);
   }
 }
