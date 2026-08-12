@@ -131,13 +131,16 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
                     creator_pct += pct
                     creator_pct_known = True
 
-        labels: list[dict[str, Any]] = []
-        for address_key in ("address", "owner"):
-            address = item.get(address_key)
-            label = known_accounts.get(address) if isinstance(address, str) else None
-            if isinstance(label, dict):
-                labels.append(label)
-        for label in labels:
+        addresses = {
+            value
+            for key in ("address", "owner")
+            for value in [item.get(key)]
+            if isinstance(value, str) and value
+        }
+        for address in addresses:
+            label = known_accounts.get(address)
+            if not isinstance(label, dict):
+                continue
             name = label.get("name")
             account_type = label.get("type")
             if isinstance(name, str) and name:
