@@ -106,9 +106,9 @@ python src/lifecycle_clean.py --apply
 
 Ohne `--apply` schreibt der Lifecycle keine Deaktivierungen. Mit `--apply` setzt ausschließlich der definierte Lifecycle-Pfad `tracking_enabled=false` und persistiert `disabled_at` sowie `disabled_reason`.
 
-Die fachliche Semantik von Rule 1–5 ist in [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) als Contract v0.1 eingefroren.
+Die fachliche Semantik von Rule 1–6 ist in [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) als Contract v0.2 eingefroren. Rule 6 ergänzt einen T+30-Checkpoint auf frühe Holder-Distribution: `holderCount < 5` wird deaktiviert, sofern die definierte Checkpoint-Evidence vorhanden ist. Fehlender `holderCount` bleibt unknown.
 
-Vor einer reinen Lifecycle-Simplification:
+Rule 1–5 bleiben gegenüber v0.1 unverändert. Der bestehende Verifier prüft weiterhin genau diese geerbten Regeln gegen die eingefrorene v0.1-Referenz:
 
 ```powershell
 python tools/verify_lifecycle_contract_v01.py
@@ -198,6 +198,12 @@ node --test tests/test_frontend_state.mjs tests/test_frontend_sync.mjs
 python src/main.py --help
 python src/lifecycle_clean.py --help
 python tools/verify_lifecycle_contract_v01.py
+```
+
+Für Lifecycle v0.2 zusätzlich gezielt:
+
+```powershell
+python -m unittest tests.test_lifecycle_rule6 -v
 ```
 
 Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
