@@ -301,6 +301,72 @@ class MintRepository:
         )
 
     @retry_on_deadlock
+    def delete_expired_snapshots(
+        self,
+        cutoff: datetime,
+        batch_size: int,
+    ) -> int:
+        """Delete one safe batch of old raw snapshots.
+
+        The newest snapshot of every mint is always retained because current-state
+        consumers and Lifecycle Rule 1 depend on it. Active-mint history is deleted
+        only after both permanent collapse scanners have advanced past the row.
+        Disabled mints no longer need unscanned lifecycle evidence.
+        """
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than zero")
+
+        with self._db.connection() as connection:
+            rows = connection.execute(
+                """
+                WITH candidates AS (
+                    SELECT s.ctid
+                    FROM mint_snapshots AS s
+                    JOIN mints AS m ON m.mint = s.mint
+                    WHERE s.observed_at < %(cutoff)s
+                      AND EXISTS (
+                          SELECT 1
+                          FROM mint_snapshots AS newer
+                          WHERE newer.mint = s.mint
+                            AND newer.observed_at > s.observed_at
+                      )
+                      AND (
+                          m.tracking_enabled = false
+                          OR (
+                              EXISTS (
+                                  SELECT 1
+                                  FROM lifecycle_rule_state AS r4
+                                  WHERE r4.mint = s.mint
+                                    AND r4.rule_key = 'rule4'
+                                    AND r4.scanned_through >= s.observed_at
+                              )
+                              AND EXISTS (
+                                  SELECT 1
+                                  FROM lifecycle_rule_state AS r5
+                                  WHERE r5.mint = s.mint
+                                    AND r5.rule_key = 'rule5'
+                                    AND r5.scanned_through >= s.observed_at
+                              )
+                          )
+                      )
+                    ORDER BY s.observed_at
+                    LIMIT %(batch_size)s
+                )
+                DELETE FROM mint_snapshots AS s
+                USING candidates AS c
+                WHERE s.ctid = c.ctid
+                RETURNING 1
+                """,
+                {
+                    "cutoff": cutoff,
+                    "batch_size": batch_size,
+                },
+            ).fetchall()
+            connection.commit()
+
+        return len(rows)
+
+    @retry_on_deadlock
     def disable_mints(self, candidates: Sequence[dict[str, Any]]) -> set[str]:
         if not candidates:
             return set()
