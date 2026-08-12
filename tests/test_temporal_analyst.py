@@ -78,22 +78,19 @@ class TemporalAnalystTests(unittest.TestCase):
                 ]
             },
         ]
-        context = {
-            "token": {"mint": MINT, "name": "Example", "symbol": "EX"},
-            "summary": {
-                "history": {
-                    "hours": 8.0,
-                    "observations": 123,
-                    "from": "2026-08-12T00:00:00+00:00",
-                    "to": "2026-08-12T08:00:00+00:00",
-                },
-                "market_cap": {
-                    "start": 10,
-                    "current": 20,
-                    "min": 8,
-                    "max": 22,
-                    "change_pct": 100,
-                },
+        summary = {
+            "history": {
+                "hours": 8.0,
+                "observations": 123,
+                "from": "2026-08-12T00:00:00+00:00",
+                "to": "2026-08-12T08:00:00+00:00",
+            },
+            "market_cap": {
+                "start": 10,
+                "current": 20,
+                "min": 8,
+                "max": 22,
+                "change_pct": 100,
             },
         }
 
@@ -130,9 +127,9 @@ class TemporalAnalystTests(unittest.TestCase):
 
         loaded: list[str] = []
 
-        def load_context(mint: str) -> dict[str, object]:
+        def load_summary(mint: str) -> dict[str, object]:
             loaded.append(mint)
-            return context
+            return summary
 
         with patch.dict(sys.modules, {"httpx": fake_httpx}):
             result = asyncio.run(
@@ -146,7 +143,7 @@ class TemporalAnalystTests(unittest.TestCase):
                         "launchpad": "pump.fun",
                     },
                     question="How does this token look?",
-                    context_loader=load_context,
+                    summary_loader=load_summary,
                 )
             )
 
@@ -161,13 +158,17 @@ class TemporalAnalystTests(unittest.TestCase):
         system_prompt = first_request["messages"][0]["content"]
         self.assertIn("It does NOT return time buckets", system_prompt)
         self.assertIn("cross-metric confirmation or divergence", system_prompt)
-        self.assertIn("Do NOT claim phases", system_prompt)
+        self.assertIn("Do NOT claim linear, parabolic", system_prompt)
+        self.assertIn("does not prove continuous coverage", system_prompt)
+        self.assertIn("never an ATH", system_prompt)
 
         final_request = captured[1]["json"]
         self.assertEqual(final_request["max_tokens"], TEMPORAL_MAX_OUTPUT_TOKENS)
         tool_message = final_request["messages"][-1]
         delivered = json.loads(tool_message["content"])
-        self.assertEqual(delivered, context)
+        self.assertEqual(delivered["summary"], summary)
+        self.assertEqual(delivered["token"]["mint"], MINT)
+        self.assertEqual(delivered["token"]["symbol"], "EX")
         self.assertNotIn("temporal_history", delivered)
         self.assertEqual(result["scope"], "temporal")
         self.assertEqual(result["tool"]["mint"], MINT)
