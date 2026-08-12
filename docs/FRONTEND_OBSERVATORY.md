@@ -4,7 +4,7 @@
 
 **Authority:** Frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of the operational token data  
-**Current checkpoint:** V0–V2 and WP1–WP3 merged; spatial experiments stopped; WP4 volume activity active
+**Current checkpoint:** V0–V2 and WP1–WP4 merged; WP5 recent token context is the only defined next slice; spatial redesign remains separate
 
 This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
 
@@ -564,124 +564,87 @@ Token timelines, peak metrics, detailed trajectories and historical comparisons 
 
 The Observatory is developed in short vertical slices. Every slice should end with a visible running result.
 
-### V0 — Observatory contract — DONE
+`DONE / MERGED` means that the narrow proof and its stop condition were validated. It
+does not mean that the broader product area or the original Observatory vision is
+finished.
 
-Delivered:
+### Implemented proofs
 
-- this document;
-- milestone pointer;
-- explicit design, motion, truth and scope contracts.
+| Slice | Purpose | What is actually proven | What is not claimed |
+|---|---|---|---|
+| V0 — Contract | Establish truth, read-only and interaction boundaries before implementation. | This document defines the product and system constraints. | No user-facing capability. |
+| V1 — Application foundation | Separate existing backend, state, rendering and theme responsibilities. | The Observatory starts independently and its minimal modules have explicit owners. | No finished design system or satisfactory spatial visualization. |
+| V2 — Live data foundation | Prove current backend state reaches the browser and remains live. | Active tokens, current facts, SSE updates and retirements are visible and locally applied. | No claim that Bubble Map layout, scaling, motion or information design is solved. |
+| WP1 — Token Web Research | Prove one selected exact Mint can execute external LLM Web Search. | A free question returns a sourced answer or explicit lack of evidence; standard and premium search are configurable. | No guarantee that arbitrary web claims are true and no general research agent. |
+| WP2 — Current Population Query | Prove natural language can become one bounded internal read-only Tool Call. | `query_tokens` filters, ranks and limits the current active projection using an explicit vocabulary. | No SQL, arbitrary aggregation, unavailable metrics or full-dataset LLM access. |
+| WP3 — Token Search & Selection | Make every active token reachable without relying on the visualization. | Mint, Symbol and Name search plus `query_tokens` results use one shared Selection for Inspector and Web Research. | No complete navigation system or visual redesign. |
+| WP4 — Volume Activity Deltas | Replace a long, low-information event list with one current, inspectable signal. | PR #13 ranks at most five distinct Mints by positive 60-second change of `volume_5m / market_cap`; rows are selectable and expire. | No historical analysis, price-change proxy or effect on Bubble size, pulse, color, layout or Physics. |
 
-### V1 — Structural refactor + design system — DONE
+Together these slices prove a functional foundation:
 
-Delivered and locally validated:
+```text
+current backend state -> live browser state -> find/select token
+                                      ├-> bounded population question
+                                      ├-> exact-mint Web Research
+                                      └-> inspect current volume activity
+```
 
-- backend moved into the minimal `observatory` responsibility split;
-- monolithic frontend state/rendering/theme responsibilities separated;
-- current endpoints and live behavior preserved;
-- semantic dark/Solana design tokens applied;
-- real browser run with more than 1,500 current tokens;
-- `/api/health`, `/api/universe`, static modules and SSE path observed working.
+They do not complete the original visual Observatory vision.
 
-Visible result:
+### WP5 — Recent Token Context — PLANNED
 
-- working Universe retained;
-- calmer, consistent visual chrome;
-- arbitrary launchpad hash palette is no longer the primary design system.
+**Purpose:** answer the smallest temporal question that the current projection cannot
+answer: how the selected token changed across its most recent observations.
 
-### V2 — Stable Live Universe — DONE / MERGED
-
-The current frontend displays the active population, current token state, live updates and
-retirements. Spatial redesign is not an active dependency for WP1.
-
-### WP1 — Token Web Research — DONE / MERGED
-
-Deliver only:
-
-- free question for the selected token;
-- server-side Mistral configuration;
-- `POST /api/analyst`;
-- one built-in Web Search tool;
-- answer and source links marked as external evidence;
-- backend-only switch between standard and premium search.
-
-Visible result:
-
-- select a token;
-- ask a question;
-- observe a real Web Search execution;
-- receive a sourced answer or an explicit lack of reliable evidence.
-
-### WP2 — Current Population Query — DONE / MERGED
+**Why this is next:** the current Inspector and `query_tokens` describe only the latest
+state. The database already owns immutable `mint_snapshots`; exposing a strictly bounded
+read-only subset adds real analytical value without creating a history platform.
 
 Deliver only:
 
-- one free question about the current active population;
-- exactly one internal read-only `query_tokens` tool;
-- explicit field, filter, sort and result-limit validation;
-- default five and maximum twenty rows;
-- a grounded answer plus visible tool-call counts;
-- one shared field vocabulary and request-local canonical launchpads;
-- visible current capabilities when no unambiguous supported query exists.
+- the exact currently selected Mint as required context;
+- the five latest persisted snapshots for that Mint, ordered oldest to newest;
+- `observed_at`, Market Cap, Liquidity, Holders, Trades 5m, Traders 5m and Volume 5m;
+- one explicit internal read-only tool, `get_token_snapshots`;
+- one explicit recent-data analyst scope with a free question;
+- a grounded answer plus visible snapshot count and covered time span;
+- `null` for missing source values, never zero or forward-filled data.
 
-Visible result:
+Visible proof:
 
-- ask for the five tokens with the highest current Market Cap using natural wording;
-- observe a real `query_tokens` execution;
-- receive an answer grounded in the bounded result;
-- use natural launchpad, spelling and sort-order variants;
-- ask for five-minute price increase and receive current capabilities instead of a proxy.
+- select one token;
+- ask what changed in its recent observations;
+- observe one real `get_token_snapshots` Tool Call;
+- receive an answer supported only by those five timestamped snapshots.
 
-### WP3 — Token Search & Selection — DONE / MERGED
+Stop condition:
 
-Deliver only:
+WP5 is complete when the real browser proves the path above for tokens with complete,
+partial and fewer-than-five snapshots. The Tool must never read another Mint or silently
+replace a missing metric.
 
-- client-side search over the complete active `/api/universe` population;
-- lookup by Mint, Symbol or Name;
-- Market-Cap ordering plus Market Cap, Liquidity and Holders per search result;
-- one shared Selection for bubbles, search results and `query_tokens` results;
-- selected-token Inspector and Web-Research context updates;
-- a small bounded result list without a new backend endpoint.
+Not part of WP5:
 
-Visible result:
+- full token history, arbitrary time ranges or more than five snapshots;
+- time buckets, OHLC, peaks, forecasts, anomaly detection or trading advice;
+- charts, Bubble changes or broader design work;
+- cross-token comparison, Conversation Memory or autonomous Tool routing;
+- persistence, Collector or Lifecycle mutations.
 
-- find an active token that is not practically reachable through the visualization;
-- select it from search and see its current Inspector state;
-- use the same token immediately as exact-mint Web Research context;
-- select any token returned by a current-data question.
+### Foundation stop after WP5
 
-Not part of WP3:
+No WP6 is currently defined. After WP5 browser validation, the functional foundation is
+complete enough to reassess the product from evidence. The following remain separate
+open topics, not scheduled work packages:
 
-- Bubble Map or design redesign;
-- historical data;
-- new LLM tools or Conversation Memory;
-- database, Lifecycle or API changes.
+- visual and spatial redesign;
+- additional internal questions such as cross-token comparison or cohorts;
+- discovery provenance, which is blocked by missing Core Evidence;
+- richer LLM orchestration, memory or visual actions.
 
-### WP4 — Volume Activity Deltas — ACTIVE
-
-Deliver only:
-
-- `volume_5m` in the existing `token_updated.changes` contract;
-- a rolling 60-second client-side window;
-- one aggregate per Mint;
-- the five greatest positive increases of `volume_5m / market_cap`;
-- timestamp, token, volume before/after, current Market Cap and ratio delta;
-- distinct changed-token count for the existing 60-second status metric.
-
-Visible result:
-
-- the old unbounded state-event list is replaced by at most five meaningful rows;
-- repeated updates to one Token produce one aggregated row;
-- stale rows disappear automatically after 60 seconds;
-- missing, falling or non-rising ratios do not enter the ranking.
-- selecting a row uses the shared token Selection and updates the Inspector.
-
-Not part of WP4:
-
-- Bubble size, pulse, color, motion, layout or Physics;
-- historical queries or persistence;
-- price-change inference;
-- Lifecycle, Collector or database mutations.
+A topic becomes the next WP only when one concrete user question, bounded data contract
+and visible stop condition are agreed. This prevents optional future ideas from becoming
+premature architecture.
 
 ## 15. Merge checkpoints
 
@@ -707,9 +670,9 @@ This checkpoint is ready because:
 - responsibilities are separated without a speculative frontend framework;
 - the real browser/API path has been validated.
 
-WP1 was merged as PR #10, WP2 as PR #11 and WP3 as PR #12 after their real browser
-paths were validated. WP4 is an independent merge checkpoint and does not reopen
-spatial or design work.
+WP1 was merged as PR #10, WP2 as PR #11, WP3 as PR #12 and WP4 as PR #13 after their
+real browser paths were validated. WP5 will be an independent merge checkpoint and does
+not reopen spatial or design work.
 
 ## 16. Explicit non-goals of the foundation
 
