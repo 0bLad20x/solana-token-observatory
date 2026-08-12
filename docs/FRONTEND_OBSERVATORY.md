@@ -375,9 +375,9 @@ Responsibilities:
 ```text
 frontend.py       tiny executable entry point
 app.py            FastAPI, HTTP and SSE boundary
-analyst.py        Mistral protocol, tool orchestration and web-reference parsing
+analyst.py        Mistral protocol, current-data tool orchestration and web parsing
 data.py           read-only PostgreSQL projections
-tools.py          bounded internal query contracts and execution
+tools.py          bounded query_tokens contract and execution
 app.js            application bootstrap and wiring
 state.js          token state, search, selection, active view, deltas
 universe.js       Pixi/D3 rendering and local motion
@@ -385,8 +385,9 @@ view-spec.js      supported view mappings and presets
 theme.js          semantic visual tokens
 ```
 
-`tools.py` exists because the analyst has explicit bounded internal tool responsibilities.
-It is not a generic registry and exposes no SQL, plugin or mutation framework.
+`tools.py` exists for WP2 because Current Data genuinely needs model-produced bounded
+query arguments. It is not a generic registry and exposes no SQL, plugin or mutation
+framework. WP5 does not add another tool merely to fetch predetermined data.
 
 ## 9. Backend contract
 
@@ -469,23 +470,18 @@ WP5 adds one selected-token Summary interaction:
 ```text
 selected token + free question
               ↓
-Mistral Tool Call
-              ↓
-get_token_temporal_context
-              ↓
-exact selected Mint only
-              ↓
-deterministic summary
+server loads deterministic summary for exact selected Mint
               ↓
 token + summary
+              ↓
+ONE Mistral Chat request
               ↓
 expert diagnosis
 ```
 
-`get_token_temporal_context` has exactly one identity argument: the currently selected
-Mint. The server validates that binding. The model cannot choose a time range, resolution,
-SQL query or another Mint. Despite the retained tool name, the WP5 response contains no
-raw history and no 1m/5m/15m time buckets.
+There is no Temporal LLM Tool Call. The scope and selected Mint already determine the
+required read exactly, so asking Mistral to request that same Mint first would add a
+second network round-trip without making a decision.
 
 The Summary is deterministically derived from at most the retained 24h raw window. Exact
 core trajectory facts use all relevant observations. Rolling `stats1h` medians and ratios
@@ -505,7 +501,7 @@ LLM credentials remain server-side in environment configuration. No provider API
 
 `MISTRAL_WEB_SEARCH_MODE` selects `web_search` or `web_search_premium`. Both use the
 same Conversations endpoint. The Temporal Summary path uses the configured chat model,
-a 45-second provider timeout and a bounded output budget.
+exactly one provider request, a 45-second timeout and a bounded output budget.
 
 ## 11. Analyst UI pattern
 
@@ -519,10 +515,10 @@ current answer         sourced answer        expert diagnosis
 ```
 
 Summary Analysis requires an existing token selection. Its visible result shows the
-covered observation span, observation count and rough Summary input size. It does not show
-a temporal resolution because no adaptive history is delivered to the model.
+covered observation span, observation count and rough Summary size. It does not show a
+temporal resolution because no adaptive history is delivered to the model.
 
-Switching scope changes the tool boundary; it is not an LLM routing guess.
+Switching scope changes the data and LLM contract; it is not an LLM routing guess.
 
 ## 12. Selection and navigation direction
 
@@ -595,7 +591,7 @@ finished.
 | WP2 — Current Population Query | Prove natural language can become one bounded internal read-only Tool Call. | `query_tokens` filters, ranks and limits the current active projection using an explicit vocabulary. | No SQL, arbitrary aggregation, unavailable metrics or full-dataset LLM access. |
 | WP3 — Token Search & Selection | Make every active token reachable without relying on the visualization. | Mint, Symbol and Name search plus `query_tokens` results use one shared Selection. | No complete navigation system or visual redesign. |
 | WP4 — Volume Activity Deltas | Replace a long, low-information event list with one current, inspectable signal. | PR #13 ranks at most five distinct Mints by positive 60-second change of `volume_5m / market_cap`. | No historical analysis, price-change proxy or effect on Bubble physics. |
-| Temporal Context Research | Test whether bucketed retained history adds enough LLM value. | PR #16 proved the projection technically; WP5 browser evidence later showed ~100k-token deep history was too slow for the normal path. | The research projection is not a product contract. |
+| Temporal Context Research | Test whether bucketed retained history adds enough LLM value. | PR #16 proved the projection technically; later browser evidence showed ~100k-token deep history was too slow for the normal path. | The research projection is not a product contract. |
 
 ### WP5 — Temporal Summary Analysis — ACTIVE
 
@@ -636,22 +632,15 @@ helpers. `tools/inspect_token_history.py` is a thin proof consumer and the Obser
 uses the same code. The Inspector now generates only `summary_context.json` and
 `report.json`; no `llm_context.json` or adaptive time history remains.
 
-#### Tool contract
+#### Direct LLM boundary
 
-Exactly one bounded internal tool serves WP5:
+WP5 does not add another internal LLM tool. The backend already knows the selected Mint,
+loads exactly that Summary read-only and composes `token + summary` before the provider
+call. Only then is one Mistral request made.
 
-```text
-get_token_temporal_context
-```
-
-Constraints:
-
-- required argument: exact current Mint;
-- no arbitrary SQL;
-- no caller-selected time range or resolution;
-- no other Mint or cross-token comparison;
-- read-only database access;
-- no persistence or lifecycle mutation.
+This is intentionally different from WP2: `query_tokens` needs the model to translate a
+free population question into bounded query arguments; WP5 has no equivalent routing or
+argument-selection problem.
 
 #### LLM evidence contract
 
@@ -668,12 +657,13 @@ WP5 is complete only after the real local path proves:
 1. Summary tests and existing Analyst/Tool tests remain green;
 2. Inspector writes only `summary_context.json` and `report.json` and reports DB runtime;
 3. a large-token Summary query is practically faster than the prior full-payload path;
-4. Tool Mint always equals current Selection;
-5. Mistral receives only `token + summary` and the browser shows span, observations and rough input size;
-6. the answer provides useful cross-metric interpretation without unsupported chronology;
-7. provider success or a visible error/timeout occurs within the bounded 45-second request window;
-8. Current Data and Web Research remain functional;
-9. no operational state changes.
+4. the Summary is loaded only for the exact current Selection;
+5. the Temporal scope produces exactly one Mistral request;
+6. Mistral receives only `token + summary` and the browser shows span, observations and rough Summary size;
+7. the answer provides useful cross-metric interpretation without unsupported chronology;
+8. provider success or a visible error/timeout occurs within the 45-second request boundary;
+9. Current Data and Web Research remain functional;
+10. no operational state changes.
 
 Not part of WP5:
 
