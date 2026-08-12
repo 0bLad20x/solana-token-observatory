@@ -6,6 +6,7 @@ from time import perf_counter
 from typing import Any
 
 from .analyst import AnalystError, MISTRAL_CHAT_URL
+from .rugcheck_projection import project_rugcheck_evidence
 
 RUGCHECK_MAX_OUTPUT_TOKENS = 1600
 RUGCHECK_REQUEST_TIMEOUT_SECONDS = 45.0
@@ -25,11 +26,18 @@ Selected token:
 Evidence rules:
 - RugCheck is an external provider, not Jupiter system truth.
 - Treat the fetched_at timestamp as the observation time of this external report.
-- Use only fields actually present in the report. Missing means unknown, never safe.
+- Use only fields actually present in the delivered evidence. Missing means unknown,
+  never safe.
+- The input contains a deterministic transport projection for LLM analysis. The raw
+  RugCheck report remains available through the direct evidence endpoint.
+- Every market remains represented, but repeated raw mint/vault account snapshots are
+  intentionally omitted. Do not treat omitted account-level fields as provider absence.
+- knownAccounts contains only provider labels for addresses referenced elsewhere outside
+  the market rows; it is not the provider's full known-account registry.
 - RugCheck risks, score, score_normalised and rugged are provider evidence, not an
   internally verified safety verdict.
 - Do not invent ownership identities, creator intent, lock state, authorities or market
-  structure when the report does not provide them.
+  structure when the delivered evidence does not provide them.
 - Distinguish facts reported by RugCheck from your inference.
 - Do not convert the report into a new deterministic good/bad score.
 - Do not make lifecycle, trading or deactivation decisions.
@@ -70,13 +78,18 @@ async def analyze_rugcheck_report(
     question: str,
     evidence: dict[str, Any],
 ) -> dict[str, Any]:
-    """Interpret one already-fetched RugCheck report with one strong-model request."""
+    """Interpret one RugCheck report through one bounded strong-model request."""
 
     import httpx
 
-    context_json = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+    analysis_evidence = project_rugcheck_evidence(evidence)
+    context_json = json.dumps(
+        analysis_evidence, ensure_ascii=False, separators=(",", ":")
+    )
     context_bytes = len(context_json.encode("utf-8"))
-    rough_report_tokens = (len(context_json) + 3) // 4
+    rough_context_tokens = (context_bytes + 3) // 4
+    projection = analysis_evidence.get("projection", {})
+
     request = {
         "model": model,
         "messages": [
@@ -95,11 +108,13 @@ async def analyze_rugcheck_report(
 
     started = perf_counter()
     logger.warning(
-        "[rugcheck] mistral_start mint=%s model=%s bytes=%s rough_report_tokens=%s",
+        "[rugcheck] mistral_start mint=%s model=%s raw_bytes=%s analysis_bytes=%s "
+        "rough_analysis_tokens=%s",
         evidence.get("mint"),
         model,
+        projection.get("raw_report_bytes"),
         context_bytes,
-        rough_report_tokens,
+        rough_context_tokens,
     )
     try:
         async with httpx.AsyncClient(timeout=RUGCHECK_REQUEST_TIMEOUT_SECONDS) as client:
@@ -139,10 +154,16 @@ async def analyze_rugcheck_report(
         "scope": "rugcheck",
         "evidence": {
             "type": "rugcheck_token_report",
+            "mode": projection.get("type", "rugcheck_analysis_v1"),
             "source": "rugcheck",
             "mint": evidence["mint"],
             "fetched_at": evidence["fetched_at"],
-            "report_bytes": context_bytes,
-            "rough_report_tokens": rough_report_tokens,
+            "raw_report_bytes": projection.get("raw_report_bytes"),
+            "raw_rough_report_tokens": projection.get("raw_rough_report_tokens"),
+            "analysis_context_bytes": context_bytes,
+            "analysis_rough_tokens": rough_context_tokens,
+            "markets_total": projection.get("markets_total"),
+            "known_accounts_total": projection.get("known_accounts_total"),
+            "known_accounts_retained": projection.get("known_accounts_retained"),
         },
     }
