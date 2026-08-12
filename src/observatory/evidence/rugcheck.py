@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -60,9 +61,12 @@ async def get_token_report(mint: str) -> dict[str, Any]:
     if not isinstance(report, dict):
         raise RugCheckError("RugCheck returned an invalid report", status_code=502)
 
+    report_json = json.dumps(report, ensure_ascii=False, separators=(",", ":"))
     return {
         "source": "rugcheck",
         "mint": exact_mint,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "report_bytes": len(report_json.encode("utf-8")),
+        "rough_report_tokens": (len(report_json) + 3) // 4,
         "report": report,
     }
