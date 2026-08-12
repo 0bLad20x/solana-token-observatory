@@ -37,10 +37,11 @@ Die vertikalen Slices haben die funktionale Basis bewiesen:
 | Functional Core / Issue #20 / PR #21 | Browser-Verantwortungen getrennt, disposable View, gemeinsame Selection |
 | Model Routing + RugCheck / Issue #22 / PR #23 | FAST/STRONG Policy + exact-Mint RugCheck Evidence + v4 Projection |
 | Final Core Sync / PR #24 | verlustfreie Connect/Reconnect-Synchronisationsgrenze + ein Population-Updatepfad |
+| Live Operational Telemetry / Issue #26 / PR #27 | Discovery, Search lanes, WriteQueue und Lifecycle als flüchtiger realer Runtime-Flow |
 
-## Aktueller Checkpoint — Live Operational Telemetry
+## Live Operational Telemetry — abgeschlossen
 
-Der Observatory Functional Core ist abgeschlossen. Der aktuelle aktive Slice ist Issue #26 / Draft PR #27: ein kleiner vertikaler Proof für flüchtige Live-Telemetrie des real laufenden operativen Systems.
+Der Telemetrie-Slice beobachtet den real laufenden operativen Pfad ohne neue Persistenz- oder Mutation-Authority:
 
 ```text
 Discovery / Search / WriteQueue / Lifecycle
@@ -51,12 +52,19 @@ Discovery / Search / WriteQueue / Lifecycle
                 ↓
       telemetry snapshot + SSE
                 ↓
-       deterministic 1 Hz UI proof
+       deterministic <=1 Hz UI
 ```
 
-Die Telemetrie beschreibt Masse, Durchsatz und Runtime-Zustand. Sie ist keine neue Persistence-, Alerting-, Lifecycle- oder Event-Sourcing-Schicht. Konkrete Mint-Identitäten bleiben im kanonischen Token-Stream.
+Bewiesen und sichtbar sind:
 
-Vor dem Merge des Telemetrie-Slices müssen der Branch auf den aktuellen Lifecycle-v0.3-Stand synchronisiert, die Rule-1–7-Telemetriebezeichnung korrigiert, die vorhandene lokale Runtime-Evidence final geprüft und die zuständigen Architecture-/Observatory-Authorities aktualisiert werden.
+- Discovery intake pro realem Pfad;
+- Jupiter Search lanes mit RPM, latency, requested/received und Status;
+- WriteQueue `polls -> source versions -> snapshots` plus Queue-/Write-Metriken;
+- Lifecycle v0.3 mit R1–R7, affected count, duration und `TRACKING`;
+- flüchtige 10-Minuten-History ohne DB-/Disk-Persistenz;
+- eigener Telemetry-SSE, getrennt vom kanonischen Token-Stream.
+
+Die Topbar-Zahl `ACTIVE` und Lifecycle `TRACKING` beantworten unterschiedliche Fragen. `ACTIVE` ist die aktuelle Observatory-Read-Model-Population; `TRACKING` ist `tracking_enabled=true` im operativen Lifecycle. Nach Rule 7 liegen beide im stabilen Betrieb eng zusammen, müssen aber aufgrund unabhängiger Read-Zeitpunkte und unterschiedlicher Projektionsgrenzen nicht exakt identisch sein.
 
 ## Analyst Evidence — aktueller Stand
 
@@ -78,9 +86,43 @@ STRONG = mistral-large-latest
 
 RugCheck ist damit kein offener Readiness-Punkt mehr. Der ältere Issue #18 ist durch Issue #22 / PR #23 erfüllt.
 
-## Danach — Evidence / Visual Research
+## Nächster Slice — Operational Flow Visualization
 
-Nach dem Live-Telemetrie-Proof wird erneut anhand einer konkreten Benutzerfrage entschieden, ob noch eine Evidence-/Relation-Grenze fehlt oder Issue #9 Visual / Spatial Research der nächste Slice ist.
+Der nächste sinnvolle Schritt ist nicht mehr das Sammeln weiterer Runtime-Metriken, sondern die strukturelle Visualisierung des jetzt bewiesenen Datenflusses.
+
+Die Ausgangsfrage lautet:
+
+> Wie werden große Discovery-Massen durch Search, WriteQueue und Lifecycle zu einer kleinen weiter überwachten Survivor-Population reduziert?
+
+Der erste Visual-Slice darf ausschließlich bereits bewiesene Telemetrie-Fakten verwenden:
+
+```text
+Discovery intake
+      ↓
+Search lanes
+      ↓
+WriteQueue
+      ↓
+Lifecycle R1-R7
+      ↓
+Tracking survivors ↺ Search
+```
+
+First-Principles-Grenzen:
+
+- zuerst Data-to-Visual-Semantik, dann Gestaltung;
+- Mengen, Durchsatz, Reduktion und Loop müssen verständlich sein;
+- keine neue Discovery-Provenance erfinden;
+- keine Mint-Identitäten aus Telemetrie ableiten;
+- keine Bubble Physics als Ausgangspunkt;
+- Motion nur, wenn sie reale Richtung, Durchsatz oder Zustandswechsel transportiert;
+- Telemetry bleibt read-only und flüchtig.
+
+Dieser Operational-Flow-Slice ist von Issue #9 Token Visual / Spatial Research getrennt. Er visualisiert das System selbst, nicht die räumliche Beziehung einzelner Tokens.
+
+## Danach — Evidence / Token Visual Research
+
+Nach dem Operational-Flow-Slice wird anhand einer konkreten Benutzerfrage entschieden, ob noch eine Evidence-/Relation-Grenze fehlt oder Issue #9 Visual / Spatial Research der nächste Schritt ist.
 
 Mögliche spätere Kandidaten bleiben:
 
@@ -110,9 +152,9 @@ Kein generisches Agent-/Tool-Framework vorsorglich bauen.
 
 ## Issue #9 Visual / Spatial Research
 
-Issue #9 bleibt der separate Design-/Research-Schritt.
+Issue #9 bleibt der separate Design-/Research-Schritt für Token-Darstellungen.
 
-Visual Design beginnt erst mit einer konkreten analytischen Frage und einem expliziten Mapping:
+Visual Design beginnt dort erst mit einer konkreten analytischen Frage und einem expliziten Mapping:
 
 - welche Frage beantwortet die View;
 - welche Datenfelder werden auf Position, Größe, Farbe, Opacity oder Text gemappt;
@@ -131,6 +173,8 @@ Große Dateien unter `analysis/` sind historische Research-Evidence und werden *
 Der Repository-Zustand ist für den nächsten Slice bereit, wenn:
 
 - die dauerhaften Authorities den aktuellen `main` widerspiegeln;
-- Lifecycle v0.3 und Telemetry-Branch nicht semantisch auseinanderlaufen;
+- Lifecycle v0.3 und Live Telemetry semantisch zusammenpassen;
+- `ACTIVE` versus `TRACKING` dokumentiert und im UI klar benannt ist;
+- Lifecycle-Telemetrie R1–R7 vollständig zeigt;
 - abgeschlossene Issues nicht mehr als offene Roadmap erscheinen;
 - kein Dokument einen bereits verworfenen Research-Pfad als Produktvertrag beschreibt.
