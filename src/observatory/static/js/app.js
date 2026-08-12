@@ -105,12 +105,12 @@ function syncAnalyst(clearResult = true) {
   analystTitle.textContent = isWeb
     ? "Token web research"
     : isTemporal
-      ? "Temporal token analysis"
+      ? "Temporal summary analysis"
       : "Current token data";
   analystChip.textContent = isWeb
     ? "EXTERNAL EVIDENCE"
     : isTemporal
-      ? "TEMPORAL ANALYSIS"
+      ? "SUMMARY ANALYSIS"
       : "CURRENT DATA";
   analystChip.classList.toggle("current", analystScope === "current_data");
 
@@ -124,7 +124,7 @@ function syncAnalyst(clearResult = true) {
   analystQuestion.placeholder = isWeb
     ? "What can be verified about this token?"
     : isTemporal
-      ? "How did this token arrive at its current state?"
+      ? "Give an expert assessment of this token from its observed summary."
       : "Which five tokens have the highest market cap?";
   analystContext.textContent = needsToken
     ? token
@@ -243,7 +243,7 @@ function renderAnalystTokens(tool) {
 
 function renderTemporalTool(tool) {
   const trace = document.createElement("strong");
-  trace.textContent = `get_token_temporal_context · ${tool.resolution_minutes}m resolution · ${integerFormat.format(tool.buckets)} buckets`;
+  trace.textContent = `get_token_temporal_context · summary only · ~${integerFormat.format(tool.rough_input_tokens)} rough input tokens`;
   analystSources.append(trace);
 
   const span = document.createElement("span");
@@ -269,7 +269,7 @@ function renderAnalyst(payload) {
     }
   } else if (payload.scope === "temporal") {
     renderTemporalTool(payload.tool);
-    analystStatus.textContent = "Temporal analysis completed";
+    analystStatus.textContent = "Temporal summary analysis completed";
   } else if (payload.sources.length) {
     const heading = document.createElement("strong");
     heading.textContent = "Sources";
@@ -409,7 +409,7 @@ analystForm.addEventListener("submit", async event => {
   analystStatus.textContent = requestScope === "web"
     ? "Searching the web…"
     : requestScope === "temporal"
-      ? "Loading temporal evidence through get_token_temporal_context…"
+      ? "Loading compact temporal summary through get_token_temporal_context…"
       : "Translating question into query_tokens…";
   analystResult.classList.add("hidden");
 
