@@ -143,13 +143,20 @@ Für die experimentelle LLM-/Zeitreihenanalyse existiert ein read-only Inspector
 python tools/inspect_token_history.py <MINT>
 ```
 
-Der normale Inspector-Pfad liest aus PostgreSQL nur die Felder des aktuellen LLM-Grundvertrags und erzeugt `llm_full.json`, 1m-/5m-/15m-Projektionen sowie `report.json`. Die teure vollständige Raw-Feldanalyse ist opt-in:
+Der Inspector erzeugt genau einen LLM-Kontext statt mehrere konkurrierende Repräsentationen:
 
-```powershell
-python tools/inspect_token_history.py <MINT> --profile-fields --write-raw
+```text
+verfügbare History <= 6h -> 1m Buckets
+verfügbare History >  6h -> 5m Buckets
 ```
 
-Der Inspector ist Research-Evidence und kein produktiver Observatory-/LLM-Query-Pfad.
+`llm_context.json` enthält Token-Header, einen deterministisch berechneten `summary`-Block und dieselbe historische Evidence als `temporal_history`. Raw-Payload-, unaggregierte Full- und 15m-Ausgaben gehören nicht mehr zum normalen Research-Vertrag. `report.json` dokumentiert Projektion, grobe Context-Größe und die spätere System-Prompt-Anforderung.
+
+Der Summary verdichtet Market Cap, Liquidity, Holder-Entwicklung, Ownership-Konzentration, rollierende `stats1h`-Aktivität und Organic Evidence. Rollierende `stats1h`-Werte werden nicht über Buckets summiert. Missing bleibt Missing; es gibt kein Zero-Fill oder Interpolation.
+
+Für eine spätere LLM-Integration gilt ausdrücklich: Der System Prompt muss das Modell zwingen, `temporal_history` selbst zu prüfen und den Summary nur als deterministische Orientierung zu verwenden. Ein Urteil ausschließlich aus dem Summary ist nicht zulässig.
+
+Der Inspector ist Research-Evidence und noch kein produktiver Observatory-/LLM-Query-Pfad.
 
 ## Read-only Downstream
 
