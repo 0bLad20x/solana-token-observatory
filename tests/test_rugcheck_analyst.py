@@ -18,10 +18,11 @@ from observatory.rugcheck_analysis import (
 
 MINT = "11111111111111111111111111111111"
 HOLDER = "22222222222222222222222222222222"
+MARKET = "44444444444444444444444444444444"
 
 
 class RugCheckAnalystTests(unittest.TestCase):
-    def test_rugcheck_analysis_uses_one_strong_request_with_projected_evidence(self) -> None:
+    def test_rugcheck_analysis_uses_one_strong_request_with_metadata_only(self) -> None:
         captured: list[dict[str, object]] = []
         client_options: list[dict[str, object]] = []
         evidence = {
@@ -35,17 +36,14 @@ class RugCheckAnalystTests(unittest.TestCase):
                 "score_normalised": 42,
                 "rugged": False,
                 "risks": [{"name": "Mutable metadata", "level": "warn"}],
-                "topHolders": [{"address": HOLDER, "pct": 10}],
+                "totalHolders": 100,
+                "topHolders": [{"address": HOLDER, "pct": 10, "insider": True}],
                 "knownAccounts": {
-                    HOLDER: {"name": "Known holder", "type": "wallet"},
-                    "33333333333333333333333333333333": {
-                        "name": "Unrelated",
-                        "type": "wallet",
-                    },
+                    HOLDER: {"name": "Known AMM", "type": "AMM"},
                 },
                 "markets": [
                     {
-                        "pubkey": "44444444444444444444444444444444",
+                        "pubkey": MARKET,
                         "marketType": "orca",
                         "mintA": MINT,
                         "mintB": HOLDER,
@@ -55,9 +53,6 @@ class RugCheckAnalystTests(unittest.TestCase):
                             "baseUSD": 100.0,
                             "quoteUSD": 200.0,
                             "lpLockedPct": 0,
-                            "lpLockedUSD": 0,
-                            "lpTotalSupply": 100,
-                            "basePrice": 1.23,
                         },
                     }
                 ],
@@ -125,29 +120,36 @@ class RugCheckAnalystTests(unittest.TestCase):
         self.assertNotIn("tools", request)
         system = request["messages"][0]["content"]
         self.assertIn("external provider", system)
-        self.assertIn("transport projection", system)
-        self.assertIn("omitted account-level fields", system)
+        self.assertIn("metadata projection", system)
+        self.assertIn("Wallet addresses", system)
 
         user_message = request["messages"][1]["content"]
-        context_text = user_message.split("RugCheck external evidence JSON:\n", 1)[1]
+        context_text = user_message.split(
+            "RugCheck external safety metadata JSON:\n", 1
+        )[1]
         delivered = json.loads(context_text)
-        self.assertEqual(delivered["projection"]["type"], "rugcheck_analysis_v1")
+        self.assertEqual(delivered["projection"]["type"], "rugcheck_analysis_v2")
         self.assertEqual(delivered["projection"]["raw_report_bytes"], 5000)
-        self.assertNotIn("mintAAccount", delivered["report"]["markets"][0])
-        self.assertNotIn("liquidityAAccount", delivered["report"]["markets"][0])
-        self.assertEqual(
-            list(delivered["report"]["knownAccounts"]),
-            [HOLDER],
-        )
+        self.assertEqual(delivered["projection"]["wallet_addresses_sent_to_llm"], 0)
+        self.assertEqual(delivered["summary"]["ownership"]["top1_pct"], 10.0)
+        self.assertEqual(delivered["summary"]["liquidity"]["market_count"], 1)
+
+        serialized = json.dumps(delivered, ensure_ascii=False)
+        self.assertNotIn(HOLDER, serialized)
+        self.assertNotIn(MARKET, serialized)
+        self.assertNotIn("mintAAccount", serialized)
+        self.assertNotIn("topHolders", serialized)
+        self.assertNotIn("knownAccounts", serialized)
 
         self.assertEqual(result["scope"], "rugcheck")
         self.assertEqual(result["evidence"]["source"], "rugcheck")
         self.assertEqual(result["evidence"]["mint"], MINT)
         self.assertEqual(result["evidence"]["raw_report_bytes"], 5000)
         self.assertGreater(result["evidence"]["analysis_rough_tokens"], 0)
-        self.assertEqual(result["evidence"]["markets_total"], 1)
-        self.assertEqual(result["evidence"]["known_accounts_total"], 2)
-        self.assertEqual(result["evidence"]["known_accounts_retained"], 1)
+        self.assertEqual(result["evidence"]["markets_observed"], 1)
+        self.assertEqual(result["evidence"]["top_holders_observed"], 1)
+        self.assertEqual(result["evidence"]["known_accounts_observed"], 1)
+        self.assertEqual(result["evidence"]["wallet_addresses_sent_to_llm"], 0)
 
 
 if __name__ == "__main__":
