@@ -214,9 +214,22 @@ async def analyst(request: AnalystRequest) -> dict[str, Any]:
 
 @app.get("/api/events", response_class=EventSourceResponse)
 async def events() -> AsyncIterator[ServerSentEvent]:
-    previous_tokens = await asyncio.to_thread(reader.snapshot)
+    # Every connection starts with one authoritative snapshot. The exact same snapshot is
+    # the baseline for subsequent deltas, so bootstrap/connect and reconnect cannot leave
+    # an undefined state gap in the browser.
+    previous_tokens = await asyncio.to_thread(reader.snapshot, True)
     previous = {token["mint"]: token for token in previous_tokens}
-    sequence = 0
+    sequence = 1
+
+    yield ServerSentEvent(
+        event="universe_snapshot",
+        id=str(sequence),
+        retry=3000,
+        data={
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "tokens": previous_tokens,
+        },
+    )
 
     while True:
         await asyncio.sleep(STREAM_INTERVAL_SECONDS)
@@ -251,7 +264,7 @@ async def events() -> AsyncIterator[ServerSentEvent]:
                     }
                 )
 
-        previous = active
+        previous = current
         if not delta:
             continue
 
