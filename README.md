@@ -206,6 +206,8 @@ Für Lifecycle v0.2 zusätzlich gezielt:
 python -m unittest tests.test_lifecycle_rule6 -v
 ```
 
+Hinweis: Der repository-weite `unittest discover` besitzt aktuell zwei bereits auf `main` vorhandene Importfehler in veralteten `diagnostics`-Tests. Lifecycle-v0.2 verändert diesen unabhängigen Baseline-Zustand nicht.
+
 Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
 
 ## Dokumentations-Authorities
