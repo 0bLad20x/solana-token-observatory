@@ -22,7 +22,7 @@ MARKET = "44444444444444444444444444444444"
 
 
 class RugCheckAnalystTests(unittest.TestCase):
-    def test_rugcheck_analysis_uses_one_strong_request_with_metadata_only(self) -> None:
+    def test_rugcheck_analysis_uses_one_strong_request_with_defined_metadata(self) -> None:
         captured: list[dict[str, object]] = []
         client_options: list[dict[str, object]] = []
         evidence = {
@@ -35,7 +35,14 @@ class RugCheckAnalystTests(unittest.TestCase):
                 "score": 123,
                 "score_normalised": 42,
                 "rugged": False,
-                "risks": [{"name": "Mutable metadata", "level": "warn"}],
+                "risks": [
+                    {
+                        "name": "Mutable metadata",
+                        "level": "warn",
+                        "score": 100,
+                        "description": "Metadata can change",
+                    }
+                ],
                 "totalHolders": 100,
                 "topHolders": [{"address": HOLDER, "pct": 10, "insider": True}],
                 "knownAccounts": {
@@ -120,8 +127,8 @@ class RugCheckAnalystTests(unittest.TestCase):
         self.assertNotIn("tools", request)
         system = request["messages"][0]["content"]
         self.assertIn("external provider", system)
-        self.assertIn("metadata projection", system)
-        self.assertIn("Wallet addresses", system)
+        self.assertIn("supplied semantics", system)
+        self.assertIn("do not invent score formulas", system)
 
         user_message = request["messages"][1]["content"]
         context_text = user_message.split(
@@ -130,6 +137,12 @@ class RugCheckAnalystTests(unittest.TestCase):
         delivered = json.loads(context_text)
         self.assertEqual(set(delivered), {"source", "fetched_at", "summary"})
         self.assertEqual(delivered["source"], "rugcheck")
+        self.assertIn("semantics", delivered["summary"])
+        self.assertIn("not a probability", delivered["summary"]["semantics"]["score"])
+        self.assertEqual(
+            delivered["summary"]["provider_risk"]["risks"][0]["description"],
+            "Metadata can change",
+        )
         self.assertEqual(delivered["summary"]["ownership"]["top1_pct"], 10.0)
         self.assertEqual(delivered["summary"]["liquidity"]["market_count"], 1)
 
@@ -145,6 +158,7 @@ class RugCheckAnalystTests(unittest.TestCase):
         self.assertEqual(result["scope"], "rugcheck")
         self.assertEqual(result["evidence"]["source"], "rugcheck")
         self.assertEqual(result["evidence"]["mint"], MINT)
+        self.assertEqual(result["evidence"]["mode"], "rugcheck_analysis_v3")
         self.assertEqual(result["evidence"]["raw_report_bytes"], 5000)
         self.assertGreater(result["evidence"]["analysis_rough_tokens"], 0)
         self.assertEqual(result["evidence"]["markets_observed"], 1)
