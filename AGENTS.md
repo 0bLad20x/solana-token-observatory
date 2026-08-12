@@ -122,7 +122,7 @@ Die heutigen Analyst-Pfade `current_data`, `web`, `temporal` und `rugcheck` sind
 - Predetermined External Fetches benötigen keinen vorgeschalteten LLM Tool Call.
 - Retrieval und Interpretation bleiben getrennte Verantwortungen.
 - Bounded Tools dürfen unsupported Felder nicht durch Proxy-Metriken ersetzen.
-- Provider-Evidence behält Source und Timestamp; Missing bleibt Missing.
+- Evidence-Provenance bleibt explizit; Source und vom System erzeugte bzw. vom Provider gelieferte Timestamps werden erhalten, wenn sie zum jeweiligen Vertrag gehören. Missing bleibt Missing.
 - Ein späterer Unified Router wird erst implementiert, wenn sein realer Routing-Vertrag entschieden ist.
 
 Keine generische Agent-/Tool-Infrastruktur aus den heutigen vier Scopes extrapolieren.
