@@ -29,6 +29,7 @@ from .delta import changes, fingerprint
 from .evidence.rugcheck import RugCheckError, get_token_report
 from .model_policy import ModelPolicy
 from .rugcheck_analysis import analyze_rugcheck_report
+from .telemetry import TelemetryReceiver, TelemetryStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).with_name("static")
@@ -37,6 +38,9 @@ load_dotenv(PROJECT_ROOT / ".env")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STREAM_INTERVAL_SECONDS = float(os.getenv("FRONTEND_STREAM_INTERVAL_SECONDS", "2"))
 RECENT_DISABLED_MINUTES = int(os.getenv("FRONTEND_RECENT_DISABLED_MINUTES", "5"))
+TELEMETRY_HOST = os.getenv("TELEMETRY_HOST", "127.0.0.1").strip() or "127.0.0.1"
+TELEMETRY_PORT = int(os.getenv("TELEMETRY_PORT", "8765"))
+TELEMETRY_RETENTION_SECONDS = float(os.getenv("TELEMETRY_RETENTION_SECONDS", "600"))
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
 MISTRAL_MODEL_FAST = os.getenv("MISTRAL_MODEL_FAST", "ministral-14b-latest").strip()
 MISTRAL_MODEL_STRONG = os.getenv("MISTRAL_MODEL_STRONG", "mistral-large-latest").strip()
@@ -51,6 +55,12 @@ reader = FrontendReader(DATABASE_URL, RECENT_DISABLED_MINUTES)
 model_policy = ModelPolicy(
     fast_model=MISTRAL_MODEL_FAST,
     strong_model=MISTRAL_MODEL_STRONG,
+)
+telemetry_store = TelemetryStore(retention_seconds=TELEMETRY_RETENTION_SECONDS)
+telemetry_receiver = TelemetryReceiver(
+    telemetry_store,
+    host=TELEMETRY_HOST,
+    port=TELEMETRY_PORT,
 )
 logger = logging.getLogger(__name__)
 
@@ -89,12 +99,35 @@ def _rugcheck_http_error(error: RugCheckError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=str(error))
 
 
+def _telemetry_snapshot_payload(
+    events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "window_seconds": TELEMETRY_RETENTION_SECONDS,
+        "listening": telemetry_receiver.listening,
+        "bind_error": telemetry_receiver.bind_error,
+        "received_count": telemetry_store.received_count,
+        "invalid_count": telemetry_store.invalid_count,
+        "events": telemetry_store.snapshot() if events is None else events,
+    }
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     reader.open()
+    await telemetry_receiver.start()
+    if telemetry_receiver.bind_error:
+        logger.warning(
+            "Telemetry receiver unavailable on %s:%s: %s",
+            TELEMETRY_HOST,
+            TELEMETRY_PORT,
+            telemetry_receiver.bind_error,
+        )
     try:
         yield
     finally:
+        telemetry_receiver.close()
         reader.close()
 
 
@@ -127,6 +160,36 @@ async def token_detail(mint: str) -> dict[str, Any]:
     if token is None:
         raise HTTPException(status_code=404, detail="mint not found")
     return token
+
+
+@app.get("/api/telemetry")
+async def telemetry_snapshot() -> dict[str, Any]:
+    return _telemetry_snapshot_payload()
+
+
+@app.get("/api/telemetry/events", response_class=EventSourceResponse)
+async def telemetry_events() -> AsyncIterator[ServerSentEvent]:
+    queue, initial_events = telemetry_store.subscribe_with_snapshot()
+    sequence = 1
+    try:
+        yield ServerSentEvent(
+            event="telemetry_snapshot",
+            id=str(sequence),
+            retry=3000,
+            data=_telemetry_snapshot_payload(initial_events),
+        )
+
+        while True:
+            event = await queue.get()
+            sequence += 1
+            yield ServerSentEvent(
+                event="telemetry_event",
+                id=str(sequence),
+                retry=3000,
+                data=event,
+            )
+    finally:
+        telemetry_store.unsubscribe(queue)
 
 
 @app.get("/api/evidence/rugcheck/{mint}")
