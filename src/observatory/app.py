@@ -38,7 +38,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STREAM_INTERVAL_SECONDS = float(os.getenv("FRONTEND_STREAM_INTERVAL_SECONDS", "2"))
 RECENT_DISABLED_MINUTES = int(os.getenv("FRONTEND_RECENT_DISABLED_MINUTES", "5"))
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
-MISTRAL_MODEL_FAST = os.getenv("MISTRAL_MODEL_FAST", "ministral-3b-latest").strip()
+MISTRAL_MODEL_FAST = os.getenv("MISTRAL_MODEL_FAST", "ministral-14b-latest").strip()
 MISTRAL_MODEL_STRONG = os.getenv("MISTRAL_MODEL_STRONG", "mistral-large-latest").strip()
 MISTRAL_WEB_SEARCH_MODE = validate_search_mode(
     os.getenv("MISTRAL_WEB_SEARCH_MODE", "web_search")
