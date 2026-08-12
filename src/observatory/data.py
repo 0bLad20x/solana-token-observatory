@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
+
+from temporal_context import build_temporal_summary, load_temporal_summary_rows
 
 
 def _iso(value: Any) -> str | None:
@@ -37,6 +40,7 @@ class FrontendReader:
     """Read-only projection of operational token state for the Observatory."""
 
     def __init__(self, database_url: str, recent_disabled_minutes: int) -> None:
+        self._database_url = database_url
         self._recent_disabled_minutes = recent_disabled_minutes
         self._pool = ConnectionPool(
             database_url,
@@ -176,3 +180,17 @@ class FrontendReader:
     def token(self, mint: str) -> dict[str, Any] | None:
         rows = self._rows(include_recent_disabled=True, mint=mint)
         return self._token(rows[0]) if rows else None
+
+    def temporal_summary(self, mint: str) -> dict[str, Any] | None:
+        """Build the compact 24h summary without loading repeated full snapshot JSON."""
+
+        with psycopg.connect(
+            self._database_url,
+            row_factory=dict_row,
+            autocommit=True,
+            options="-c default_transaction_read_only=on -c statement_timeout=60000",
+        ) as connection:
+            history_rows, sample_rows = load_temporal_summary_rows(connection, mint)
+        if not history_rows:
+            return None
+        return build_temporal_summary(history_rows, sample_rows)

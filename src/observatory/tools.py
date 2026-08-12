@@ -60,7 +60,7 @@ _OUTPUT_FIELDS = (
 
 
 class QueryToolError(ValueError):
-    """Invalid model-produced arguments at the bounded tool boundary."""
+    """Invalid model-produced arguments at the bounded current-data tool boundary."""
 
 
 def query_capabilities(tokens: list[dict[str, Any]]) -> dict[str, Any]:

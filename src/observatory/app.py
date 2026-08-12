@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from .analyst import (
     AnalystError,
+    analyze_temporal_token,
     query_current_tokens,
     research_token,
     validate_search_mode,
@@ -45,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnalystRequest(BaseModel):
-    scope: Literal["current_data", "web"] = "current_data"
+    scope: Literal["current_data", "web", "temporal"] = "current_data"
     mint: str | None = Field(default=None, pattern=r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     question: str = Field(min_length=1, max_length=1000)
 
@@ -80,6 +82,30 @@ def _changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
         "traders_5m": _numeric_change(before.get("traders_5m"), after.get("traders_5m")),
         "volume_5m": _numeric_change(before.get("volume_5m"), after.get("volume_5m")),
     }
+
+
+def _traced_temporal_summary(mint: str) -> dict[str, Any] | None:
+    started = perf_counter()
+    logger.warning("[temporal] summary_load_start mint=%s", mint)
+    summary = reader.temporal_summary(mint)
+    elapsed = perf_counter() - started
+    if summary is None:
+        logger.warning(
+            "[temporal] summary_load_done mint=%s elapsed=%.2fs result=missing",
+            mint,
+            elapsed,
+        )
+        return None
+
+    history = summary.get("history", {})
+    logger.warning(
+        "[temporal] summary_load_done mint=%s elapsed=%.2fs observations=%s hours=%s",
+        mint,
+        elapsed,
+        history.get("observations"),
+        history.get("hours"),
+    )
+    return summary
 
 
 @asynccontextmanager
@@ -144,18 +170,40 @@ async def analyst(request: AnalystRequest) -> dict[str, Any]:
         if request.mint is None:
             raise HTTPException(
                 status_code=422,
-                detail="mint is required for web research",
+                detail="mint is required for selected-token analysis",
             )
         token = await asyncio.to_thread(reader.token, request.mint)
         if token is None:
             raise HTTPException(status_code=404, detail="mint not found")
-        return await research_token(
+
+        if request.scope == "web":
+            return await research_token(
+                api_key=MISTRAL_API_KEY,
+                model=MISTRAL_MODEL,
+                search_mode=MISTRAL_WEB_SEARCH_MODE,
+                token=token,
+                question=question,
+            )
+
+        started = perf_counter()
+        logger.warning(
+            "[temporal] request_start mint=%s model=%s",
+            request.mint,
+            MISTRAL_MODEL,
+        )
+        result = await analyze_temporal_token(
             api_key=MISTRAL_API_KEY,
             model=MISTRAL_MODEL,
-            search_mode=MISTRAL_WEB_SEARCH_MODE,
             token=token,
             question=question,
+            summary_loader=_traced_temporal_summary,
         )
+        logger.warning(
+            "[temporal] request_done mint=%s elapsed=%.2fs",
+            request.mint,
+            perf_counter() - started,
+        )
+        return result
     except AnalystError as error:
         logger.warning("Analyst request failed: %s", error)
         raise HTTPException(status_code=502, detail=str(error)) from error

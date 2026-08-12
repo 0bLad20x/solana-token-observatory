@@ -99,24 +99,39 @@ function clearAnalystResult() {
 function syncAnalyst(clearResult = true) {
   const token = state.selectedToken();
   const isWeb = analystScope === "web";
-  analystTitle.textContent = isWeb ? "Token web research" : "Current token data";
-  analystChip.textContent = isWeb ? "EXTERNAL EVIDENCE" : "CURRENT DATA";
-  analystChip.classList.toggle("current", !isWeb);
+  const isTemporal = analystScope === "temporal";
+  const needsToken = isWeb || isTemporal;
+
+  analystTitle.textContent = isWeb
+    ? "Token web research"
+    : isTemporal
+      ? "Temporal summary analysis"
+      : "Current token data";
+  analystChip.textContent = isWeb
+    ? "EXTERNAL EVIDENCE"
+    : isTemporal
+      ? "SUMMARY ANALYSIS"
+      : "CURRENT DATA";
+  analystChip.classList.toggle("current", analystScope === "current_data");
+
   for (const button of analystModes) {
     button.classList.toggle("active", button.dataset.analystScope === analystScope);
   }
 
-  analystQuestion.disabled = isWeb && !token;
-  analystSubmit.disabled = isWeb && !token;
-  analystSubmit.textContent = isWeb ? "Research" : "Ask";
+  analystQuestion.disabled = needsToken && !token;
+  analystSubmit.disabled = needsToken && !token;
+  analystSubmit.textContent = isWeb ? "Research" : isTemporal ? "Analyze" : "Ask";
   analystQuestion.placeholder = isWeb
     ? "What can be verified about this token?"
-    : "Which five tokens have the highest market cap?";
-  analystContext.textContent = isWeb
+    : isTemporal
+      ? "Give an expert assessment of this token from its observed summary."
+      : "Which five tokens have the highest market cap?";
+  analystContext.textContent = needsToken
     ? token
-      ? `Researching ${token.symbol || token.name || token.mint.slice(0, 8)} · exact mint`
+      ? `${isWeb ? "Researching" : "Analyzing"} ${token.symbol || token.name || token.mint.slice(0, 8)} · exact mint`
       : "Select a token first"
     : `Ask about ${integerFormat.format(state.stats().active)} active tokens`;
+
   if (clearResult) clearAnalystResult();
 }
 
@@ -226,6 +241,20 @@ function renderAnalystTokens(tool) {
   analystSources.append(list);
 }
 
+function renderTemporalEvidence(evidence) {
+  const trace = document.createElement("strong");
+  trace.textContent = `temporal_summary · summary only · ~${integerFormat.format(evidence.rough_summary_tokens)} rough summary tokens`;
+  analystSources.append(trace);
+
+  const span = document.createElement("span");
+  span.textContent = `${Number(evidence.history_hours).toFixed(2)}h evidence · ${integerFormat.format(evidence.observations)} observations`;
+  analystSources.append(span);
+
+  const range = document.createElement("span");
+  range.textContent = `${evidence.from} → ${evidence.to}`;
+  analystSources.append(range);
+}
+
 function renderAnalyst(payload) {
   analystAnswer.textContent = payload.answer;
   analystSources.replaceChildren();
@@ -238,6 +267,9 @@ function renderAnalyst(payload) {
       renderCapabilities(payload.capabilities);
       analystStatus.textContent = "No unambiguous supported query was found";
     }
+  } else if (payload.scope === "temporal") {
+    renderTemporalEvidence(payload.evidence);
+    analystStatus.textContent = "Temporal summary analysis completed";
   } else if (payload.sources.length) {
     const heading = document.createElement("strong");
     heading.textContent = "Sources";
@@ -316,7 +348,7 @@ function selectToken(mint) {
   state.select(mint);
   universe.setSelectedMint(mint);
   renderDetail(token);
-  syncAnalyst(analystScope === "web");
+  syncAnalyst(analystScope !== "current_data");
   return true;
 }
 
@@ -365,18 +397,25 @@ analystForm.addEventListener("submit", async event => {
   const question = analystQuestion.value.trim();
   const requestScope = analystScope;
   const mint = state.selectedMint;
-  if (!question || (requestScope === "web" && !mint)) return;
+  const needsToken = requestScope === "web" || requestScope === "temporal";
+  if (!question || (needsToken && !mint)) return;
 
   analystSubmit.disabled = true;
-  analystSubmit.textContent = requestScope === "web" ? "Researching…" : "Querying…";
+  analystSubmit.textContent = requestScope === "web"
+    ? "Researching…"
+    : requestScope === "temporal"
+      ? "Analyzing…"
+      : "Querying…";
   analystStatus.textContent = requestScope === "web"
     ? "Searching the web…"
-    : "Translating question into query_tokens…";
+    : requestScope === "temporal"
+      ? "Loading compact temporal summary…"
+      : "Translating question into query_tokens…";
   analystResult.classList.add("hidden");
 
   try {
     const body = { scope: requestScope, question };
-    if (requestScope === "web") body.mint = mint;
+    if (needsToken) body.mint = mint;
     const response = await fetch("/api/analyst", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
