@@ -86,27 +86,24 @@ def _changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
 
 def _traced_temporal_context(mint: str) -> dict[str, Any] | None:
     started = perf_counter()
-    logger.warning("[temporal] context_load_start mint=%s", mint)
+    logger.warning("[temporal] summary_load_start mint=%s", mint)
     context = reader.temporal_context(mint)
     elapsed = perf_counter() - started
     if context is None:
         logger.warning(
-            "[temporal] context_load_done mint=%s elapsed=%.2fs result=missing",
+            "[temporal] summary_load_done mint=%s elapsed=%.2fs result=missing",
             mint,
             elapsed,
         )
         return None
 
     history = context.get("summary", {}).get("history", {})
-    temporal = context.get("temporal_history", {})
-    buckets = temporal.get("buckets")
     logger.warning(
-        "[temporal] context_load_done mint=%s elapsed=%.2fs observations=%s resolution=%sm buckets=%s",
+        "[temporal] summary_load_done mint=%s elapsed=%.2fs observations=%s hours=%s",
         mint,
         elapsed,
         history.get("observations"),
-        temporal.get("resolution_minutes"),
-        len(buckets) if isinstance(buckets, list) else None,
+        history.get("hours"),
     )
     return context
 
