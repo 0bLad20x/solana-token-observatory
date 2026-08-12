@@ -1,41 +1,12 @@
 from __future__ import annotations
 
-import json
 import math
 import re
-from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-ONE_MINUTE_MAX_HISTORY_HOURS = 6.0
 SUMMARY_SAMPLE_MINUTES = 5
-TEMPORAL_SOURCE_FIELDS = (
-    "id",
-    "name",
-    "symbol",
-    "dev",
-    "icon",
-    "website",
-    "twitter",
-    "decimals",
-    "tokenProgram",
-    "launchpad",
-    "createdAt",
-    "firstPool",
-    "isVerified",
-    "mintAuthority",
-    "freezeAuthority",
-    "circSupply",
-    "totalSupply",
-    "mcap",
-    "liquidity",
-    "holderCount",
-    "organicScore",
-    "audit",
-    "stats1h",
-    "apy",
-    "updatedAt",
-)
+SUMMARY_SAMPLE_SECONDS = SUMMARY_SAMPLE_MINUTES * 60
 
 
 def iso(value: datetime) -> str:
@@ -93,225 +64,108 @@ def get_path(value: dict[str, Any], *path: str) -> Any:
     return current
 
 
-def _last_present(payloads: list[dict[str, Any]], *path: str) -> Any:
-    for payload in reversed(payloads):
-        value = get_path(payload, *path)
-        if value is not None:
-            return value
-    return None
-
-
-def _distinct_present(payloads: list[dict[str, Any]], *path: str) -> list[Any]:
-    values: list[Any] = []
-    seen: set[str] = set()
-    for payload in payloads:
-        value = get_path(payload, *path)
-        if value is None:
-            continue
-        fingerprint = json.dumps(value, sort_keys=True, ensure_ascii=False)
-        if fingerprint not in seen:
-            seen.add(fingerprint)
-            values.append(value)
-    return values
-
-
-def build_token_header(
+def load_temporal_summary_rows(
+    connection: Any,
     mint: str,
-    payloads: list[dict[str, Any]],
-) -> tuple[dict[str, Any], set[str]]:
-    header: dict[str, Any] = {"mint": mint}
-    simple_fields = {
-        "name": ("name",),
-        "symbol": ("symbol",),
-        "dev": ("dev",),
-        "icon": ("icon",),
-        "website": ("website",),
-        "twitter": ("twitter",),
-        "decimals": ("decimals",),
-        "token_program": ("tokenProgram",),
-        "launchpad": ("launchpad",),
-        "created_at": ("createdAt",),
-    }
-    for output, path in simple_fields.items():
-        value = _last_present(payloads, *path)
-        if value is not None:
-            header[output] = value
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Load exact core history plus sparse fixed-time samples for summary statistics.
 
-    first_pool = {
-        "id": _last_present(payloads, "firstPool", "id"),
-        "created_at": _last_present(payloads, "firstPool", "createdAt"),
-    }
-    first_pool = {key: value for key, value in first_pool.items() if value is not None}
-    if first_pool:
-        header["first_pool"] = first_pool
+    Exact trajectory metrics use all retained observations, but the expensive rolling
+    stats1h JSON is fetched only once per five-minute sample interval. This keeps the
+    summary exact where needed while avoiding repeated transfer of the same large rolling
+    payload on tens of thousands of snapshots.
+    """
 
-    verified = _last_present(payloads, "isVerified")
-    if verified is not None:
-        header["verification"] = {"is_verified": verified}
+    history = list(
+        connection.execute(
+            """
+            SELECT
+                observed_at,
+                payload->>'mcap' AS market_cap,
+                payload->>'liquidity' AS liquidity,
+                payload->>'holderCount' AS holders,
+                payload->>'organicScore' AS organic_score,
+                payload->'audit'->>'devMints' AS dev_mints,
+                payload->'audit'->>'devBalancePercentage' AS dev_balance_pct,
+                payload->'audit'->>'topHoldersPercentage' AS top_holders_pct
+            FROM mint_snapshots
+            WHERE mint = %s
+              AND observed_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+            ORDER BY observed_at ASC
+            """,
+            (mint,),
+        ).fetchall()
+    )
+    if not history:
+        return [], []
 
-    authorities = {
-        "mint_authority": _last_present(payloads, "mintAuthority"),
-        "freeze_authority": _last_present(payloads, "freezeAuthority"),
-        "mint_authority_disabled": _last_present(
-            payloads, "audit", "mintAuthorityDisabled"
-        ),
-        "freeze_authority_disabled": _last_present(
-            payloads, "audit", "freezeAuthorityDisabled"
-        ),
-    }
-    authorities = {
-        key: value for key, value in authorities.items() if value is not None
-    }
-    if authorities:
-        header["authorities"] = authorities
-
-    dynamic_supply: set[str] = set()
-    constant_supply: dict[str, Any] = {}
-    for output, path in {
-        "circulating": ("circSupply",),
-        "total": ("totalSupply",),
-    }.items():
-        values = _distinct_present(payloads, *path)
-        if len(values) == 1:
-            constant_supply[output] = values[0]
-        elif len(values) > 1:
-            dynamic_supply.add(output)
-    if constant_supply:
-        header["supply"] = constant_supply
-
-    return header, dynamic_supply
+    samples = list(
+        connection.execute(
+            f"""
+            WITH candidates AS (
+                SELECT
+                    observed_at,
+                    payload,
+                    FLOOR(EXTRACT(EPOCH FROM observed_at) / {SUMMARY_SAMPLE_SECONDS})::bigint
+                        AS sample_bucket
+                FROM mint_snapshots
+                WHERE mint = %s
+                  AND observed_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+            )
+            SELECT DISTINCT ON (sample_bucket)
+                observed_at,
+                payload->>'mcap' AS market_cap,
+                payload->>'liquidity' AS liquidity,
+                payload->>'organicScore' AS organic_score,
+                payload->'stats1h' AS stats_1h
+            FROM candidates
+            ORDER BY sample_bucket ASC, observed_at DESC
+            """,
+            (mint,),
+        ).fetchall()
+    )
+    return history, samples
 
 
-def normalize_observation(
-    observed_at: datetime,
-    payload: dict[str, Any],
-    dynamic_supply: set[str],
-) -> dict[str, Any]:
-    row: dict[str, Any] = {"t": iso(observed_at)}
-    for source, target in (
-        ("mcap", "market_cap"),
-        ("liquidity", "liquidity"),
-        ("holderCount", "holders"),
-        ("organicScore", "organic_score"),
-    ):
-        value = numeric(payload.get(source))
-        if value is not None:
-            row[target] = value
-
-    audit = payload.get("audit")
-    if isinstance(audit, dict):
-        values = {
-            "dev_mints": numeric(audit.get("devMints")),
-            "dev_balance_pct": numeric(audit.get("devBalancePercentage")),
-            "top_holders_pct": numeric(audit.get("topHoldersPercentage")),
-        }
-        values = {key: value for key, value in values.items() if value is not None}
-        if values:
-            row["audit"] = values
-
-    stats = numeric_object(payload.get("stats1h"))
-    if stats:
-        row["stats_1h"] = stats
-
-    apy = numeric_object(payload.get("apy"))
-    if apy:
-        row["apy"] = apy
-
-    if dynamic_supply:
-        supply: dict[str, Any] = {}
-        if "circulating" in dynamic_supply:
-            value = numeric(payload.get("circSupply"))
-            if value is not None:
-                supply["circulating"] = value
-        if "total" in dynamic_supply:
-            value = numeric(payload.get("totalSupply"))
-            if value is not None:
-                supply["total"] = value
-        if supply:
-            row["supply"] = supply
-
-    return row
-
-
-def _normalized(
-    mint: str,
-    rows: list[dict[str, Any]],
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if not rows:
-        raise ValueError("temporal context requires at least one snapshot")
-
-    payloads = [row["payload"] for row in rows]
-    header, dynamic_supply = build_token_header(mint, payloads)
-    history = [
-        normalize_observation(row["observed_at"], row["payload"], dynamic_supply)
-        for row in rows
-    ]
-    return header, history
-
-
-def _flatten_numeric(value: Any, prefix: str = "") -> dict[str, float | int]:
-    result: dict[str, float | int] = {}
-    if not isinstance(value, dict):
-        return result
-    for key, child in value.items():
-        if key == "t":
+def _normalize_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for source in rows:
+        observed_at = source.get("observed_at")
+        if not isinstance(observed_at, datetime):
             continue
-        path = f"{prefix}.{key}" if prefix else key
-        if isinstance(child, dict):
-            result.update(_flatten_numeric(child, path))
-        else:
-            number = numeric(child)
-            if number is not None:
-                result[path] = number
+        row: dict[str, Any] = {"t": iso(observed_at)}
+        for key in (
+            "market_cap",
+            "liquidity",
+            "holders",
+            "organic_score",
+            "dev_mints",
+            "dev_balance_pct",
+            "top_holders_pct",
+        ):
+            value = numeric(source.get(key))
+            if value is not None:
+                row[key] = value
+        result.append(row)
     return result
 
 
-def _set_path(target: dict[str, Any], path: str, value: Any) -> None:
-    parts = path.split(".")
-    current = target
-    for part in parts[:-1]:
-        current = current.setdefault(part, {})
-    current[parts[-1]] = value
-
-
-def make_buckets(history: list[dict[str, Any]], minutes: int) -> list[dict[str, Any]]:
-    if minutes <= 0:
-        raise ValueError("bucket minutes must be positive")
-    seconds = minutes * 60
-    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in history:
-        timestamp = datetime.fromisoformat(row["t"]).timestamp()
-        grouped[math.floor(timestamp / seconds) * seconds].append(row)
-
-    buckets: list[dict[str, Any]] = []
-    for start_ts in sorted(grouped):
-        rows = grouped[start_ts]
-        values_by_path: dict[str, list[float | int]] = defaultdict(list)
-        for row in rows:
-            for path, value in _flatten_numeric(row).items():
-                values_by_path[path].append(value)
-
-        bucket: dict[str, Any] = {
-            "bucket_start": iso(datetime.fromtimestamp(start_ts, tz=timezone.utc)),
-            "bucket_end": iso(
-                datetime.fromtimestamp(start_ts + seconds, tz=timezone.utc)
-            ),
-            "observations": len(rows),
-        }
-        for path, values in sorted(values_by_path.items()):
-            _set_path(
-                bucket,
-                path,
-                {
-                    "first": values[0],
-                    "last": values[-1],
-                    "min": min(values),
-                    "max": max(values),
-                    "samples": len(values),
-                },
-            )
-        buckets.append(bucket)
-    return buckets
+def _normalize_samples(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for source in rows:
+        observed_at = source.get("observed_at")
+        if not isinstance(observed_at, datetime):
+            continue
+        row: dict[str, Any] = {"t": iso(observed_at)}
+        for key in ("market_cap", "liquidity", "organic_score"):
+            value = numeric(source.get(key))
+            if value is not None:
+                row[key] = value
+        stats = numeric_object(source.get("stats_1h"))
+        if stats:
+            row["stats_1h"] = stats
+        result.append(row)
+    return result
 
 
 def _percentile(values: list[float], q: float) -> float | None:
@@ -330,11 +184,11 @@ def _percentile(values: list[float], q: float) -> float | None:
 
 
 def _metric_points(
-    history: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
     *path: str,
 ) -> list[tuple[str, float]]:
     points: list[tuple[str, float]] = []
-    for row in history:
+    for row in rows:
         value = numeric(get_path(row, *path))
         if value is not None:
             points.append((row["t"], float(value)))
@@ -348,11 +202,11 @@ def _change_pct(start: float, current: float) -> float | None:
 
 
 def _metric_summary(
-    history: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
     *path: str,
     peak_and_drawdown: bool = False,
 ) -> dict[str, Any]:
-    points = _metric_points(history, *path)
+    points = _metric_points(rows, *path)
     if not points:
         return {}
     values = [value for _, value in points]
@@ -370,20 +224,19 @@ def _metric_summary(
         for value in values:
             running_peak = max(running_peak, value)
             if running_peak > 0:
-                max_drawdown = min(
-                    max_drawdown,
-                    (value / running_peak - 1) * 100,
-                )
+                max_drawdown = min(max_drawdown, (value / running_peak - 1) * 100)
         result["peak_at"] = points[peak_index][0]
         result["max_drawdown_pct"] = rounded(max_drawdown)
     return result
 
 
-def _bucket_last(bucket: dict[str, Any], *path: str) -> float | None:
-    metric = get_path(bucket, *path)
-    if not isinstance(metric, dict):
-        return None
-    return numeric(metric.get("last"))
+def _sampled_values(rows: list[dict[str, Any]], *path: str) -> list[float]:
+    values: list[float] = []
+    for row in rows:
+        value = numeric(get_path(row, *path))
+        if value is not None:
+            values.append(float(value))
+    return values
 
 
 def _summarize_values(values: list[float]) -> dict[str, Any]:
@@ -397,27 +250,16 @@ def _summarize_values(values: list[float]) -> dict[str, Any]:
     }
 
 
-def _sampled_values(
-    buckets: list[dict[str, Any]],
-    *path: str,
-) -> list[float]:
-    return [
-        float(value)
-        for bucket in buckets
-        if (value := _bucket_last(bucket, *path)) is not None
-    ]
-
-
 def _ratio_values(
-    buckets: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
     left: tuple[str, ...],
     right: tuple[str, ...],
     mode: str,
 ) -> list[float]:
     values: list[float] = []
-    for bucket in buckets:
-        a = _bucket_last(bucket, *left)
-        b = _bucket_last(bucket, *right)
+    for row in rows:
+        a = numeric(get_path(row, *left))
+        b = numeric(get_path(row, *right))
         if a is None or b is None:
             continue
         a = float(a)
@@ -435,7 +277,7 @@ def _ratio_values(
 def _ownership_summary(history: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for field in ("top_holders_pct", "dev_balance_pct"):
-        points = _metric_points(history, "audit", field)
+        points = _metric_points(history, field)
         if points:
             start = points[0][1]
             current = points[-1][1]
@@ -444,26 +286,24 @@ def _ownership_summary(history: list[dict[str, Any]]) -> dict[str, Any]:
                 "current": rounded(current),
                 "change_pp": rounded(current - start),
             }
-    dev_mints = _metric_points(history, "audit", "dev_mints")
+    dev_mints = _metric_points(history, "dev_mints")
     if dev_mints:
         result["dev_mints_current"] = rounded(dev_mints[-1][1])
     return result
 
 
-def _activity_summary(sampled_buckets: list[dict[str, Any]]) -> dict[str, Any]:
+def _activity_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     field_names: set[str] = set()
-    for bucket in sampled_buckets:
-        stats = bucket.get("stats_1h")
+    for sample in samples:
+        stats = sample.get("stats_1h")
         if isinstance(stats, dict):
             field_names.update(
-                key
-                for key, value in stats.items()
-                if isinstance(value, dict) and "last" in value
+                key for key, value in stats.items() if numeric(value) is not None
             )
 
     fields: dict[str, Any] = {}
     for field in sorted(field_names):
-        values = _sampled_values(sampled_buckets, "stats_1h", field)
+        values = _sampled_values(samples, "stats_1h", field)
         if values:
             fields[field] = {
                 "current": rounded(values[-1]),
@@ -491,7 +331,7 @@ def _activity_summary(sampled_buckets: list[dict[str, Any]]) -> dict[str, Any]:
             "divide",
         ),
     ):
-        values = _ratio_values(sampled_buckets, left, right, mode)
+        values = _ratio_values(samples, left, right, mode)
         if values:
             derived[name] = _summarize_values(values)
 
@@ -505,12 +345,12 @@ def _activity_summary(sampled_buckets: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _organic_summary(
     history: list[dict[str, Any]],
-    sampled_buckets: list[dict[str, Any]],
+    samples: list[dict[str, Any]],
 ) -> dict[str, Any]:
     result: dict[str, Any] = {}
     score = _metric_points(history, "organic_score")
     if score:
-        sampled_scores = _sampled_values(sampled_buckets, "organic_score")
+        sampled_scores = _sampled_values(samples, "organic_score")
         result["score"] = {
             "start": rounded(score[0][1]),
             "current": rounded(score[-1][1]),
@@ -520,11 +360,11 @@ def _organic_summary(
         }
 
     shares: list[float] = []
-    for bucket in sampled_buckets:
-        buy = _bucket_last(bucket, "stats_1h", "buy_volume")
-        sell = _bucket_last(bucket, "stats_1h", "sell_volume")
-        organic_buy = _bucket_last(bucket, "stats_1h", "buy_organic_volume")
-        organic_sell = _bucket_last(bucket, "stats_1h", "sell_organic_volume")
+    for sample in samples:
+        buy = numeric(get_path(sample, "stats_1h", "buy_volume"))
+        sell = numeric(get_path(sample, "stats_1h", "sell_volume"))
+        organic_buy = numeric(get_path(sample, "stats_1h", "buy_organic_volume"))
+        organic_sell = numeric(get_path(sample, "stats_1h", "sell_organic_volume"))
         if None in (buy, sell, organic_buy, organic_sell):
             continue
         total = float(buy) + float(sell)
@@ -535,15 +375,18 @@ def _organic_summary(
     return result
 
 
-def build_temporal_summary(history: list[dict[str, Any]]) -> dict[str, Any]:
+def build_temporal_summary(
+    history_rows: list[dict[str, Any]],
+    sample_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    history = _normalize_history(history_rows)
     if not history:
         raise ValueError("temporal summary requires at least one observation")
+    samples = _normalize_samples(sample_rows or history_rows)
 
     start = datetime.fromisoformat(history[0]["t"])
     end = datetime.fromisoformat(history[-1]["t"])
     duration_seconds = max(0.0, (end - start).total_seconds())
-    sampled_buckets = make_buckets(history, SUMMARY_SAMPLE_MINUTES)
-
     summary: dict[str, Any] = {
         "history": {
             "hours": rounded(duration_seconds / 3600, 4),
@@ -559,12 +402,7 @@ def build_temporal_summary(history: list[dict[str, Any]]) -> dict[str, Any]:
 
     liquidity = _metric_summary(history, "liquidity")
     if liquidity:
-        ratios = _ratio_values(
-            sampled_buckets,
-            ("liquidity",),
-            ("market_cap",),
-            "divide",
-        )
+        ratios = _ratio_values(samples, ("liquidity",), ("market_cap",), "divide")
         if ratios:
             liquidity["liquidity_to_market_cap"] = _summarize_values(ratios)
         summary["liquidity"] = liquidity
@@ -577,52 +415,30 @@ def build_temporal_summary(history: list[dict[str, Any]]) -> dict[str, Any]:
     if ownership:
         summary["ownership"] = ownership
 
-    activity = _activity_summary(sampled_buckets)
+    activity = _activity_summary(samples)
     if activity:
         summary["activity_1h"] = activity
 
-    organic = _organic_summary(history, sampled_buckets)
+    organic = _organic_summary(history, samples)
     if organic:
         summary["organic"] = organic
 
     return summary
 
 
-def choose_temporal_resolution(history: list[dict[str, Any]]) -> int:
-    if not history:
-        raise ValueError("temporal resolution requires at least one observation")
-    start = datetime.fromisoformat(history[0]["t"])
-    end = datetime.fromisoformat(history[-1]["t"])
-    duration_seconds = max(0.0, (end - start).total_seconds())
-    return 1 if duration_seconds <= ONE_MINUTE_MAX_HISTORY_HOURS * 3600 else 5
-
-
-def build_temporal_history(history: list[dict[str, Any]]) -> dict[str, Any]:
-    resolution_minutes = choose_temporal_resolution(history)
-    return {
-        "resolution_minutes": resolution_minutes,
-        "buckets": make_buckets(history, resolution_minutes),
-    }
-
-
 def build_temporal_summary_bundle(
     mint: str,
-    rows: list[dict[str, Any]],
+    history_rows: list[dict[str, Any]],
+    sample_rows: list[dict[str, Any]] | None = None,
+    token: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    header, history = _normalized(mint, rows)
+    identity = {"mint": mint}
+    if token:
+        for key in ("name", "symbol", "launchpad"):
+            value = token.get(key)
+            if value not in (None, ""):
+                identity[key] = value
     return {
-        "token": header,
-        "summary": build_temporal_summary(history),
-    }
-
-
-def build_temporal_context(
-    mint: str,
-    rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    header, history = _normalized(mint, rows)
-    return {
-        "token": header,
-        "summary": build_temporal_summary(history),
-        "temporal_history": build_temporal_history(history),
+        "token": identity,
+        "summary": build_temporal_summary(history_rows, sample_rows),
     }
