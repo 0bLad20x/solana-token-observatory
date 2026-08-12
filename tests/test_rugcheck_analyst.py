@@ -35,6 +35,7 @@ class RugCheckAnalystTests(unittest.TestCase):
                 "score": 123,
                 "score_normalised": 42,
                 "rugged": False,
+                "detectedAt": "2026-08-12T11:30:00Z",
                 "risks": [
                     {
                         "name": "Mutable metadata",
@@ -128,7 +129,11 @@ class RugCheckAnalystTests(unittest.TestCase):
         system = request["messages"][0]["content"]
         self.assertIn("external provider", system)
         self.assertIn("supplied semantics", system)
-        self.assertIn("do not invent score formulas", system)
+        self.assertIn("Never classify raw score", system)
+        self.assertIn("not token creation time", system)
+        self.assertIn("Do not assign a platform reputation", system)
+        self.assertIn("Do not equate raw top", system)
+        self.assertIn("Do not infer that missing/no locker", system)
 
         user_message = request["messages"][1]["content"]
         context_text = user_message.split(
@@ -138,12 +143,17 @@ class RugCheckAnalystTests(unittest.TestCase):
         self.assertEqual(set(delivered), {"source", "fetched_at", "summary"})
         self.assertEqual(delivered["source"], "rugcheck")
         self.assertIn("semantics", delivered["summary"])
-        self.assertIn("not a probability", delivered["summary"]["semantics"]["score"])
+        self.assertIn("do not classify", delivered["summary"]["semantics"]["score"])
+        self.assertIn("not token creation time", delivered["summary"]["semantics"]["detected_at"])
         self.assertEqual(
             delivered["summary"]["provider_risk"]["risks"][0]["description"],
             "Metadata can change",
         )
         self.assertEqual(delivered["summary"]["ownership"]["top1_pct"], 10.0)
+        self.assertEqual(
+            delivered["summary"]["ownership"]["known_top_holder_type_pct"],
+            {"AMM": 10.0},
+        )
         self.assertEqual(delivered["summary"]["liquidity"]["market_count"], 1)
 
         serialized = json.dumps(delivered, ensure_ascii=False)
@@ -158,7 +168,7 @@ class RugCheckAnalystTests(unittest.TestCase):
         self.assertEqual(result["scope"], "rugcheck")
         self.assertEqual(result["evidence"]["source"], "rugcheck")
         self.assertEqual(result["evidence"]["mint"], MINT)
-        self.assertEqual(result["evidence"]["mode"], "rugcheck_analysis_v3")
+        self.assertEqual(result["evidence"]["mode"], "rugcheck_analysis_v4")
         self.assertEqual(result["evidence"]["raw_report_bytes"], 5000)
         self.assertGreater(result["evidence"]["analysis_rough_tokens"], 0)
         self.assertEqual(result["evidence"]["markets_observed"], 1)
