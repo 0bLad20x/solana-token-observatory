@@ -89,6 +89,7 @@ def _print_section_sample(section: str, value: Any, sample_size: int) -> None:
 async def inspect(
     mint: str,
     show_json: bool,
+    show_analysis: bool,
     sections: list[str],
     sample_size: int,
 ) -> int:
@@ -120,26 +121,41 @@ async def inspect(
         reduction = 100.0 * (1.0 - projected_bytes / raw_bytes)
 
     print()
-    print("ANALYSIS PROJECTION")
-    print(f"Mode:                    {projection.get('type')}")
-    print(f"Raw report bytes:        {raw_bytes:,}" if isinstance(raw_bytes, int) else "Raw report bytes:        -")
+    print("ANALYSIS METADATA")
+    print(f"Mode:                     {projection.get('type')}")
     print(
-        f"Projected report bytes:  {projected_bytes:,}"
+        f"Raw report bytes:         {raw_bytes:,}"
+        if isinstance(raw_bytes, int)
+        else "Raw report bytes:         -"
+    )
+    print(
+        f"Metadata bytes:           {projected_bytes:,}"
         if isinstance(projected_bytes, int)
-        else "Projected report bytes:  -"
+        else "Metadata bytes:           -"
     )
     projected_tokens = projection.get("projected_rough_report_tokens")
     print(
-        f"Projected rough tokens:  {projected_tokens:,}"
+        f"Metadata rough tokens:    {projected_tokens:,}"
         if isinstance(projected_tokens, int)
-        else "Projected rough tokens:  -"
+        else "Metadata rough tokens:    -"
     )
-    print(f"Reduction:               {reduction:.1f}%" if reduction is not None else "Reduction:               -")
-    print(f"Markets retained:        {projection.get('markets_total')}")
     print(
-        "Known accounts retained: "
-        f"{projection.get('known_accounts_retained')} / {projection.get('known_accounts_total')}"
+        f"Reduction:                {reduction:.1f}%"
+        if reduction is not None
+        else "Reduction:                -"
     )
+    print(f"Markets observed:         {projection.get('markets_observed')}")
+    print(f"Top holders observed:     {projection.get('top_holders_observed')}")
+    print(f"Known accounts observed:  {projection.get('known_accounts_observed')}")
+    print(
+        "Wallet addresses to LLM: "
+        f"{projection.get('wallet_addresses_sent_to_llm')}"
+    )
+
+    if show_analysis:
+        print()
+        print("LLM SAFETY METADATA JSON")
+        print(json.dumps(projected.get("summary"), ensure_ascii=False, indent=2))
 
     for section in sections:
         if section not in report:
@@ -160,6 +176,11 @@ def main() -> None:
     parser.add_argument("mint")
     parser.add_argument("--show-json", action="store_true")
     parser.add_argument(
+        "--show-analysis",
+        action="store_true",
+        help="Print exactly the compact safety metadata delivered to the LLM.",
+    )
+    parser.add_argument(
         "--section",
         action="append",
         default=[],
@@ -179,6 +200,7 @@ def main() -> None:
             inspect(
                 args.mint,
                 args.show_json,
+                args.show_analysis,
                 args.section,
                 args.sample_size,
             )
