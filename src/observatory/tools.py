@@ -63,6 +63,10 @@ class QueryToolError(ValueError):
     """Invalid model-produced arguments at the bounded tool boundary."""
 
 
+class TemporalToolError(ValueError):
+    """Invalid model-produced arguments at the selected-token temporal boundary."""
+
+
 def query_capabilities(tokens: list[dict[str, Any]]) -> dict[str, Any]:
     launchpad_counts = Counter(
         str(token.get("launchpad") or "unknown")
@@ -129,6 +133,47 @@ def query_tokens_tool(capabilities: dict[str, Any]) -> dict[str, Any]:
             },
         },
     }
+
+
+def temporal_context_tool(selected_mint: str) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": "get_token_temporal_context",
+            "description": (
+                "Load the bounded temporal evidence for exactly the currently selected "
+                "Solana mint. Resolution and time range are server-controlled."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mint": {
+                        "type": "string",
+                        "enum": [selected_mint],
+                        "description": "Exact currently selected Solana mint.",
+                    }
+                },
+                "required": ["mint"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def validate_temporal_context_arguments(
+    arguments: dict[str, Any],
+    selected_mint: str,
+) -> str:
+    if not isinstance(arguments, dict):
+        raise TemporalToolError(
+            "get_token_temporal_context arguments must be an object"
+        )
+    if set(arguments) != {"mint"}:
+        raise TemporalToolError("only the selected mint argument is supported")
+    mint = arguments.get("mint")
+    if not isinstance(mint, str) or mint != selected_mint:
+        raise TemporalToolError("tool mint must equal the currently selected mint")
+    return mint
 
 
 def _arguments(arguments: dict[str, Any]) -> dict[str, Any]:
