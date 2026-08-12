@@ -1,13 +1,15 @@
 import { ActivityTracker } from "./activity.js";
 import { ActivityUI } from "./activity-ui.js";
-import { connectUniverseStream, fetchToken, fetchUniverse, requestAnalyst } from "./api.js";
+import { connectTelemetryStream, connectUniverseStream, fetchToken, fetchUniverse, requestAnalyst } from "./api.js";
 import { AnalystUI } from "./analyst-ui.js";
 import { ObservatoryState } from "./state.js";
+import { TelemetryUI } from "./telemetry-ui.js";
 import { TokenUI } from "./token-ui.js";
 import { SimpleTokenView } from "./views/simple-token-view.js";
 
 const state = new ObservatoryState();
 const activity = new ActivityTracker();
+const telemetryUI = new TelemetryUI();
 const streamStatus = document.querySelector("#stream-status");
 const stageElement = document.querySelector("#universe-stage");
 
@@ -90,10 +92,18 @@ async function bootstrap() {
     onSnapshot: applySnapshot,
     onDelta: delta => applyDelta(delta.events || [], delta.generated_at),
   });
+
+  connectTelemetryStream({
+    onOpen: () => telemetryUI.setConnection("Live"),
+    onError: () => telemetryUI.setConnection("Reconnecting"),
+    onSnapshot: snapshot => telemetryUI.load(snapshot),
+    onEvent: event => telemetryUI.apply(event),
+  });
 }
 
 setInterval(() => {
   if (tokenUI && activityUI) renderDerivedState();
+  telemetryUI.render();
 }, 1000);
 
 setInterval(async () => {
@@ -111,4 +121,5 @@ setInterval(async () => {
 bootstrap().catch(error => {
   console.error(error);
   setStreamStatus("error", "Offline");
+  telemetryUI.setConnection("Offline");
 });
