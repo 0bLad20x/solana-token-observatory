@@ -20,6 +20,11 @@ export async function fetchToken(mint) {
   return readJson(response, "Token request failed");
 }
 
+export async function fetchTelemetry() {
+  const response = await fetch("/api/telemetry");
+  return readJson(response, "Telemetry request failed");
+}
+
 export async function requestAnalyst(body) {
   const response = await fetch("/api/analyst", {
     method: "POST",
@@ -47,6 +52,27 @@ export function connectUniverseStream({ onOpen, onError, onSnapshot, onDelta }) 
       onDelta?.(delta);
     } catch (error) {
       console.warn("Invalid universe delta", error);
+    }
+  });
+  return stream;
+}
+
+export function connectTelemetryStream({ onOpen, onError, onSnapshot, onEvent }) {
+  const stream = new EventSource("/api/telemetry/events");
+  stream.addEventListener("open", () => onOpen?.());
+  stream.addEventListener("error", event => onError?.(event));
+  stream.addEventListener("telemetry_snapshot", message => {
+    try {
+      onSnapshot?.(JSON.parse(message.data));
+    } catch (error) {
+      console.warn("Invalid telemetry snapshot", error);
+    }
+  });
+  stream.addEventListener("telemetry_event", message => {
+    try {
+      onEvent?.(JSON.parse(message.data));
+    } catch (error) {
+      console.warn("Invalid telemetry event", error);
     }
   });
   return stream;
