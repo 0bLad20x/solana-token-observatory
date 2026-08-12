@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from observatory.analyst import analyze_temporal_token
+from observatory.analyst import TEMPORAL_MAX_OUTPUT_TOKENS, analyze_temporal_token
 from observatory.tools import (
     TemporalToolError,
     temporal_context_tool,
@@ -148,10 +148,13 @@ class TemporalAnalystTests(unittest.TestCase):
             first_request["tools"][0]["function"]["name"],
             "get_token_temporal_context",
         )
+        self.assertEqual(first_request["tool_choice"], "required")
         self.assertIn("NOT sufficient evidence", first_request["messages"][0]["content"])
         self.assertIn("temporal_history", first_request["messages"][0]["content"])
 
-        tool_message = captured[1]["json"]["messages"][-1]
+        final_request = captured[1]["json"]
+        self.assertEqual(final_request["max_tokens"], TEMPORAL_MAX_OUTPUT_TOKENS)
+        tool_message = final_request["messages"][-1]
         delivered = json.loads(tool_message["content"])
         self.assertEqual(delivered, context)
         self.assertEqual(result["scope"], "temporal")
