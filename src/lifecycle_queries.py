@@ -155,6 +155,42 @@ class LifecycleQueries:
             },
         )
 
+    def fetch_holder_checkpoint(
+        self,
+        checkpoint_minutes: int,
+    ) -> list[dict[str, Any]]:
+        """Return retained T+checkpoint holder evidence for active mints."""
+        query = """
+            SELECT
+                m.mint,
+                decision.payload
+            FROM mints m
+            JOIN LATERAL (
+                SELECT s.payload
+                FROM mint_snapshots s
+                WHERE s.mint = m.mint
+                  AND s.observed_at <=
+                      m.first_observed_at
+                      + (%(checkpoint_minutes)s * INTERVAL '1 minute')
+                ORDER BY s.observed_at DESC
+                LIMIT 1
+            ) decision ON true
+            WHERE m.tracking_enabled = true
+              AND m.first_observed_at IS NOT NULL
+              AND m.first_observed_at <=
+                  CURRENT_TIMESTAMP
+                  - (%(checkpoint_minutes)s * INTERVAL '1 minute')
+              AND m.last_polled_at IS NOT NULL
+              AND m.last_polled_at >=
+                  m.first_observed_at
+                  + (%(checkpoint_minutes)s * INTERVAL '1 minute')
+            ORDER BY m.mint
+        """
+        return self._fetchall(
+            query,
+            {"checkpoint_minutes": checkpoint_minutes},
+        )
+
     def fetch_threshold_scan(
         self,
         rule_key: str,
