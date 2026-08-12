@@ -15,7 +15,7 @@ Der operative Core besitzt vier Verantwortungen:
 3. **Persistence:** tatsächlich beobachtete Jupiter-Source-Versionen nachvollziehbar persistieren und über eine begrenzte Retention pflegen.
 4. **Operational Lifecycle:** Tokens anhand des eingefrorenen Lifecycle-Contracts deaktivieren.
 
-Frontend, Analyst und Research sind read-only Downstream-Consumer und besitzen keine operative Mutation-Authority.
+Frontend, Analyst, Telemetry und Research sind read-only Downstream-Consumer bzw. Beobachtungspfade und besitzen keine operative Mutation-Authority.
 
 ## Datenfluss
 
@@ -141,6 +141,41 @@ subsequent universe_delta events
 
 Der initiale Stream-Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas. `GET /api/token/{mint}` bleibt ein Selected-Detail-Read und schreibt nicht als zweiter Pfad in die Population.
 
+## Live Operational Telemetry
+
+Collector und Lifecycle emittieren zusätzlich kleine best-effort Runtime-Events über localhost UDP. Das Observatory hält diese Events standardmäßig zehn Minuten ausschließlich im RAM und stellt sie separat bereit:
+
+```text
+GET /api/telemetry
+GET /api/telemetry/events
+```
+
+Beobachtet werden:
+
+```text
+Discovery intake
+Jupiter Search lanes
+WriteQueue flow
+Lifecycle R1-R7
+```
+
+Die Telemetrie ist flüchtig: keine DB-/Disk-Persistenz, keine API Keys, keine Mint-Listen, kein Alerting und keine operative Mutation.
+
+Im Browser bedeuten die beiden Population-Zähler bewusst nicht exakt dasselbe:
+
+- `ACTIVE` oben: aktuell vom Observatory-Read-Model sichtbare Token-Population;
+- `TRACKING` im Lifecycle-Telemetrieblock: alle `mints` mit `tracking_enabled=true` nach dem jeweiligen Lifecycle-Cycle.
+
+Im stabilen Betrieb liegen beide eng zusammen. Kleine Differenzen sind zulässig, weil beide Pfade unabhängig lesen und das Observatory zusätzlich einen verfügbaren jüngsten Raw-Snapshot benötigt.
+
+Konfiguration:
+
+```text
+TELEMETRY_HOST=127.0.0.1
+TELEMETRY_PORT=8765
+TELEMETRY_RETENTION_SECONDS=600
+```
+
 ## Analyst
 
 `POST /api/analyst` besitzt vier explizite read-only Use Cases:
@@ -188,16 +223,19 @@ Der vollständige RugCheck Token Report bleibt als Provider-Evidence verfügbar.
 
 ## Funktionale Observatory-Grenze
 
-Der Functional Core ist nach Issue #20 / PR #21 und dem finalen Synchronisations-Slice PR #24 abgeschlossen. Er enthält Domain-Fakten, Population, Selection und Live-Event-Anwendung, aber keine Presentation Truth wie `x/y`, Radius, Farbe, Opacity, D3/Pixi-State oder Clusterpositionen.
+Der Functional Core ist nach Issue #20 / PR #21 und dem finalen Synchronisations-Slice PR #24 abgeschlossen. Der Live-Telemetrie-Slice ergänzt Observability, aber keine neue Domain- oder Mutation-Authority.
 
-Der nächste Schritt ist deshalb **nicht automatisch ein neues Visual Design**. Der aktuelle Projektcheckpoint und die noch zu entscheidenden Evidence-/Relation-Fragen stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
+Der nächste Visual-Slice kann auf dem jetzt real bewiesenen Operational Flow aufbauen: Discovery → Search → WriteQueue → Lifecycle → Tracking Survivors. Token-bezogenes Visual-/Spatial-Research bleibt davon getrennt.
+
+Der aktuelle Projektcheckpoint steht in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
 ## Validierung
 
 ```powershell
 python -m compileall -q src tools
 python -m unittest discover -s tests -v
-node --test tests/test_frontend_state.mjs tests/test_frontend_sync.mjs
+node --test tests/test_frontend_state.mjs tests/test_frontend_sync.mjs tests/test_telemetry_frontend.mjs
+python -m unittest tests.test_telemetry -v
 python src/main.py --help
 python src/lifecycle_clean.py --help
 python tools/verify_lifecycle_contract_v01.py
@@ -209,7 +247,7 @@ Für Lifecycle v0.3 zusätzlich gezielt:
 python -m unittest tests.test_lifecycle_rule6 tests.test_lifecycle_rule7 -v
 ```
 
-Hinweis: Der repository-weite `unittest discover` besitzt aktuell zwei bereits auf `main` vorhandene Importfehler in veralteten `diagnostics`-Tests. Lifecycle-v0.3 verändert diesen unabhängigen Baseline-Zustand nicht.
+Hinweis: Der repository-weite `unittest discover` besitzt aktuell zwei bereits auf `main` vorhandene Importfehler in veralteten `diagnostics`-Tests. Lifecycle-v0.3 und Telemetry verändern diesen unabhängigen Baseline-Zustand nicht.
 
 Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
 
@@ -218,7 +256,7 @@ Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
 - [`README.md`](README.md): Zweck, Einstieg und Bedienung.
 - [`docs/architecture.md`](docs/architecture.md): implementierte Komponenten, Datenfluss und harte Systemgrenzen.
 - [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md): fachliche Semantik und Version des operativen Lifecycle.
-- [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md): funktionaler Observatory-/Analyst-Vertrag und Truth-Grenzen.
+- [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md): funktionaler Observatory-/Analyst-/Telemetry-Vertrag und Truth-Grenzen.
 - [`docs/MILESTONES.md`](docs/MILESTONES.md): aktueller Checkpoint und nächste Entwicklungsentscheidung.
 - [`AGENTS.md`](AGENTS.md): verbindliche Regeln für Repository-Änderungen.
 
