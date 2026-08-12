@@ -73,7 +73,7 @@ Snapshot-Abstände sind deshalb keine Poll-Abstände. Fehlende Zwischen-Snapshot
 
 ## Lifecycle-Änderungen
 
-`docs/LIFECYCLE_CONTRACT.md` ist die fachliche Authority für Rule 1–6 und Contract v0.2.
+`docs/LIFECYCLE_CONTRACT.md` ist die fachliche Authority für Rule 1–7 und Contract v0.3.
 
 Eine reine Simplification darf SQL, Python-Struktur, Datenzugriff oder Orchestrierung ändern, aber nicht:
 
@@ -92,7 +92,9 @@ Rule 1–5 sind aus Contract v0.1 unverändert übernommen. Für Änderungen, di
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Der Verifier ist absichtlich auf Rule 1–5 begrenzt. Rule 6 wird separat durch ihren v0.2-Contract, Unit-Tests und den realen Dry-Run/Apply-Pfad validiert. Eine Änderung an Rule 6 ist eine neue Lifecycle-Semantik und keine v0.1-Simplification.
+Der Verifier ist absichtlich auf Rule 1–5 begrenzt. Rule 6 und Rule 7 werden separat durch ihren versionierten Contract und gezielte Unit-Tests validiert. Eine Änderung an Rule 6 oder Rule 7 ist neue Lifecycle-Semantik und keine v0.1-Simplification.
+
+Rule 7 darf `last_polled_at` und `last_changed_at` nicht verwechseln: ein frisch erfolgreich gepollter Mint mit seit mindestens 24 Stunden unveränderter Jupiter-Source-Version ist ein Lifecycle-Kandidat; ein nicht frisch gepollter Mint ist es aufgrund dieser Regel nicht.
 
 ## Frontend-/Observatory-Änderungen
 
@@ -168,10 +170,10 @@ Für Änderungen an den geerbten Lifecycle-Regeln 1–5 zusätzlich:
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Für Rule 6 zusätzlich mindestens:
+Für Rule 6 / Rule 7 zusätzlich mindestens:
 
 ```powershell
-python -m unittest tests.test_lifecycle_rule6 -v
+python -m unittest tests.test_lifecycle_rule6 tests.test_lifecycle_rule7 -v
 python src/lifecycle_clean.py --once
 ```
 
