@@ -25,6 +25,7 @@ from .analyst import (
     validate_search_mode,
 )
 from .data import FrontendReader
+from .delta import changes, fingerprint
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).with_name("static")
@@ -50,38 +51,6 @@ class AnalystRequest(BaseModel):
     scope: Literal["current_data", "web", "temporal"] = "current_data"
     mint: str | None = Field(default=None, pattern=r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     question: str = Field(min_length=1, max_length=1000)
-
-
-def _fingerprint(token: dict[str, Any]) -> tuple[Any, ...]:
-    return (
-        token["tracking_enabled"],
-        token["source_updated_at"],
-        token["last_changed_at"],
-        token["market_cap"],
-        token["liquidity"],
-        token["holders"],
-        token["trades_5m"],
-        token["traders_5m"],
-        token["volume_5m"],
-    )
-
-
-def _numeric_change(before: float | int | None, after: float | int | None) -> dict[str, float | None]:
-    if before is None or after is None:
-        return {"absolute": None, "percent": None}
-    absolute = float(after) - float(before)
-    percent = None if before == 0 else absolute / abs(float(before)) * 100.0
-    return {"absolute": absolute, "percent": percent}
-
-
-def _changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "market_cap": _numeric_change(before.get("market_cap"), after.get("market_cap")),
-        "liquidity": _numeric_change(before.get("liquidity"), after.get("liquidity")),
-        "holders": _numeric_change(before.get("holders"), after.get("holders")),
-        "traders_5m": _numeric_change(before.get("traders_5m"), after.get("traders_5m")),
-        "volume_5m": _numeric_change(before.get("volume_5m"), after.get("volume_5m")),
-    }
 
 
 def _traced_temporal_summary(mint: str) -> dict[str, Any] | None:
@@ -226,12 +195,12 @@ async def events() -> AsyncIterator[ServerSentEvent]:
             before = previous.get(mint)
             if before is None:
                 delta.append({"type": "token_added", "token": token})
-            elif _fingerprint(before) != _fingerprint(token):
+            elif fingerprint(before) != fingerprint(token):
                 delta.append(
                     {
                         "type": "token_updated",
                         "token": token,
-                        "changes": _changes(before, token),
+                        "changes": changes(before, token),
                     }
                 )
 
