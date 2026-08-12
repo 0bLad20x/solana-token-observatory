@@ -191,6 +191,21 @@ class LifecycleQueries:
             {"checkpoint_minutes": checkpoint_minutes},
         )
 
+    def fetch_active_source_state(self) -> list[dict[str, Any]]:
+        """Return lightweight collector timestamps for Rule 7."""
+        query = """
+            SELECT
+                m.mint,
+                m.first_observed_at,
+                m.last_polled_at,
+                m.last_changed_at,
+                m.source_updated_at
+            FROM mints m
+            WHERE m.tracking_enabled = true
+            ORDER BY m.mint
+        """
+        return self._fetchall(query)
+
     def fetch_threshold_scan(
         self,
         rule_key: str,
