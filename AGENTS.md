@@ -28,7 +28,7 @@ Vermeiden:
 - parallele Implementierungen derselben Verantwortung;
 - Kopien bestehender Dokumentations-Authorities;
 - unnötige Dependencies oder dauerhafte Zwischenartefakte;
-- implizite Änderungen von Daten- oder Lifecycle-Semantik.
+- implizite Änderungen von Daten-, Lifecycle- oder Evidence-Semantik.
 
 Die bestehende Struktur wird erweitert, wenn eine neue fachliche Grenze existiert — nicht vorsorglich.
 
@@ -44,7 +44,9 @@ Diese Invarianten gelten, solange sie nicht ausdrücklich als Architekturänderu
 - Nur der ausdrücklich definierte Lifecycle-Pfad darf aufgrund von Lifecycle-Regeln `tracking_enabled=false` setzen.
 - Die fachliche Lifecycle-Semantik folgt `docs/LIFECYCLE_CONTRACT.md`.
 - Read-only Consumer dürfen operative Daten lesen, aber weder Tracking-, Priority-, Lifecycle- noch Collector-owned State verändern.
-- Frontend-Visualisierung und LLM-Analyse folgen `docs/FRONTEND_OBSERVATORY.md` und besitzen keine operative Mutation-Authority.
+- External Evidence wie Web oder RugCheck bleibt externe Evidence und wird nicht stillschweigend zu Jupiter- oder Lifecycle-Truth.
+- LLM-Interpretation besitzt keine operative Authority.
+- Frontend-Visualisierung und Analyst folgen `docs/FRONTEND_OBSERVATORY.md`.
 
 ## Datenbank- und Mutation-Ownership
 
@@ -55,9 +57,7 @@ Diese Invarianten gelten, solange sie nicht ausdrücklich als Architekturänderu
 - `src/lifecycle_clean.py` orchestriert den operativen Lifecycle und ruft Mutationen nur über `MintRepository` auf.
 - Downstream-Code bleibt read-only gegenüber operativem State.
 
-Persistente Schemaänderungen erfolgen explizit in `src/schema.sql`.
-
-Keine versteckte Schema-Migration im normalen Lauf einführen.
+Persistente Schemaänderungen erfolgen explizit in `src/schema.sql`. Keine versteckte Schema-Migration im normalen Lauf einführen.
 
 ## Beobachtungssemantik
 
@@ -67,7 +67,7 @@ Die folgenden Zustände dürfen nicht vermischt werden:
 - `last_polled_at`: letzter erfolgreicher Poll;
 - `last_changed_at`: lokale Beobachtungszeit der jüngsten neuen Source-Version;
 - `source_updated_at`: jüngster persistierter Jupiter-`updatedAt`-Wert;
-- `mint_snapshots`: immutable Historie beobachteter Source-Versionen.
+- `mint_snapshots`: immutable Historie beobachteter Source-Versionen innerhalb des Raw-Buffers.
 
 Snapshot-Abstände sind deshalb keine Poll-Abstände. Fehlende Zwischen-Snapshots dürfen nicht künstlich interpoliert werden, sofern eine spätere Methodik dies nicht ausdrücklich und nachvollziehbar definiert.
 
@@ -96,16 +96,36 @@ Nur wenn pro Regel exakt dieselben `(mint, reason)`-Sets entstehen, ist die Änd
 
 ## Frontend-/Observatory-Änderungen
 
-`docs/FRONTEND_OBSERVATORY.md` ist die Authority für Produktgrenze, Truth Layers, Design-Semantik, Motion/Delta-Verhalten, ViewSpec und den aktiven vertikalen Frontend-Plan.
+`docs/FRONTEND_OBSERVATORY.md` ist die Authority für funktionale Produktgrenze, Truth Layers, Population/Selection-Vertrag, Browser-Synchronisation, Analyst-/Evidence-Grenzen und die Trennung von Functional Core und Presentation.
+
+Der Functional Core ist aktuell eingefroren. Änderungen an Population Ownership, Selection, Synchronisationsgrenze oder Read-only-Grenzen benötigen einen neuen expliziten fachlichen Grund und dürfen nicht als beiläufiger Visual-/Feature-Refactor erfolgen.
 
 Frontend-Arbeit folgt diesen zusätzlichen Regeln:
 
 - jeder Slice soll ein sichtbar testbares Ergebnis liefern;
-- Live-Deltas dürfen nicht ohne fachlichen Grund das gesamte visuelle Layout reorganisieren;
-- Farben und Bewegung werden semantisch verwendet, nicht dekorativ oder zufällig;
+- Population State besitzt keine Presentation Truth;
+- `GET /api/token/{mint}` ist kein zweiter beliebiger Population-Updatepfad;
+- Stream-Synchronisation muss die definierte Snapshot-zu-Delta-Grenze erhalten;
+- konkrete Views sind Consumer und keine Domain-Authority;
 - LLM-Keys und externe Analyst-Zugänge bleiben serverseitig;
 - LLM-Tools bleiben bounded und read-only;
-- keine neue Frontend-Abstraktion einführen, bevor eine konkrete Verantwortung existiert.
+- External Evidence wird nicht zu operativer Truth umgedeutet;
+- keine neue Frontend-, View-, Event- oder Agent-Abstraktion einführen, bevor eine konkrete Verantwortung existiert.
+
+Design-Semantik ist **nicht** im Functional Core vorab festgelegt. Position, Größe, Farbe, Opacity und Motion werden erst in einem ausdrücklich beauftragten Visual-/Spatial-Slice aus einer analytischen Frage abgeleitet.
+
+## Analyst-/Evidence-Änderungen
+
+Die heutigen Analyst-Pfade `current_data`, `web`, `temporal` und `rugcheck` sind getrennte read-only Use Cases.
+
+- Modellwahl bleibt serverseitige Use-Case-Policy.
+- Predetermined External Fetches benötigen keinen vorgeschalteten LLM Tool Call.
+- Retrieval und Interpretation bleiben getrennte Verantwortungen.
+- Bounded Tools dürfen unsupported Felder nicht durch Proxy-Metriken ersetzen.
+- Evidence-Provenance bleibt explizit; Source und vom System erzeugte bzw. vom Provider gelieferte Timestamps werden erhalten, wenn sie zum jeweiligen Vertrag gehören. Missing bleibt Missing.
+- Ein späterer Unified Router wird erst implementiert, wenn sein realer Routing-Vertrag entschieden ist.
+
+Keine generische Agent-/Tool-Infrastruktur aus den heutigen vier Scopes extrapolieren.
 
 ## Downstream-Consumer
 
@@ -129,7 +149,7 @@ Nur Änderungen durchführen, die für die angeforderte Aufgabe oder zur Vermeid
 
 Keine beiläufigen Features oder Refactorings.
 
-Roadmap-Ziele aus `docs/MILESTONES.md` sind keine implizite Implementierungsfreigabe. Nur ausdrücklich beauftragte Milestones oder Teilaufgaben umsetzen.
+Roadmap-Kandidaten aus `docs/MILESTONES.md` sind keine implizite Implementierungsfreigabe. Nur ausdrücklich beauftragte Milestones oder Teilaufgaben umsetzen.
 
 ## Validierung
 
@@ -146,11 +166,9 @@ Für Lifecycle-Simplifications zusätzlich:
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Für CLI- oder Entry-Point-Änderungen zusätzlich den betroffenen `--help`-Aufruf prüfen.
+Für Frontend-Synchronisations-/State-Änderungen zusätzlich die betroffenen Node-Tests und den realen Browserpfad prüfen.
 
-Frontend-Slices zusätzlich gegen den real laufenden read-only API-/SSE-Pfad und im Browser validieren.
-
-Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf validieren.
+Für CLI- oder Entry-Point-Änderungen zusätzlich den betroffenen `--help`-Aufruf prüfen. Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf validieren.
 
 ## Dokumentation
 
@@ -159,13 +177,13 @@ Dauerhafte Dokumentation hat genau eine Authority pro Frage:
 - `README.md`: Zweck, Einstieg und Bedienung.
 - `docs/architecture.md`: implementierte Komponenten, Datenfluss und Systemgrenzen.
 - `docs/LIFECYCLE_CONTRACT.md`: fachliche Semantik und Version des operativen Lifecycle.
-- `docs/FRONTEND_OBSERVATORY.md`: Frontend-/Observatory-Produkt-, Design-, Interaktions- und Implementierungsvertrag.
-- `docs/MILESTONES.md`: aktueller Stand und nächste Entwicklungsrichtung; keine Authority für implementierten Zustand.
+- `docs/FRONTEND_OBSERVATORY.md`: funktionaler Observatory-/Analyst-Vertrag und Truth-Grenzen.
+- `docs/MILESTONES.md`: aktueller Checkpoint und nächste Entwicklungsentscheidung; keine Authority für implementierten Detailzustand.
 - `AGENTS.md`: Änderungsregeln.
 
 Änderungshistorie gehört in Git. Refactoring-, Research- und Optimization-Notizen werden nicht als dauerhafte Architektur-Authority verwendet.
 
-Wenn sich Datenfluss, Bedienung, Persistenz oder Methodik ändern, muss im selben Arbeitsschritt die zuständige Authority angepasst werden.
+Wenn sich Datenfluss, Bedienung, Persistenz, Synchronisation oder Methodik ändern, muss im selben Arbeitsschritt die zuständige Authority angepasst werden.
 
 ## Git
 

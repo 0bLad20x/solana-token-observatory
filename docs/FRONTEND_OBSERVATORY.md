@@ -4,16 +4,15 @@
 
 **Authority:** funktionale Frontend-/Analyst-Grenzen  
 **Scope:** read-only Consumer des operativen Token-Systems  
-**Current checkpoint:** WP1–WP5 gemergt; Issue #20 Functional Core Consolidation aktiv  
+**Current checkpoint:** Functional Core abgeschlossen und eingefroren nach Issue #20 / PR #21 sowie finalem Sync-Slice PR #24  
+**Analyst:** Current Data, Web, Temporal und RugCheck produktiv bewiesen  
 **Visual design:** bewusst deferred; Issue #9 bleibt separater Research-Schritt
 
-Dieses Dokument beschreibt den stabilen funktionalen Vertrag des Observatory. Es legt
-keine finale Bubble-, Farb-, Layout-, Panel- oder Motion-Semantik fest.
+Dieses Dokument beschreibt den stabilen funktionalen Vertrag des Observatory. Es definiert keine finale Bubble-, Farb-, Layout-, Panel- oder Motion-Semantik.
 
 ## 1. Product Boundary
 
-Das Observatory ist ein read-only Workspace zum Beobachten, Finden, Selektieren und
-Analysieren von Solana Tokens.
+Das Observatory ist ein read-only Workspace zum Beobachten, Finden, Selektieren und Analysieren von Solana Tokens.
 
 ```text
 Operational Core
@@ -27,8 +26,7 @@ Discovery -> Jupiter Monitoring -> Persistence -> Lifecycle
                     Browser Workspace          LLM Analyst
 ```
 
-Frontend und Analyst dürfen lesen. Sie dürfen keine operative Authority übernehmen.
-Insbesondere keine Mutation von:
+Frontend und Analyst dürfen lesen. Sie dürfen keine operative Authority übernehmen. Insbesondere keine Mutation von:
 
 - `tracking_enabled`;
 - Lifecycle State oder Thresholds;
@@ -40,7 +38,7 @@ Insbesondere keine Mutation von:
 
 ### SYSTEM TRUTH
 
-Direkt beobachtete oder deterministisch persistierte Fakten, beispielsweise:
+Direkt gelesene oder deterministisch persistierte Fakten, beispielsweise:
 
 - Mint;
 - Jupiter Snapshot Values;
@@ -52,25 +50,23 @@ Direkt beobachtete oder deterministisch persistierte Fakten, beispielsweise:
 
 Reproduzierbar abgeleitete Werte, beispielsweise:
 
+- bounded Query Rankings;
+- WP4 Volume Activity;
 - Current-vs-Median Summary Facts;
 - Drawdown/Range;
-- WP4 Volume Activity;
-- bounded Query Rankings.
+- kompakter Temporal Summary.
 
 ### EXTERNAL EVIDENCE
 
-Web Search und zukünftige Quellen wie RugCheck bleiben externe Evidenz. Sie werden nicht
-stillschweigend zu Jupiter System Truth oder Lifecycle Evidence.
+Web Search und RugCheck sind externe Evidenz. Sie werden nicht stillschweigend zu Jupiter System Truth oder Lifecycle Evidence.
 
 ### LLM INTERPRETATION
 
-LLM-Antworten sind Interpretation. Sie besitzen keine operative Authority.
+LLM-Antworten sind probabilistische Interpretation. Sie besitzen keine operative Authority.
 
 ## 3. First Principle: No Presentation Truth in the Functional Core
 
-Der funktionale Kern bewahrt Domain-Fakten und gemeinsame Interaktionszustände.
-
-Er speichert keine verlustbehafteten Visualisierungsartefakte als Wahrheit.
+Der Functional Core bewahrt Domain-Fakten und gemeinsame Interaktionszustände. Er speichert keine verlustbehafteten Visualisierungsartefakte als Wahrheit.
 
 ```text
 FUNCTIONAL CORE
@@ -96,8 +92,7 @@ Pixi object
 D3 force state
 ```
 
-Eine zukünftige View darf denselben Domain-Wert auf X, Y, Größe, Farbe, Text oder gar
-nicht abbilden, ohne den funktionalen Kern ändern zu müssen.
+Eine zukünftige View darf denselben Domain-Wert auf X, Y, Größe, Farbe, Text oder gar nicht abbilden, ohne den Functional Core ändern zu müssen.
 
 ## 4. Selection Contract
 
@@ -113,13 +108,13 @@ Analyst Result ──┘          │
                             └──> selected-token Analyst use cases
 ```
 
-Kein Bubble Node, DOM Element, Tabellenrow oder Analyst Scope besitzt die Selection.
+Kein DOM Element, Tabellenrow, View-Node oder Analyst Scope besitzt die Selection.
 
 Ein bereits selektierter Token darf nach Retirement als Kontext erhalten bleiben.
 
 ## 5. Browser Responsibility Split
 
-Issue #20 konsolidiert die Browser-Verantwortlichkeiten auf reale Gründe für Änderung.
+Die Browser-Verantwortlichkeiten sind nach realen Gründen für Änderung getrennt:
 
 ```text
 static/js/
@@ -138,19 +133,17 @@ static/js/
 
 ### `app.js`
 
-Nur Composition und Wiring:
+Composition und Wiring:
 
 - Module erzeugen;
 - gemeinsame Selection verbinden;
 - Bootstrap koordinieren;
-- Live Delta an State, Derived Signals und View weiterreichen;
+- Stream-Snapshot und Deltas verteilen;
 - Shell-Level Connection Status.
-
-`app.js` rendert keine Search Results, Analyst Results oder Activity Rows selbst.
 
 ### `api.js`
 
-Ein Browser-Owner für:
+Ein Browser-Owner für HTTP/SSE:
 
 - `GET /api/universe`;
 - `GET /api/token/{mint}`;
@@ -161,27 +154,27 @@ UI-Module kennen keine Fetch-/EventSource-Details.
 
 ### `state.js`
 
-Besitzt nur langlebigen Application State:
+Besitzt ausschließlich langlebigen Application State:
 
 - Token Population;
-- selected Mint;
+- `selectedMint`;
+- Full-Snapshot Load;
 - add/update/retire Event Application;
 - kleine direkte Population-Projektionen wie Active/Launchpad Count.
 
-Search, WP4 Activity und Visual State gehören nicht hinein.
+Es gibt keinen beliebigen `upsert()`-Pfad für Selected-Detail-Reads. Search, Activity und Visual State gehören nicht in `state.js`.
 
 ### `search.js`
 
-Pure Search/Ranking über Domain Tokens. Search ist unabhängig von der aktuellen View.
+Pure Search/Ranking über Domain Tokens, unabhängig von der aktuellen View.
 
 ### `activity.js`
 
-WP4 Volume Activity und 60s Changed-Mint Count sind deterministische Derived Signals,
-keine Population Truth.
+WP4 Volume Activity und 60s Changed-Mint Count sind deterministische Derived Signals, keine Population Truth. Bei einem Stream-Resync werden unvollständig rekonstruierbare Rolling-Signale zurückgesetzt.
 
 ### `token-ui.js`
 
-Search- und Inspector-DOM. Konsumiert State und fordert Selection über einen Callback an.
+Search- und Inspector-DOM. Der Selected-Detail-Read darf aktuelle Detaildarstellung aktualisieren, aber nicht die Population als zweiten Domain-Updatepfad überschreiben.
 
 ### `activity-ui.js`
 
@@ -189,20 +182,17 @@ Rendert ausschließlich die bereits deterministisch berechnete Activity-Projekti
 
 ### `analyst-ui.js`
 
-Besitzt die heutige Analyst-UI und die sichtbaren Scopes. Die Anwendung selbst wird nicht
-an die Drei-Button-Struktur gekoppelt. Ein späterer AI Router kann diesen Bereich ersetzen,
-ohne Population, Search oder Views umzubauen.
+Besitzt die heutige Analyst-UI und die sichtbaren vier Scopes. Die Anwendung selbst ist nicht an diese Button-Struktur als dauerhaftes Routing-Modell gekoppelt.
 
 ### `views/*`
 
 Konkrete Darstellung als Consumer des funktionalen Zustands.
 
-Issue #20 verwendet absichtlich einen einfachen `SimpleTokenView` als vertikalen Proof.
-Er ist kein Designvorschlag.
+`SimpleTokenView` ist absichtlich ein kleiner vertikaler Proof und kein Designvorschlag. Erst bei einer realen zweiten View wird geprüft, welche gemeinsame View-Abstraktion tatsächlich existiert.
 
 ## 6. Current View Contract
 
-Der aktuelle Proof-View braucht nur die heute reale Integrationsfläche:
+Der aktuelle Proof-View benötigt nur die heute reale Integrationsfläche:
 
 ```text
 init()
@@ -212,12 +202,7 @@ setSelectedMint(mint)
 destroy()
 ```
 
-Diese Methoden sind **kein universeller Visualization Standard**.
-
-Erst wenn eine reale zweite View existiert, wird anhand beider Implementierungen geprüft,
-welche gemeinsame Abstraktion tatsächlich existiert.
-
-Keine generische ViewSpec-/Visualization-DSL wird im Functional Core vorgebaut.
+Diese Methoden sind kein universeller Visualization Standard. Es gibt keine generische ViewSpec-/Visualization-DSL im Functional Core.
 
 ## 7. Backend Contract
 
@@ -228,6 +213,7 @@ GET  /api/health
 GET  /api/universe
 GET  /api/token/{mint}
 GET  /api/events
+GET  /api/evidence/rugcheck/{mint}
 POST /api/analyst
 ```
 
@@ -237,12 +223,23 @@ Bootstrap der aktuellen aktiven Population.
 
 ### `/api/token/{mint}`
 
-Aktuelle selected-token Projektion, einschließlich kürzlich retired Context wenn der
-Backend-Vertrag dies zulässt.
+Selected-token Detail-Read, einschließlich kürzlich retired Context wenn verfügbar. Die Antwort wird nicht als zweiter Population-Updatepfad verwendet.
 
 ### `/api/events`
 
-SSE Live Delta Channel mit:
+SSE besitzt eine explizite Synchronisationsgrenze:
+
+```text
+connect / reconnect
+      ↓
+universe_snapshot
+      ↓
+universe_delta*
+```
+
+Jede Verbindung beginnt mit genau einem vollständigen `universe_snapshot`. Derselbe Snapshot ist die Server-Baseline für alle nachfolgenden Deltas. Damit existiert keine undefinierte Lücke zwischen Browserzustand und Stream-Baseline.
+
+Delta-Typen:
 
 ```text
 token_added
@@ -261,28 +258,42 @@ traders_5m
 volume_5m
 ```
 
-Fingerprint und numerische Changes werden aus demselben Contract abgeleitet. Missing
-bleibt unknown.
+Fingerprint und numerische Changes werden aus demselben Contract abgeleitet. Missing bleibt unknown.
+
+Der Server erzeugt Deltas heute weiterhin per Connection durch Snapshot/Diff-Polling. Das ist akzeptierte Skalierungsschuld, aber kein fachlicher Browser-Vertrag. Ein Broadcaster/Event-Replay-System wird nicht vorsorglich eingeführt.
 
 ## 8. Analyst Contract
 
-Der Analyst besitzt aktuell drei bewiesene Use Cases.
+Der Analyst besitzt vier bewiesene Use Cases.
+
+### Model Policy
+
+Modellwahl erfolgt serverseitig nach kognitiver Verantwortung:
+
+```text
+current_data -> FAST   -> ministral-14b-latest
+web          -> STRONG -> mistral-large-latest
+temporal     -> STRONG -> mistral-large-latest
+rugcheck     -> STRONG -> mistral-large-latest
+```
+
+Die UI kennt keine Modellnamen. Der FAST-Default wurde gegen den realen `query_tokens`-Contract ausgewählt; der Tool-Vertrag wurde nicht abgeschwächt, um ein kleineres Modell passend zu machen.
 
 ### Current Data
 
 ```text
 free population question
       ↓
-Mistral function arguments
+FAST model
       ↓
-bounded query_tokens
+bounded query_tokens arguments
       ↓
 current rows
       ↓
 grounded answer
 ```
 
-Kein arbitrary SQL und kein vollständiger Dataset-Dump an das LLM.
+Kein arbitrary SQL und kein vollständiger Dataset-Dump an das LLM. Unsupported oder mehrdeutige Fragen dürfen keine Proxy-Metrik erfinden.
 
 ### Web Research
 
@@ -294,7 +305,7 @@ Mistral Web Search
 answer + external source references
 ```
 
-Exact Mint ist die Identitätsgrenze.
+Exact Mint ist die Identitätsgrenze. Web-Ergebnisse bleiben External Evidence.
 
 ### Temporal Summary
 
@@ -303,21 +314,34 @@ selected exact Mint
       ↓
 deterministic <=24h Summary
       ↓
-ONE Mistral request
+ONE STRONG-model request
       ↓
 expert interpretation
 ```
 
-Keine Raw-History, keine 1m/5m/15m-Time-Buckets und kein vorgeschalteter Temporal Tool
-Call.
+Der produktive Temporal-Pfad sendet keine Raw-History und keine 1m/5m/15m-Time-Buckets an das LLM. Es gibt keinen vorgeschalteten Temporal Tool Call.
 
-Die heutige Scope-Umschaltung ist UI-Verhalten, kein dauerhaftes Routing-Modell. Ein
-späterer einheitlicher AI Workspace oder Tool Router wird separat aus realen Use Cases
-abgeleitet.
+### RugCheck
+
+```text
+selected exact Mint
+      ↓
+direct RugCheck full-report fetch
+      ↓
+deterministic rugcheck_analysis_v4 metadata
+      ↓
+ONE STRONG-model request
+      ↓
+grounded safety-evidence interpretation
+```
+
+Der Provider-Fetch selbst verwendet keinen LLM Tool Call. Der vollständige Report bleibt als direkte Provider-Evidence verfügbar; an das LLM geht eine kompakte deterministische Safety-Projektion ohne einzelne Wallet-Adressen oder komplette Holder-/Market-Rohzeilen.
+
+RugCheck-Fakten bleiben RugCheck-Fakten. Missing bleibt Missing. Es gibt keinen internen Safety Score, keine Persistence und keine Lifecycle-Mutation.
 
 ## 9. Vertical Functional Proof
 
-Ein Observatory-Slice gilt nur als funktional, wenn der reale Browserpfad funktioniert:
+Der bewiesene Browserpfad ist:
 
 ```text
 PostgreSQL
@@ -335,41 +359,42 @@ shared selected Mint
    ├── Inspector
    └── selected-token Analyst
    ↓
-SSE add/update/retire
+SSE connect/reconnect snapshot
+   ↓
+SSE add/update/retire deltas
    ├── State
    ├── View
    ├── Inspector
    └── WP4 Activity
 ```
 
-Regression Proof zusätzlich:
+Bewiesene Analyst-Pfade:
 
 ```text
 Current Data      ✓
 Web Research      ✓
 Temporal Summary  ✓
+RugCheck          ✓
 Read-only         ✓
 ```
 
-Visuelle Ähnlichkeit zum vorherigen Bubble-Frontend ist kein Acceptance-Kriterium.
+Visuelle Ähnlichkeit zu früheren Bubble-Experimenten ist kein Acceptance-Kriterium.
 
 ## 10. Evidence Readiness Before Design
 
-Nach Issue #20 wird nicht sofort ein neues Design implementiert.
+Der Functional Core ist abgeschlossen. Daraus folgt **nicht**, dass sofort Visual Design implementiert wird.
 
-Zuerst werden fehlende fachliche Evidence-/Relation-Grenzen geprüft.
+Vor Issue #9 wird geprüft, ob die zukünftige Observatory-Nutzung noch fachliche Evidence-/Relation-Grenzen braucht.
 
-### RugCheck — Issue #18
+### RugCheck
 
-Exact-Mint Token Report als separate externe Safety-/On-Chain-Evidenz. Keine implizite
-Lifecycle-Mutation und keine Umdeutung zu Jupiter Truth.
+RugCheck Exact-Mint Safety Evidence ist implementiert und kein offener Readiness-Punkt mehr.
 
 ### Discovery Provenance
 
-Aktuell kann eine zukünftige Flow-/Tunnel-Darstellung nur Beziehungen zeigen, die
-persistiert oder anderweitig read-only beweisbar sind.
+Eine zukünftige Flow-/Tunnel-/Tree-Darstellung darf nur Beziehungen zeigen, die persistiert oder anderweitig read-only beweisbar sind.
 
-Beispiel einer möglichen später benötigten Relation:
+Mögliche spätere Relation:
 
 ```text
 Discovery Source
@@ -381,19 +406,21 @@ Jupiter Observation
 Lifecycle / Analyst Evidence
 ```
 
-Wenn diese Relation fachlich nicht persistiert ist, darf das Frontend sie nicht erfinden.
+Diese Relation ist heute nicht automatisch ein Produktvertrag. Erst der konkrete Benutzer-/Visualisierungsbedarf entscheidet, ob Persistenz oder ein Read Model dafür notwendig ist.
 
 ### Bounded Comparison / weitere Evidence
 
-Multi-Mint-Vergleich, zusätzliche Summaries oder weitere Quellen werden nur anhand einer
-konkreten Benutzerfrage ergänzt.
+Multi-Mint-Vergleich, zusätzliche Summaries oder weitere externe Quellen werden nur anhand einer konkreten Benutzerfrage ergänzt.
+
+### Unified AI Router
+
+Ein späterer einheitlicher Frageeingang könnte die bereits bewiesenen Evidence-Pfade routen. Ob Routing deterministisch, LLM-basiert, hybrid oder parallel erfolgt, ist noch nicht entschieden und wird nicht aus den heutigen vier UI-Buttons abgeleitet.
 
 ## 11. Visual / Spatial Design Is Separate
 
 Issue #9 entscheidet später die tatsächliche Darstellung.
 
-Der Designprozess beginnt nicht mit Bubble Physics, sondern mit einer analytischen Frage.
-Erst danach werden festgelegt:
+Der Designprozess beginnt mit einer analytischen Frage, nicht mit Bubble Physics. Erst danach werden festgelegt:
 
 - Daten → Position;
 - Daten → Größe;
@@ -404,26 +431,24 @@ Erst danach werden festgelegt:
 - Motion mit expliziter Bedeutung;
 - reale Population-/Viewport-Akzeptanz.
 
-Bubble, Scatter/Projection, Tunnel/Flow, Tree oder Network dürfen unterschiedliche
-Semantiken besitzen. Der Functional Core versucht nicht, sie heute in eine universelle
-Visualisierungssprache zu zwingen.
+Bubble, Scatter/Projection, Tunnel/Flow, Tree oder Network dürfen unterschiedliche Semantiken besitzen. Der Functional Core zwingt sie nicht in eine universelle Visualisierungssprache.
 
-## 12. Non-Goals of the Functional Core
+## 12. Frozen-Core Non-Goals
+
+Ohne einen neuen expliziten fachlichen Grund wird der Functional Core nicht erweitert um:
 
 - finales UI/UX Design;
 - Bubble Physics;
 - finale Farben oder Category Palette;
 - generische Visualization Engine;
 - ViewSpec DSL;
-- Tunnel/Tree/Network Implementierung;
-- automatischer AI Router;
-- RugCheck-Integration in Issue #20;
-- Discovery-Provenance-Implementierung in Issue #20;
-- Multi-Mint-Vergleich in Issue #20;
-- operative Mutation.
+- Event Bus / Event Sourcing Framework;
+- vorsorglichen serverweiten Stream-Broadcaster;
+- automatischen AI Router;
+- Discovery-Provenance-Persistenz;
+- Multi-Mint-Vergleich;
+- operative Mutation durch Frontend oder Analyst.
 
 ## Completion Principle
 
-Der Functional Core ist richtig geschnitten, wenn eine heute unbekannte zukünftige View
-hinzugefügt werden kann, ohne Search, Selection, SSE, Inspector oder Analyst grundlegend
-neu zu bauen.
+Der Functional Core ist richtig geschnitten, wenn eine heute unbekannte zukünftige View oder ein zusätzlicher read-only Evidence-Consumer hinzugefügt werden kann, ohne Population, Search, Selection, SSE, Inspector oder bestehende Analyst-Pfade grundlegend neu zu bauen.

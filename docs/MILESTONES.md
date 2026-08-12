@@ -2,9 +2,7 @@
 
 ## Zweck
 
-Dieses Dokument nennt den aktuellen Projektstand und genau den aktiven nächsten Slice.
-Detailverträge bleiben in Code, `docs/architecture.md`, `docs/LIFECYCLE_CONTRACT.md` und
-`docs/FRONTEND_OBSERVATORY.md`.
+Dieses Dokument nennt den aktuellen Projektstand und die nächste offene Entwicklungsentscheidung. Detailverträge bleiben in Code, `docs/architecture.md`, `docs/LIFECYCLE_CONTRACT.md` und `docs/FRONTEND_OBSERVATORY.md`.
 
 ## Operative Foundation — abgeschlossen
 
@@ -15,11 +13,11 @@ Die operative Basis steht:
 - PostgreSQL-Registry und immutable `mint_snapshots`;
 - 24h Raw-Buffer-Retention für `mint_snapshots`;
 - Operational Lifecycle v0.1;
-- read-only Observatory als Downstream-Consumer.
+- read-only Downstream-Grenze.
 
-## Observatory Functional Proofs — abgeschlossen
+## Observatory Functional Foundation — abgeschlossen
 
-Die bisherigen vertikalen Slices haben die funktionale Basis bewiesen:
+Die vertikalen Slices haben die funktionale Basis bewiesen:
 
 | Slice | Ergebnis |
 |---|---|
@@ -30,118 +28,116 @@ Die bisherigen vertikalen Slices haben die funktionale Basis bewiesen:
 | WP4 / PR #13 | kompakte 60s Volume-Activity-Projektion |
 | Temporal Research / PR #16 | Deep-History-Proof; als Produktpfad verworfen |
 | WP5 / PR #19 | kompakter Temporal Summary + genau ein Mistral-Request |
+| Functional Core / Issue #20 / PR #21 | Browser-Verantwortungen getrennt, disposable View, gemeinsame Selection |
+| Model Routing + RugCheck / Issue #22 / PR #23 | FAST/STRONG Policy + exact-Mint RugCheck Evidence + v4 Projection |
+| Final Core Sync / PR #24 | verlustfreie Connect/Reconnect-Synchronisationsgrenze + ein Population-Updatepfad |
 
-WP5 ist abgeschlossen und auf `main` gemergt. Der normale Temporal-Pfad sendet keine
-Raw-History und keine 1m/5m/15m-Time-Buckets an das LLM.
+## Aktueller Checkpoint — Functional Core frozen
 
-## Aktiv — Issue #20 Observatory Functional Core Consolidation
-
-Issue #20 trennt den bereits funktionierenden Observatory-Kern von allen aktuellen
-Darstellungsentscheidungen.
+Der Observatory Functional Core wird jetzt als abgeschlossen betrachtet.
 
 ```text
 Operational Core
       ↓
 read-only backend
       ↓
-Browser Data IO
+Browser IO
       ↓
-Functional Core
-population + selected Mint + live event apply
-      ↓
-Search / Activity / Analyst / Current View
+Population State + selected Mint
+      ├── Search
+      ├── Activity
+      ├── Inspector
+      ├── Analyst
+      └── disposable Current View
 ```
 
-Der aktuelle Bubble-/Physics-Stand ist **kein** Kompatibilitätsvertrag. Für den Refactor
-wird er durch einen kleinen deterministischen Proof-View ersetzt, wenn das die
-Verantwortungsgrenzen sauberer macht.
-
-### Harte Grenze
-
-Der funktionale Kern darf Domain-Fakten enthalten, aber keine Presentation Truth:
+Die Population synchronisiert sich über:
 
 ```text
-allowed:
-mint, market_cap, liquidity, holders, launchpad, timestamps,
-trading activity, tracking state, selected Mint, live events
-
-not core truth:
-x/y, radius, color, alpha, stroke, cluster position,
-Pixi objects, D3 forces, panel position, Bubble semantics
+initial / reconnect universe_snapshot
+              ↓
+subsequent universe_delta events
 ```
 
-Search bleibt vollständiger Zugriff auf die aktive Population und ist unabhängig von der
-konkreten View. Selection gehört der Anwendung und nicht einem Bubble Node, einer Zeile
-oder einem Analyst-Ergebnis.
+`GET /api/token/{mint}` bleibt ein Selected-Detail-Read und schreibt nicht als zweiter Pfad in die Population.
 
-### Verantwortlichkeiten nach dem Slice
+Der Functional Core enthält Domain-Fakten, Selection und Live-Event-Anwendung, aber keine Presentation Truth wie `x/y`, Radius, Farbe, Alpha, Clusterpositionen, Pixi/D3-State oder einen universellen ViewSpec.
+
+## Analyst Evidence — aktueller Stand
+
+Vier read-only Use Cases sind produktiv bewiesen:
 
 ```text
-app.js          composition / wiring
-api.js          browser HTTP + SSE
-state.js        population + selection + event application
-search.js       pure token search/ranking
-activity.js     WP4 derived live signal
-token-ui.js     Search + Inspector DOM
-activity-ui.js  Activity Feed DOM
-analyst-ui.js   current Analyst workspace DOM
-views/*         konkrete, austauschbare Darstellung
+Current Data -> FAST   -> bounded query_tokens
+Web          -> STRONG -> external web evidence
+Temporal     -> STRONG -> deterministic <=24h summary
+RugCheck     -> STRONG -> exact-mint external safety evidence
 ```
 
-Backendseitig besitzt `src/observatory/delta.py` den kanonischen SSE-Delta-Vertrag.
-Fingerprint und numerische Changes teilen dieselbe Feldliste, einschließlich
-`trades_5m`.
+Aktuelle Model-Defaults:
 
-### Stop Condition
+```text
+FAST   = ministral-14b-latest
+STRONG = mistral-large-latest
+```
 
-Issue #20 ist erst abgeschlossen, wenn lokal im realen Browser bewiesen ist:
+RugCheck ist damit kein offener Readiness-Punkt mehr. Der ältere Issue #18 ist durch Issue #22 / PR #23 erfüllt.
 
-- Bootstrap aus `/api/universe`;
-- beliebiger aktiver Mint/Symbol/Name über Search erreichbar;
-- gemeinsame Selection funktioniert aus Search, Current View, Activity und Analyst;
-- Inspector folgt Selection und Live Updates;
-- SSE `token_added`, `token_updated`, `token_retired` bleibt korrekt;
-- WP4 Activity bleibt korrekt;
-- Current Data bleibt funktionsfähig;
-- Web Research bleibt funktionsfähig;
-- Temporal Summary bleibt funktionsfähig;
-- keine operative Mutation;
-- der konkrete View kann ausgetauscht werden, ohne Search/Selection/Inspector/Analyst zu ändern.
+## Jetzt offen — Evidence Readiness Review vor Design
 
-## Nach Issue #20 — Evidence Readiness vor Design
+Es gibt **noch keinen automatisch ausgewählten nächsten Feature-Slice**. Vor neuem Visual-/Spatial-Design wird entschieden, ob eine konkrete zukünftige Benutzerfrage noch eine fehlende Evidence- oder Relation-Grenze benötigt.
 
-Nach dem Functional-Core-Refactor wird **nicht direkt** mit dem visuellen Redesign
-begonnen.
+Kandidaten:
 
-Zuerst wird geprüft, welche Evidenz und Relationen der zukünftige Observatory-Kern
-wahrheitsgemäß anbieten soll.
+### 1. Discovery Provenance
 
-Mindestens zu klären:
+Nur falls zukünftige Nutzung eine beweisbare Relation benötigt wie:
 
-1. **RugCheck / Safety Evidence — Issue #18**  
-   Exact-Mint Token Report als getrennte externe Evidenz, ohne ihn zu Jupiter System Truth
-   oder Lifecycle Evidence umzudeuten.
+```text
+Discovery Source
+      ↓
+Mint
+      ↓
+Jupiter Observation
+```
 
-2. **Discovery Provenance**  
-   Persistenter/read-only Vertrag für Discovery Source → Mint → Jupiter Observation, falls
-   zukünftige Flow-/Tunnel-Views diese Beziehungen darstellen sollen.
+muss geprüft werden, ob und wie diese Provenance persistiert oder als read-only Relation bereitgestellt wird.
 
-3. **Bounded Comparison / zusätzliche Evidence**  
-   Nur aus konkreten Benutzerfragen ableiten, ob Multi-Mint-Vergleich, zusätzliche
-   deterministische Summaries oder weitere Source-Metadaten benötigt werden.
+Nicht vorab implementieren, nur weil eine spätere Flow-/Tunnel-Darstellung denkbar ist.
+
+### 2. Bounded Multi-Mint Comparison / zusätzliche Evidence
+
+Nur aus einer konkreten Benutzerfrage ableiten, ob mehrere Mints gemeinsam verglichen oder weitere deterministische Summaries/Source-Metadaten benötigt werden.
+
+### 3. Unified AI Question Router
+
+Die vier bewiesenen Analyst-Pfade könnten später hinter einem gemeinsamen Frageeingang liegen. Noch offen ist, ob Routing deterministisch, LLM-basiert, hybrid oder parallel erfolgt.
+
+Kein generisches Agent-/Tool-Framework vorsorglich bauen.
 
 ## Danach — Issue #9 Visual / Spatial Research
 
-Erst wenn der funktionale Kern und die benötigten Evidence-Grenzen klar sind, wird Issue
-#9 aktiviert.
+Issue #9 bleibt der separate Design-/Research-Schritt.
 
-Dann werden Designfragen aus analytischen Fragen abgeleitet:
+Visual Design beginnt erst mit einer konkreten analytischen Frage und einem expliziten Mapping:
 
-- welche Frage beantwortet eine View;
+- welche Frage beantwortet die View;
 - welche Datenfelder werden auf Position, Größe, Farbe, Opacity oder Text gemappt;
 - Missing/Outlier-/Scale-Regeln;
 - Density, Zoom und Aggregation;
 - reale Populationen und Browser-Prototypen.
 
-Keine heutige Bubble-, Farb-, Cluster- oder Panel-Semantik wird vorab als zukünftiger
-Designvertrag behandelt.
+Keine frühere Bubble-, Farb-, Cluster- oder Panel-Semantik ist ein zukünftiger Designvertrag.
+
+## Separater Repository-Cleanup
+
+Große Dateien unter `analysis/` sind historische Research-Evidence und werden **nicht** in diesem Dokumentations-Checkpoint automatisch gelöscht. Ob einzelne Artefakte reproduzierbar, noch fachlich nützlich oder entbehrlich sind, ist ein separater Cleanup mit eigener Prüfung.
+
+## Stop Condition dieses Checkpoints
+
+Der Repository-Zustand ist für neue Arbeit bereit, wenn:
+
+- die dauerhaften Authorities den aktuellen `main` widerspiegeln;
+- abgeschlossene Issues nicht mehr als offene Roadmap erscheinen;
+- kein Dokument einen bereits verworfenen Research-Pfad als Produktvertrag beschreibt;
+- das nächste Feature erst nach einer expliziten Evidence-/Produktentscheidung begonnen wird.
