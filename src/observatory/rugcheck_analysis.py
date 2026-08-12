@@ -86,12 +86,15 @@ async def analyze_rugcheck_report(
     import httpx
 
     analysis_evidence = project_rugcheck_evidence(evidence)
-    context_json = json.dumps(
-        analysis_evidence, ensure_ascii=False, separators=(",", ":")
-    )
+    projection = analysis_evidence.get("projection", {})
+    llm_evidence = {
+        "source": analysis_evidence.get("source", "rugcheck"),
+        "fetched_at": analysis_evidence.get("fetched_at"),
+        "summary": analysis_evidence.get("summary"),
+    }
+    context_json = json.dumps(llm_evidence, ensure_ascii=False, separators=(",", ":"))
     context_bytes = len(context_json.encode("utf-8"))
     rough_context_tokens = (context_bytes + 3) // 4
-    projection = analysis_evidence.get("projection", {})
 
     request = {
         "model": model,
