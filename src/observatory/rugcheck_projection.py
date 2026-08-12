@@ -6,6 +6,28 @@ from typing import Any
 
 _MISSING = object()
 
+SEMANTICS = {
+    "score": "RugCheck raw provider score; not a probability.",
+    "score_normalised": (
+        "RugCheck normalized provider score; public API does not define its formula "
+        "or category thresholds."
+    ),
+    "risk_level": "Severity label assigned by RugCheck to a detected risk.",
+    "risk_score": "Numeric weight RugCheck assigns to one risk; not a probability.",
+    "topN_pct": "Sum of pct for the N largest reported top-holder rows.",
+    "insider": (
+        "Counts/shares use only rows with an explicit RugCheck insider flag; null means "
+        "the required flag or percentage evidence was unavailable."
+    ),
+    "largest_market_share_pct": (
+        "Largest observed market USD liquidity divided by summed observed markets with "
+        "USD liquidity."
+    ),
+    "lp_lock_counts": (
+        "Counts use explicit lpLockedPct: >0 positive, =0 zero; missing values excluded."
+    ),
+}
+
 
 def _json_bytes(value: Any) -> int:
     payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -128,9 +150,10 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
             return None
         return _rounded(sum(pcts[:limit]))
 
+    insider_flags_reported = 0
     insider_count = 0
     insider_pct = 0.0
-    insider_pct_known = False
+    insider_true_pct_complete = True
     known_names: Counter[str] = Counter()
     known_types: Counter[str] = Counter()
     creator = report.get("creator")
@@ -141,11 +164,15 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(item, dict):
             continue
         pct = _number(item.get("pct"))
-        if item.get("insider") is True:
-            insider_count += 1
-            if pct is not None:
-                insider_pct += pct
-                insider_pct_known = True
+        insider = item.get("insider", _MISSING)
+        if isinstance(insider, bool):
+            insider_flags_reported += 1
+            if insider:
+                insider_count += 1
+                if pct is None:
+                    insider_true_pct_complete = False
+                else:
+                    insider_pct += pct
 
         if isinstance(creator, str) and creator:
             if item.get("owner") == creator or item.get("address") == creator:
@@ -175,6 +202,17 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
         len(creator_tokens) if isinstance(creator_tokens, list) else None
     )
 
+    insider_count_value = insider_count if insider_flags_reported else None
+    insider_pct_value: float | None
+    if not insider_flags_reported:
+        insider_pct_value = None
+    elif insider_count == 0:
+        insider_pct_value = 0.0
+    elif insider_true_pct_complete:
+        insider_pct_value = _rounded(insider_pct)
+    else:
+        insider_pct_value = None
+
     result: dict[str, Any] = {
         "total_holders": report.get("totalHolders"),
         "top_holders_reported": len(holders) if holders_known else None,
@@ -182,10 +220,9 @@ def _holder_metadata(report: dict[str, Any]) -> dict[str, Any]:
         "top5_pct": concentration(5),
         "top10_pct": concentration(10),
         "top20_pct": concentration(20),
-        "insiders_in_top_holders": insider_count if holders_known else None,
-        "insider_pct_in_top_holders": (
-            _rounded(insider_pct) if insider_pct_known else None
-        ),
+        "insider_flags_reported": insider_flags_reported if holders_known else None,
+        "insiders_in_top_holders": insider_count_value,
+        "insider_pct_in_top_holders": insider_pct_value,
         "graph_insiders_detected": report.get("graphInsidersDetected"),
         "creator_in_top_holders_pct": (
             _rounded(creator_pct) if creator_pct_known else None
@@ -269,6 +306,7 @@ def _market_metadata(report: dict[str, Any]) -> dict[str, Any]:
 
 def _compact_summary(report: dict[str, Any]) -> dict[str, Any]:
     return {
+        "semantics": SEMANTICS,
         "provider_risk": {
             "score": report.get("score"),
             "score_normalised": report.get("score_normalised"),
@@ -284,10 +322,10 @@ def _compact_summary(report: dict[str, Any]) -> dict[str, Any]:
 def project_rugcheck_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
     """Convert the raw RugCheck report into bounded safety metadata for LLM transport.
 
-    The direct evidence adapter remains raw and complete. The LLM receives aggregates and
-    provider labels rather than wallet addresses, per-market account snapshots or provider
-    registries. Missing provider evidence remains unknown. No internal safety score is
-    created.
+    The direct evidence adapter remains raw and complete. The LLM receives provider-defined
+    risk semantics plus deterministic aggregates rather than wallet addresses, per-market
+    account snapshots or provider registries. Missing provider evidence remains unknown.
+    No internal safety score or undocumented RugCheck threshold is created.
     """
 
     report = evidence.get("report")
@@ -313,7 +351,7 @@ def project_rugcheck_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
         "mint": evidence.get("mint"),
         "fetched_at": evidence.get("fetched_at"),
         "projection": {
-            "type": "rugcheck_analysis_v2",
+            "type": "rugcheck_analysis_v3",
             "raw_report_bytes": raw_report_bytes,
             "raw_rough_report_tokens": raw_rough_tokens,
             "projected_report_bytes": projected_bytes,
