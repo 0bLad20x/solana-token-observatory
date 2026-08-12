@@ -1,6 +1,6 @@
 # Lifecycle Contract
 
-**Contract-Version:** `0.1`  
+**Contract-Version:** `0.2`  
 **Status:** frozen baseline  
 **Scope:** operativer Hard-Retire-Pfad für `tracking_enabled=false`
 
@@ -10,10 +10,12 @@ Dieses Dokument ist die fachliche Authority für die derzeit implementierte Life
 
 Refactorings dürfen SQL, Python-Struktur, Datenzugriff und interne Orchestrierung vereinfachen, solange für denselben Datenbankzustand exakt dieselben `(mint, reason)`-Kandidaten entstehen. Eine Änderung der hier beschriebenen Semantik ist keine Simplification, sondern eine neue Contract-Version.
 
+Contract v0.2 übernimmt Rule 1–5 unverändert aus v0.1 und ergänzt Rule 6 als bewusst neue fachliche Entscheidung.
+
 Die operative Reihenfolge ist:
 
 ```text
-Rule 1 -> Rule 2 -> Rule 3 -> Rule 4 -> Rule 5
+Rule 1 -> Rule 2 -> Rule 3 -> Rule 4 -> Rule 5 -> Rule 6
 ```
 
 Innerhalb eines Cycles gewinnt für einen Mint die erste passende Regel. Dry-Run und Apply verwenden dieselbe Candidate-Semantik; `--apply` bestimmt ausschließlich, ob die Kandidaten über `MintRepository.disable_mints()` tatsächlich deaktiviert werden.
@@ -25,7 +27,7 @@ Innerhalb eines Cycles gewinnt für einen Mint die erste passende Regel. Dry-Run
 - `last_polled_at`: lokale Zeit des letzten erfolgreichen Jupiter-Search-Polls.
 - `observed_at`: lokale Beobachtungszeit eines persistierten Snapshots.
 - `source_updated_at`: zuletzt persistierte Jupiter-`updatedAt`-Version.
-- `mint_snapshots`: immutable Historie beobachteter Jupiter-Source-Versionen.
+- `mint_snapshots`: immutable Historie beobachteter Jupiter-Source-Versionen innerhalb des Raw-Buffers.
 
 Fehlende Werte bleiben fehlend. Ein fehlender numerischer Wert wird nicht als `0` interpretiert.
 
@@ -152,6 +154,36 @@ mcap_collapse_below_2000
 
 Der Scan-Cursor folgt derselben Semantik wie Rule 4.
 
+## Rule 6 — Early Holder Failure
+
+**T0:** `first_observed_at`  
+**Checkpoint:** `T0 + 30 Minuten`  
+**Eligibility:** ab dem Checkpoint; kein zusätzliches Grace-Fenster  
+**Checkpoint prerequisite:** `last_polled_at >= T0 + 30 Minuten`  
+**Decision payload:** letzter persistierter Snapshot mit `observed_at <= T0 + 30 Minuten`  
+**Current-poll freshness:** keine
+
+Disable, wenn im Decision Payload gilt:
+
+```text
+holderCount < 5
+```
+
+Missing semantics:
+
+- fehlender oder leerer `holderCount` erfüllt Rule 6 nicht;
+- `mcap` und `liquidity` sind für Rule 6 irrelevant und weder Rescue- noch Zusatzbedingung.
+
+Disable-Reason:
+
+```text
+holder_count_below_5_at_30m
+```
+
+Rule 6 beschreibt ausschließlich fehlende frühe Holder-Distribution. Sie ist keine permanente Regel für einen später fallenden Holder Count.
+
+Die Rule ist absichtlich catch-up-fähig: Ein bereits älterer aktiver Mint kann beim ersten v0.2-Apply noch deaktiviert werden, wenn sein T+30-Decision-Payload weiterhin im 24h-Raw-Buffer vorhanden ist. Die Retention wird dafür nicht verändert. Ist kein passender persistierter Snapshot mehr vorhanden, erzeugt Rule 6 keinen Kandidaten und rekonstruiert keine fehlende Evidence.
+
 ## Operational Contract
 
 Der Lifecycle läuft standardmäßig alle `15 Sekunden`.
@@ -186,21 +218,15 @@ MintRepository.disable_mints()
 
 Read-only Downstream-Code besitzt keine Authority, diese Mutationskette zu umgehen.
 
-## Equivalence Gate
+## Validation Gate
 
-Vor einer reinen Lifecycle-Simplification muss ausgeführt werden:
+Rule 1–5 sind gegenüber Contract v0.1 unverändert. Der bestehende Equivalence-Verifier muss deshalb weiterhin für diese Regeln ausgeführt werden:
 
 ```powershell
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Der Verifier liest denselben PostgreSQL-Snapshot sowohl mit der aktuellen Implementierung als auch mit einer eingefrorenen v0.1-Referenz aus und vergleicht pro Regel exakt die Sets:
-
-```text
-{(mint, reason)}
-```
-
-Akzeptanzkriterium:
+Akzeptanzkriterium für die geerbten Regeln:
 
 ```text
 Rule 1 current == v0.1 reference
@@ -210,11 +236,11 @@ Rule 4 current == v0.1 reference
 Rule 5 current == v0.1 reference
 ```
 
-Ein Unterschied ist eine fachliche Verhaltensänderung und darf nicht als reine Simplification eingecheckt werden.
+Rule 6 ist absichtlich nicht v0.1-äquivalent. Zusätzlich gelten die Rule-6-Unit-Tests und ein lokaler Dry-Run vor dem ersten `--apply` als Acceptance Gate.
 
 ## Versionierung
 
-`0.1` wird nur dann ersetzt, wenn eine fachliche Lifecycle-Regel bewusst geändert wird, zum Beispiel:
+`0.2` wird nur dann ersetzt, wenn eine fachliche Lifecycle-Regel bewusst geändert wird, zum Beispiel:
 
 - Threshold;
 - Zeitfenster;
