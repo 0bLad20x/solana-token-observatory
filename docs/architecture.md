@@ -156,7 +156,11 @@ Er darf nicht:
 
 Diese Grenze gilt unabhängig davon, ob der Consumer ein Research-Skript, ein Frontend oder ein späteres LLM-Tool ist.
 
-`tools/inspect_token_history.py` ist ein read-only Research-Consumer für die laufende Definition einer LLM-tauglichen Temporal Projection. Der normale Pfad projiziert bereits in PostgreSQL nur den aktuellen Grundvertrag: einmalige Token-Identität plus Market Cap, Liquidity, Holders, Organic Score, ausgewählte dynamische Audit-Werte, sämtliche numerischen `stats1h`-Werte, optionale APY-Werte und nur tatsächlich dynamische Supply-Werte. Die teure vollständige Raw-Payload-/Feldanalyse ist explizit opt-in und gehört nicht zum späteren Observatory-Query-Pfad.
+`tools/inspect_token_history.py` ist der aktuelle read-only Research-Consumer für WP5. Er projiziert aus dem maximal 24h großen Raw-Buffer nur den vereinbarten LLM-Grundvertrag und erzeugt genau einen zeitlichen Kontext: bei höchstens sechs Stunden verfügbarer History 1-Minuten-Buckets, sonst 5-Minuten-Buckets. Jede Bucket-Metrik enthält die tatsächlich beobachteten Werte innerhalb des Fensters; es gibt kein Zero-Fill und keine Interpolation.
+
+Der Inspector ergänzt diese Serie um einen deterministischen `summary`-Block. Er beschreibt unter anderem Market-Cap-Verlauf und Drawdown, Liquidity einschließlich `liquidity / market_cap`, Holder-Entwicklung, Ownership-Konzentration, rollierende `stats1h`-Aktivität und Organic Evidence. Rollierende `stats1h`-Werte werden nicht über Buckets summiert; Median- und Ratio-Metriken verwenden zeitlich gleichmäßig verteilte Bucket-Werte. `summary` ist Derived Analysis und kein Ersatz für die historische Evidence.
+
+Eine spätere LLM-Integration muss deshalb im System Prompt ausdrücklich verlangen, dass das Modell `temporal_history` selbst prüft und den Summary nur zur Orientierung verwendet. Ein Urteil ausschließlich aus dem Summary ist nicht Teil des Contracts. `llm_context.json` und `report.json` sind weiterhin Research-Evidence und noch kein produktiver Observatory-Endpunkt.
 
 Das Observatory ist als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/` implementiert. Es liest aktuelle Projektionen und SSE-Deltas, verändert aber keine Core-Dateien oder operativen Zustände.
 
