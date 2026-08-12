@@ -24,7 +24,7 @@ WEB_SEARCH_MODES = frozenset({"web_search", "web_search_premium"})
 UNSUPPORTED_QUERY_ANSWER = (
     "This question cannot be mapped unambiguously to the current token data."
 )
-TEMPORAL_MAX_OUTPUT_TOKENS = 1200
+TEMPORAL_MAX_OUTPUT_TOKENS = 1800
 logger = logging.getLogger(__name__)
 
 
@@ -218,9 +218,10 @@ Current query vocabulary:
 
 
 def _temporal_instructions(token: dict[str, Any]) -> str:
-    return f"""Analyze exactly one selected Solana token over its delivered observation history.
+    return f"""Act as a senior Solana token-market analyst. Analyze exactly one selected token
+from a deterministic temporal SUMMARY derived from the available observation window.
 You MUST call get_token_temporal_context exactly once with the exact selected mint before
-answering. Do not request another mint, time range, resolution, SQL query, or hidden data.
+answering. Do not request another mint, SQL, hidden data, a custom range, or a resolution.
 
 Selected token:
 - Mint: {token['mint']}
@@ -228,20 +229,39 @@ Selected token:
 - Symbol: {token.get('symbol') or 'unknown'}
 - Launchpad: {token.get('launchpad') or 'unknown'}
 
-Evidence contract:
-- summary is deterministic derived context and is NOT sufficient evidence by itself.
-- You MUST independently inspect temporal_history before forming a conclusion.
-- Use the temporal sequence to confirm, qualify, or contradict the summary.
-- Explicitly describe the observed trajectory over time and ground important claims in
-  concrete evidence from different parts of the delivered history when the data permits.
-- If temporal_history conflicts with a simplified summary interpretation, state that
-  conflict and prioritize the timestamped history.
-- stats_1h values are rolling one-hour measurements. NEVER sum them across buckets.
-- Missing means unknown, never zero. Do not invent proxies for unavailable values.
-- Do not infer events or conditions outside the delivered observation span.
-- Separate observed facts from interpretation. Do not present a deterministic good/bad
-  score as system truth.
-- Keep the final diagnosis focused and concise; prioritize the strongest evidence.
+Evidence semantics:
+- The tool returns token identity plus a compact summary. It does NOT return time buckets.
+- history.from/to/hours describe the actual covered observation window.
+- market_cap, liquidity and holders can contain start/current/min/max/change_pct.
+- market_cap may also contain peak_at and max_drawdown_pct.
+- activity_1h fields are rolling one-hour source metrics. Their summary values are
+  descriptive snapshots such as current and median; NEVER sum rolling values.
+- Ratio summaries describe relationships between metrics. Interpret the direction
+  mathematically; do not infer causality merely because a ratio changed.
+- Missing means unknown, never zero. Do not invent proxies or unavailable chronology.
+- Do NOT claim phases, turning points, exact event order, or historical values that are
+  absent from the summary. In particular, current/median does not imply start/min/max.
+
+Expert analysis requirements:
+1. Establish the observation horizon and data quality/coverage limits first.
+2. Diagnose valuation trajectory using market cap change, range, peak and drawdown.
+3. Diagnose liquidity resilience relative to valuation, including liquidity/market-cap
+   behavior where available.
+4. Diagnose holder development and ownership concentration where available.
+5. Compare CURRENT activity with its MEDIAN baseline: buy/sell pressure, trader activity,
+   net flow and organic participation. Distinguish current conditions from the broader
+   observed baseline.
+6. Look for cross-metric confirmation or divergence. Examples: valuation falling while
+   holders rise; liquidity holding while market cap falls; current buy pressure improving
+   despite a weak full-window trajectory. Explain why such combinations matter.
+7. Identify the strongest constructive signals, strongest risk signals, and material
+   unknowns. Do not manufacture a deterministic good/bad score.
+8. End with a calibrated expert assessment for the user's question: constructive,
+   neutral/mixed, weak, or high-risk, plus confidence and the evidence that most affects
+   that assessment.
+
+Be analytical rather than descriptive. Do not merely restate every field. Prefer a small
+number of high-value relationships and explicitly separate measured facts from inference.
 """
 
 
@@ -345,7 +365,7 @@ async def analyze_temporal_token(
     question: str,
     context_loader: Callable[[str], dict[str, Any] | None],
 ) -> dict[str, Any]:
-    """Execute one selected-mint temporal tool call and ground the answer in its history."""
+    """Execute one selected-mint summary tool call and return an expert diagnosis."""
 
     import httpx
 
@@ -374,7 +394,7 @@ async def analyze_temporal_token(
         first_message = _chat_message(first_payload)
         call = _tool_call(first_message, "get_token_temporal_context")
         if call is None:
-            raise AnalystError("Mistral did not request temporal evidence")
+            raise AnalystError("Mistral did not request temporal summary evidence")
 
         call_id, arguments = call
         try:
@@ -386,7 +406,7 @@ async def analyze_temporal_token(
 
         context = await asyncio.to_thread(context_loader, mint)
         if context is None:
-            raise AnalystError("No temporal history is available for the selected mint")
+            raise AnalystError("No temporal summary is available for the selected mint")
 
         assistant_message = {
             "role": "assistant",
@@ -452,19 +472,18 @@ async def analyze_temporal_token(
         )
 
     history_meta = context["summary"]["history"]
-    temporal_history = context["temporal_history"]
     return {
         "answer": answer,
         "scope": "temporal",
         "tool": {
             "name": "get_token_temporal_context",
+            "evidence": "summary_only",
             "mint": mint,
             "from": history_meta["from"],
             "to": history_meta["to"],
             "history_hours": history_meta["hours"],
             "observations": history_meta["observations"],
-            "resolution_minutes": temporal_history["resolution_minutes"],
-            "buckets": len(temporal_history["buckets"]),
+            "rough_input_tokens": rough_tokens,
         },
     }
 
