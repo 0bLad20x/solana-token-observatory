@@ -185,7 +185,7 @@ Der vollständige RugCheck Token Report bleibt als Provider-Evidence verfügbar.
 
 ## Funktionale Observatory-Grenze
 
-Der Functional Core ist nach PR #20/#21 und dem finalen Synchronisations-Slice PR #24 abgeschlossen. Er enthält Domain-Fakten, Population, Selection und Live-Event-Anwendung, aber keine Presentation Truth wie `x/y`, Radius, Farbe, Opacity, D3/Pixi-State oder Clusterpositionen.
+Der Functional Core ist nach Issue #20 / PR #21 und dem finalen Synchronisations-Slice PR #24 abgeschlossen. Er enthält Domain-Fakten, Population, Selection und Live-Event-Anwendung, aber keine Presentation Truth wie `x/y`, Radius, Farbe, Opacity, D3/Pixi-State oder Clusterpositionen.
 
 Der nächste Schritt ist deshalb **nicht automatisch ein neues Visual Design**. Der aktuelle Projektcheckpoint und die noch zu entscheidenden Evidence-/Relation-Fragen stehen in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
