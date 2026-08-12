@@ -4,7 +4,7 @@
 
 **Authority:** Frontend product, interaction and implementation direction  
 **Scope:** read-only visual and analytical consumer of the operational token data  
-**Current checkpoint:** V0–V2 and WP1–WP4 merged; WP5 Temporal Token Analysis is the active next slice; spatial redesign remains separate
+**Current checkpoint:** V0–V2 and WP1–WP4 merged; WP5 Temporal Summary Analysis is the active next slice; spatial redesign remains separate
 
 This document turns the frontend concept into an executable contract. It describes what the frontend is, which design semantics are stable, how live changes must behave, which architectural boundaries apply, and which vertical slices are currently in scope.
 
@@ -377,7 +377,7 @@ frontend.py       tiny executable entry point
 app.py            FastAPI, HTTP and SSE boundary
 analyst.py        Mistral protocol, tool orchestration and web-reference parsing
 data.py           read-only PostgreSQL projections
-tools.py          bounded internal query_tokens contract and execution
+tools.py          bounded internal query contracts and execution
 app.js            application bootstrap and wiring
 state.js          token state, search, selection, active view, deltas
 universe.js       Pixi/D3 rendering and local motion
@@ -385,8 +385,8 @@ view-spec.js      supported view mappings and presets
 theme.js          semantic visual tokens
 ```
 
-`tools.py` exists because WP2 introduces the first real internal tool responsibility. It
-is not a generic registry and exposes no SQL, plugin or mutation framework.
+`tools.py` exists because the analyst has explicit bounded internal tool responsibilities.
+It is not a generic registry and exposes no SQL, plugin or mutation framework.
 
 ## 9. Backend contract
 
@@ -445,20 +445,7 @@ The selected token is grounded with its exact mint and existing name, symbol and
 launchpad. The mint is authoritative for web identity; matching names or symbols are not.
 The backend rejects a provider response that did not execute Web Search.
 
-The current response is deliberately small:
-
-```json
-{
-  "answer": "...",
-  "sources": [{"title": "...", "url": "..."}],
-  "search_mode": "web_search"
-}
-```
-
-No internal database tool, arbitrary SQL, Python execution, conversation memory,
-provider framework or visual action belongs to WP1.
-
-WP2 adds one separate current-data interaction:
+WP2 provides one separate current-data interaction:
 
 ```text
 free population question
@@ -474,24 +461,13 @@ grounded answer
 
 `query_tokens` can use only current `market_cap`, `liquidity`, `holders`, `trades_5m`,
 `traders_5m`, `volume_5m`, `age_seconds` and `change_age_seconds`. It may filter by an
-available canonical launchpad, then sort and limit the result. The default limit is five
-and the hard maximum is twenty. Missing remains `null` and is excluded when it is the
-ranking field.
+available canonical launchpad, then sort and limit the result. Missing remains `null` and
+is excluded when it is the ranking field. No SQL or full dataset is sent to the model.
 
-One central field vocabulary supplies descriptions, canonical keys, Tool Schema and the
-visible capabilities response. Current launchpad values and counts are derived from the
-active population for every request. Mistral translates paraphrases, spelling and
-punctuation variants to those canonical arguments. The available fields remain the
-semantic boundary: a question about an unavailable field such as five-minute price
-change must not use another metric as a proxy. If no unambiguous supported query exists,
-the backend returns the current fields, sort directions, launchpads and result limits.
-No SQL or full dataset is sent to the model.
-
-WP5 adds one explicit selected-token temporal interaction. It is not a general history
-query and does not extend `query_tokens`:
+WP5 adds one selected-token Summary interaction:
 
 ```text
-selected token + free temporal question
+selected token + free question
               ↓
 Mistral Tool Call
               ↓
@@ -499,46 +475,52 @@ get_token_temporal_context
               ↓
 exact selected Mint only
               ↓
-1m <= 6h, otherwise 5m
+deterministic summary
               ↓
-token + summary + temporal_history
+token + summary
               ↓
-grounded temporal diagnosis
+expert diagnosis
 ```
 
-`get_token_temporal_context` has exactly one identity argument, the Mint. The server must
-validate that it equals the currently selected Mint. The model cannot choose a time
-range, resolution or another token. The returned data follows the semantic contract
-validated by `tools/inspect_token_history.py` and merged in PR #16.
+`get_token_temporal_context` has exactly one identity argument: the currently selected
+Mint. The server validates that binding. The model cannot choose a time range, resolution,
+SQL query or another Mint. Despite the retained tool name, the WP5 response contains no
+raw history and no 1m/5m/15m time buckets.
 
-The deterministic `summary` is analysis support, not a diagnosis. The temporal system
-prompt must require the model to inspect the actual `temporal_history`, use it to confirm,
-qualify or contradict the Summary, and explicitly surface contradictions. `stats1h`
-values are rolling one-hour values and must never be summed across buckets. Missing stays
-Missing, and no claim may extend outside the delivered observation span.
+The Summary is deterministically derived from at most the retained 24h raw window. Exact
+core trajectory facts use all relevant observations. Rolling `stats1h` medians and ratios
+use one internal representative sample per fixed five-minute interval so differing
+snapshot frequencies do not bias those statistics. These internal samples are a
+calculation detail and are never sent as temporal history.
+
+The LLM contract is deliberately strict: observation count does not prove gapless
+coverage; observation window is not token age; window maximum is not ATH; and aggregate
+metrics do not prove bots, fake volume, whales, manipulation, accumulation or distribution.
+Missing stays unknown. Rolling `stats1h` values are never summed. Facts and interpretation
+must remain distinguishable.
 
 ### Configuration
 
 LLM credentials remain server-side in environment configuration. No provider API key is exposed to JavaScript.
 
 `MISTRAL_WEB_SEARCH_MODE` selects `web_search` or `web_search_premium`. Both use the
-same Conversations endpoint. No provider SDK is required because the existing HTTP
-client is sufficient.
+same Conversations endpoint. The Temporal Summary path uses the configured chat model,
+a 45-second provider timeout and a bounded output budget.
 
 ## 11. Analyst UI pattern
 
 The analyst card uses explicit scopes rather than hidden routing guesses:
 
 ```text
-CURRENT DATA          WEB RESEARCH          TEMPORAL ANALYSIS
+CURRENT DATA          WEB RESEARCH          SUMMARY ANALYSIS
 population question   selected token        selected token
-query_tokens           web search            temporal context
-current answer         sourced answer        grounded diagnosis
+query_tokens           web search            temporal summary
+current answer         sourced answer        expert diagnosis
 ```
 
-The Temporal Analysis scope requires an existing token selection. Its visible result must
-show at least the covered time span and selected temporal resolution so the user can see
-what evidence the answer received.
+Summary Analysis requires an existing token selection. Its visible result shows the
+covered observation span, observation count and rough Summary input size. It does not show
+a temporal resolution because no adaptive history is delivered to the model.
 
 Switching scope changes the tool boundary; it is not an LLM routing guess.
 
@@ -548,7 +530,7 @@ WP3 establishes one current navigation path:
 
 ```text
 Mint / Symbol / Name search ─┐
-                             ├─> shared token selection -> Inspector -> Web Research
+                             ├─> shared token selection -> Inspector -> analyst scopes
 query_tokens result ─────────┘
 ```
 
@@ -570,8 +552,7 @@ Universe
 ```
 
 Lasso selection, breadcrumbs, pinning and command palette are valuable future interaction primitives.
-
-They are not prerequisites for the first stable merge unless needed by the active vertical slice.
+They are not prerequisites for the stable foundation unless needed by an active vertical slice.
 
 ## 13. Known data gaps
 
@@ -591,10 +572,9 @@ This must be solved as a separate explicit core evidence contract. The frontend 
 ### Historical analysis
 
 The operational database retains approximately the latest 24 hours of high-resolution
-`mint_snapshots`. PR #16 validated one bounded temporal projection over that retained
-window, but the current frontend API does not expose it yet. WP5 adds only this selected-
-token bounded context. Arbitrary historical ranges, persisted long-term series and cross-
-token history remain outside the current contract.
+`mint_snapshots`. WP5 exposes only a deterministic selected-token Summary over that bounded
+window. Arbitrary historical ranges, persisted long-term series, raw time-bucket payloads
+and cross-token history remain outside the current contract.
 
 ## 14. Vertical execution plan
 
@@ -611,74 +591,54 @@ finished.
 | V0 — Contract | Establish truth, read-only and interaction boundaries before implementation. | This document defines the product and system constraints. | No user-facing capability. |
 | V1 — Application foundation | Separate existing backend, state, rendering and theme responsibilities. | The Observatory starts independently and its minimal modules have explicit owners. | No finished design system or satisfactory spatial visualization. |
 | V2 — Live data foundation | Prove current backend state reaches the browser and remains live. | Active tokens, current facts, SSE updates and retirements are visible and locally applied. | No claim that Bubble Map layout, scaling, motion or information design is solved. |
-| WP1 — Token Web Research | Prove one selected exact Mint can execute external LLM Web Search. | A free question returns a sourced answer or explicit lack of evidence; standard and premium search are configurable. | No guarantee that arbitrary web claims are true and no general research agent. |
+| WP1 — Token Web Research | Prove one selected exact Mint can execute external LLM Web Search. | A free question returns a sourced answer or explicit lack of evidence. | No guarantee that arbitrary web claims are true and no general research agent. |
 | WP2 — Current Population Query | Prove natural language can become one bounded internal read-only Tool Call. | `query_tokens` filters, ranks and limits the current active projection using an explicit vocabulary. | No SQL, arbitrary aggregation, unavailable metrics or full-dataset LLM access. |
-| WP3 — Token Search & Selection | Make every active token reachable without relying on the visualization. | Mint, Symbol and Name search plus `query_tokens` results use one shared Selection for Inspector and Web Research. | No complete navigation system or visual redesign. |
-| WP4 — Volume Activity Deltas | Replace a long, low-information event list with one current, inspectable signal. | PR #13 ranks at most five distinct Mints by positive 60-second change of `volume_5m / market_cap`; rows are selectable and expire. | No historical analysis, price-change proxy or effect on Bubble size, pulse, color, layout or Physics. |
-| Temporal Context Research | Establish one bounded LLM payload over retained history before frontend integration. | PR #16 proves 1m/5m adaptive projection, deterministic Summary and a single `llm_context` on real long histories. | No frontend Tool Call or LLM diagnosis yet. |
+| WP3 — Token Search & Selection | Make every active token reachable without relying on the visualization. | Mint, Symbol and Name search plus `query_tokens` results use one shared Selection. | No complete navigation system or visual redesign. |
+| WP4 — Volume Activity Deltas | Replace a long, low-information event list with one current, inspectable signal. | PR #13 ranks at most five distinct Mints by positive 60-second change of `volume_5m / market_cap`. | No historical analysis, price-change proxy or effect on Bubble physics. |
+| Temporal Context Research | Test whether bucketed retained history adds enough LLM value. | PR #16 proved the projection technically; WP5 browser evidence later showed ~100k-token deep history was too slow for the normal path. | The research projection is not a product contract. |
 
-Together these slices prove a functional foundation:
+### WP5 — Temporal Summary Analysis — ACTIVE
 
-```text
-current backend state -> live browser state -> find/select token
-                                      ├-> bounded population question
-                                      ├-> exact-mint Web Research
-                                      └-> inspect current volume activity
-```
+**Purpose:** provide a useful expert diagnosis of the selected token from the smallest
+deterministic historical projection that has demonstrated practical value.
 
-They do not complete the original visual Observatory vision.
+The selected Mint is read from the existing `mint_snapshots` 24h raw buffer. WP5 does not
+create a historical storage subsystem, a time-series API or a generic query framework.
 
-### WP5 — Temporal Token Analysis — ACTIVE
+#### Data and query contract
 
-**Purpose:** answer how the currently selected token arrived at its current state within
-the retained observation history, using one bounded read-only temporal Tool Call.
-
-**Why this is next:** the Inspector research proof has already established a compact
-context that preserves the meaningful trajectory. The remaining question is whether that
-same deterministic context can ground a useful LLM diagnosis through the real Observatory
-without introducing arbitrary history queries or a second implementation of the
-projection logic.
-
-#### Data contract
-
-The selected Mint is read from the existing `mint_snapshots` 24h Raw-Buffer. The same
-semantics proven by the Inspector apply:
+The Summary path has two internal reads:
 
 ```text
-available history <= 6h -> 1m buckets
-available history >  6h -> 5m buckets
+all observations
+→ observed_at + small scalar fields
+→ exact start/current/min/max/change/peak/drawdown and ownership facts
+
+fixed 5m representative samples
+→ rolling stats1h + fields needed for ratios
+→ time-normalized medians and ratio summaries
 ```
 
-The context contains:
+The larger rolling JSON is therefore not transferred once per raw snapshot. Static token
+identity comes from the already selected current token rather than being rebuilt on every
+historical row. No new table, Materialized View or persisted Summary belongs to WP5.
 
-```json
-{
-  "token": {},
-  "summary": {},
-  "temporal_history": {
-    "resolution_minutes": 5,
-    "buckets": []
-  }
-}
-```
-
-The Summary may include only deterministically computed facts supported by the supplied
-history: Market Cap trajectory, peak and drawdown; Liquidity and Liquidity/Market-Cap;
-Holders; Ownership; rolling `stats1h` activity and flow ratios; Organic Evidence; and
-other already validated fields from the Inspector contract.
+The current Summary includes the already proven facts for Market Cap, Liquidity,
+Liquidity/Market-Cap, Holders, Ownership, rolling `stats1h` activity and flow ratios, and
+Organic Evidence. Future fields such as richer volume, liquidity or flow descriptors may
+be added only when their analytical value is explicit; adding them must not reintroduce a
+full time-bucket LLM payload by default.
 
 #### One semantic owner
 
-WP5 introduces the second real consumer of the Temporal Projection. The implementation
-must therefore avoid copying the Inspector algorithm or shelling out to the CLI. The pure
-Projection/Summary logic gets one shared code owner. `tools/inspect_token_history.py`
-remains a thin Research/CLI consumer and the Observatory calls the same logic directly.
-
-No generic history framework is created around this extraction.
+`src/temporal_context.py` owns the deterministic Summary semantics and compact query
+helpers. `tools/inspect_token_history.py` is a thin proof consumer and the Observatory
+uses the same code. The Inspector now generates only `summary_context.json` and
+`report.json`; no `llm_context.json` or adaptive time history remains.
 
 #### Tool contract
 
-Exactly one new bounded internal Tool is added:
+Exactly one bounded internal tool serves WP5:
 
 ```text
 get_token_temporal_context
@@ -686,114 +646,60 @@ get_token_temporal_context
 
 Constraints:
 
-- required argument: exact Mint;
-- Mint must equal the current frontend selection;
+- required argument: exact current Mint;
 - no arbitrary SQL;
-- no caller-selected time range;
-- no caller-selected resolution;
+- no caller-selected time range or resolution;
 - no other Mint or cross-token comparison;
 - read-only database access;
 - no persistence or lifecycle mutation.
 
 #### LLM evidence contract
 
-The System Prompt must prevent Summary anchoring. The model must:
+The model receives only `token + summary`. It must analyze relationships while respecting
+the evidence boundary. It may not invent chronology, phases, gapless coverage, ATH status,
+actor identities or manipulation mechanisms that are absent from the Summary. Current
+versus median must be treated as a baseline comparison, not as an invented start/end
+trajectory. Missing remains unknown.
 
-- inspect both `summary` and `temporal_history`;
-- identify relevant temporal changes from the buckets itself;
-- use history to confirm, qualify or contradict the Summary;
-- explicitly mention contradictions instead of silently following Summary;
-- distinguish System Truth, deterministic Analysis and LLM Hypothesis;
-- preserve Missing as unknown;
-- treat `stats1h` as rolling values, never additive bucket volume;
-- avoid claims outside the covered time span.
+#### Visible proof / stop condition
 
-A diagnosis based only on `summary` fails the WP5 contract.
+WP5 is complete only after the real local path proves:
 
-#### Visible proof
-
-The existing Analyst card gains one explicit `TEMPORAL ANALYSIS` scope. A successful
-browser path is:
-
-```text
-select token
-   ↓
-choose TEMPORAL ANALYSIS
-   ↓
-ask free question
-   ↓
-one real get_token_temporal_context Tool Call
-   ↓
-show resolution + covered span
-   ↓
-grounded answer using temporal_history
-```
-
-The UI does not need a chart for this slice.
-
-#### Stop condition
-
-WP5 is complete only after the real browser proves:
-
-1. a token with `<= 6h` available history produces `1m` buckets;
-2. a token with `> 6h` available history produces `5m` buckets;
-3. a token with missing partial fields keeps them missing and receives a qualified answer;
-4. Tool Mint always equals the currently selected Mint;
-5. the answer demonstrably uses the historical trajectory and not only Summary;
-6. no operational state changes.
+1. Summary tests and existing Analyst/Tool tests remain green;
+2. Inspector writes only `summary_context.json` and `report.json` and reports DB runtime;
+3. a large-token Summary query is practically faster than the prior full-payload path;
+4. Tool Mint always equals current Selection;
+5. Mistral receives only `token + summary` and the browser shows span, observations and rough input size;
+6. the answer provides useful cross-metric interpretation without unsupported chronology;
+7. provider success or a visible error/timeout occurs within the bounded 45-second request window;
+8. Current Data and Web Research remain functional;
+9. no operational state changes.
 
 Not part of WP5:
 
-- Raw-, Full- or 15m-LLM payloads;
+- Raw-, Full-, 1m-, 5m- or 15m-LLM history payloads;
 - arbitrary time ranges or user-selectable resolution;
 - persisted OHLC or long-term historical storage;
 - charts, Bubble changes or broader design work;
-- cross-token historical comparison;
+- multi-token comparison in this slice;
 - forecasts, autonomous trading decisions or lifecycle mutation;
 - Conversation Memory or autonomous multi-tool routing.
 
 ### Foundation stop after WP5
 
 No WP6 is currently defined. After WP5 browser validation, the functional foundation is
-complete enough to reassess the product from evidence. The following remain separate
-open topics, not scheduled work packages:
-
-- visual and spatial redesign;
-- additional internal questions such as cross-token comparison or cohorts;
-- discovery provenance, which is blocked by missing Core Evidence;
-- richer LLM orchestration, memory or visual actions.
+complete enough to reassess the product from evidence. Separate open topics include visual
+redesign, summary enrichment, bounded cross-token comparison, discovery provenance and
+additional analytical tools.
 
 A topic becomes the next WP only when one concrete user question, bounded data contract
-and visible stop condition are agreed. This prevents optional future ideas from becoming
-premature architecture.
+and visible stop condition are agreed.
 
 ## 15. Merge checkpoints
 
-Vertical delivery also applies to Git history. A working slice does not stay artificially unmerged while unrelated future slices accumulate.
-
-### Checkpoint 1 — V0 + V1
-
-Draft PR #5 is the first merge checkpoint and contains:
-
-```text
-V0 Observatory contract
-+
-V1 structural split / semantic design system
-```
-
-This checkpoint is ready because:
-
-- the frontend starts independently;
-- the operational core and Lifecycle v0.1 are untouched;
-- database access remains read-only;
-- existing API/SSE behavior is preserved;
-- semantic design tokens are applied;
-- responsibilities are separated without a speculative frontend framework;
-- the real browser/API path has been validated.
-
-WP1 was merged as PR #10, WP2 as PR #11, WP3 as PR #12 and WP4 as PR #13 after their
-real browser paths were validated. WP5 will be an independent merge checkpoint and does
-not reopen spatial or design work.
+Vertical delivery also applies to Git history. WP1 was merged as PR #10, WP2 as PR #11,
+WP3 as PR #12 and WP4 as PR #13 after their real browser paths were validated. WP5 is an
+independent merge checkpoint and does not reopen spatial or design work.
 
 ## 16. Explicit non-goals of the foundation
 
