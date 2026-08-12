@@ -25,11 +25,9 @@ Innerhalb eines Cycles gewinnt für einen Mint die erste passende Regel. Dry-Run
 - `last_polled_at`: lokale Zeit des letzten erfolgreichen Jupiter-Search-Polls.
 - `observed_at`: lokale Beobachtungszeit eines persistierten Snapshots.
 - `source_updated_at`: zuletzt persistierte Jupiter-`updatedAt`-Version.
-- `mint_snapshots`: immutable Raw-Evidence beobachteter Jupiter-Source-Versionen, solange die Row innerhalb der operativ benötigten Retention liegt.
+- `mint_snapshots`: immutable Historie beobachteter Jupiter-Source-Versionen.
 
 Fehlende Werte bleiben fehlend. Ein fehlender numerischer Wert wird nicht als `0` interpretiert.
-
-Die 24-Stunden-Raw-Retention verändert Contract v0.1 nicht. Der jüngste Snapshot eines Mints wird immer behalten. Für aktive Mints darf historische Raw-Evidence erst gelöscht werden, wenn sowohl Rule 4 als auch Rule 5 mit ihren persistenten `lifecycle_rule_state.scanned_through`-Cursors mindestens bis zu der betreffenden Row vorgedrungen sind. Damit ersetzt der monotone Cursor nach einem sauberen Scan die Notwendigkeit, bereits negativ geprüfte Raw-Rows unbegrenzt aufzubewahren. Bei einem Crossing wird der Mint im Apply-Pfad deaktiviert und benötigt danach keine weitere aktive Rule-4/5-Evidence.
 
 ## Rule 1 — Failed to Ignite
 
@@ -116,7 +114,7 @@ economic_data_missing_at_5m
 
 **T0:** `created_at`  
 **Eligibility:** ab `T0 + 30 Minuten`, ohne Ablaufdatum  
-**Evidence:** noch nicht durch `lifecycle_rule_state.scanned_through` abgedeckte `mint_snapshots` ab dem T+30-Grenzpunkt  
+**Evidence:** immutable `mint_snapshots` ab dem T+30-Grenzpunkt  
 **Current-poll freshness:** keine
 
 Disable, sobald ein noch nicht sauber abgescannter Snapshot erfüllt:
@@ -131,13 +129,13 @@ Disable-Reason:
 liquidity_collapse_below_2000
 ```
 
-Für Mints ohne Crossing wird der monotone `lifecycle_rule_state.scanned_through`-Cursor im Apply-Betrieb bis zum jüngsten geprüften Snapshot fortgeschrieben. Bereits sauber abgescannte Raw-Rows dürfen nach Ablauf der globalen Retention gelöscht werden; der Cursor verhindert, dass ihre negative Evidence erneut benötigt wird.
+Für Mints ohne Crossing wird der monotone `lifecycle_rule_state.scanned_through`-Cursor im Apply-Betrieb bis zum jüngsten geprüften Snapshot fortgeschrieben.
 
 ## Rule 5 — Market-Cap Collapse
 
 **T0:** `created_at`  
 **Eligibility:** ab `T0 + 30 Minuten`, ohne Ablaufdatum  
-**Evidence:** noch nicht durch `lifecycle_rule_state.scanned_through` abgedeckte `mint_snapshots` ab dem T+30-Grenzpunkt  
+**Evidence:** immutable `mint_snapshots` ab dem T+30-Grenzpunkt  
 **Current-poll freshness:** keine
 
 Disable, sobald ein noch nicht sauber abgescannter Snapshot erfüllt:
@@ -187,8 +185,6 @@ MintRepository.disable_mints()
 `disabled_at` und `disabled_reason` sind Audit-Fakten der ausgeführten Entscheidung; sie verändern nicht die Candidate-Semantik.
 
 Read-only Downstream-Code besitzt keine Authority, diese Mutationskette zu umgehen.
-
-Snapshot-Maintenance besitzt ebenfalls keine fachliche Disable-Authority. Sie darf ausschließlich Raw-Rows entfernen, deren operative Evidence nach den oben beschriebenen Safety-Bedingungen bereits verarbeitet wurde.
 
 ## Equivalence Gate
 
