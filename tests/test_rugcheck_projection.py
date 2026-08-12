@@ -17,7 +17,7 @@ CREATOR = "55555555555555555555555555555555"
 
 
 class RugCheckProjectionTests(unittest.TestCase):
-    def test_projection_sends_metadata_not_wallet_or_market_rows(self) -> None:
+    def test_projection_sends_defined_metadata_not_wallet_or_market_rows(self) -> None:
         evidence = {
             "source": "rugcheck",
             "mint": MINT,
@@ -109,9 +109,17 @@ class RugCheckProjectionTests(unittest.TestCase):
         projected = project_rugcheck_evidence(evidence)
         summary = projected["summary"]
 
-        self.assertEqual(summary["provider_risk"]["score"], 7)
-        self.assertEqual(summary["provider_risk"]["score_normalised"], 14)
-        self.assertEqual(summary["provider_risk"]["risks"][0]["name"], "Mutable metadata")
+        semantics = summary["semantics"]
+        self.assertIn("not a probability", semantics["score"])
+        self.assertIn("does not define its formula", semantics["score_normalised"])
+        self.assertIn("explicit RugCheck insider flag", semantics["insider"])
+        self.assertIn("lpLockedPct", semantics["lp_lock_counts"])
+
+        risk = summary["provider_risk"]
+        self.assertEqual(risk["score"], 7)
+        self.assertEqual(risk["score_normalised"], 14)
+        self.assertEqual(risk["risks"][0]["name"], "Mutable metadata")
+        self.assertEqual(risk["risks"][0]["description"], "Metadata can change")
 
         control = summary["token_control"]
         self.assertTrue(control["mint_authority_present"])
@@ -123,6 +131,7 @@ class RugCheckProjectionTests(unittest.TestCase):
         self.assertEqual(ownership["total_holders"], 100)
         self.assertEqual(ownership["top1_pct"], 12.5)
         self.assertEqual(ownership["top5_pct"], 17.5)
+        self.assertEqual(ownership["insider_flags_reported"], 2)
         self.assertEqual(ownership["insiders_in_top_holders"], 1)
         self.assertEqual(ownership["insider_pct_in_top_holders"], 12.5)
         self.assertEqual(ownership["creator_in_top_holders_pct"], 12.5)
@@ -148,7 +157,7 @@ class RugCheckProjectionTests(unittest.TestCase):
         self.assertNotIn("knownAccounts", serialized)
 
         meta = projected["projection"]
-        self.assertEqual(meta["type"], "rugcheck_analysis_v2")
+        self.assertEqual(meta["type"], "rugcheck_analysis_v3")
         self.assertEqual(meta["raw_report_bytes"], 9999)
         self.assertEqual(meta["markets_observed"], 2)
         self.assertEqual(meta["top_holders_observed"], 2)
@@ -171,10 +180,30 @@ class RugCheckProjectionTests(unittest.TestCase):
         self.assertIsNone(summary["token_control"]["freeze_authority_present"])
         self.assertIsNone(summary["token_control"]["metadata_update_authority_present"])
         self.assertIsNone(summary["ownership"]["top_holders_reported"])
+        self.assertIsNone(summary["ownership"]["insider_flags_reported"])
         self.assertIsNone(summary["ownership"]["insiders_in_top_holders"])
         self.assertIsNone(summary["liquidity"]["market_count"])
         self.assertIsNone(summary["liquidity"]["markets_with_zero_lp_lock"])
         self.assertIsNone(summary["provider_risk"]["risks"])
+
+    def test_holder_rows_without_insider_flags_do_not_become_zero_insiders(self) -> None:
+        projected = project_rugcheck_evidence(
+            {
+                "source": "rugcheck",
+                "mint": MINT,
+                "fetched_at": "2026-08-12T12:00:00+00:00",
+                "report": {
+                    "topHolders": [
+                        {"address": HOLDER, "pct": 10.0},
+                        {"address": UNUSED, "pct": 5.0},
+                    ]
+                },
+            }
+        )
+        ownership = projected["summary"]["ownership"]
+        self.assertEqual(ownership["insider_flags_reported"], 0)
+        self.assertIsNone(ownership["insiders_in_top_holders"])
+        self.assertIsNone(ownership["insider_pct_in_top_holders"])
 
 
 if __name__ == "__main__":
