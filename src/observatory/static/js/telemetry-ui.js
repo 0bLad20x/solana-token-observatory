@@ -62,8 +62,6 @@ export class TelemetryUI {
 
     if (increment) {
       this.receivedCount += 1;
-      // Only newly received live telemetry creates event motion. Snapshot replay
-      // establishes the current 10m state without fabricating historical work.
       this.view.observe(event);
     }
   }
