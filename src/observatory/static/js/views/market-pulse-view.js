@@ -109,7 +109,7 @@ export class MarketPulseView {
             <span class="pulse-eyebrow">MARKET PULSE</span>
             <strong>Observed population activity</strong>
           </div>
-          <span class="pulse-meta">30s samples · 6h RAM · rolling 5m source windows</span>
+          <span class="pulse-meta">1s samples · 6h RAM · rolling 5m source windows</span>
         </div>
 
         <div class="pulse-metrics">
