@@ -59,7 +59,6 @@ export class TelemetryUI {
     else if (event.type === "search_lane_tick") this.lanes.set(event.lane, event);
     else if (event.type === "search_flush") this.flush = event;
     else if (event.type === "lifecycle_tick") this.lifecycle = event;
-
     if (increment) {
       this.receivedCount += 1;
       this.view.observe(event);
