@@ -8,6 +8,8 @@ DELTA_NUMERIC_FIELDS = (
     "holders",
     "trades_5m",
     "traders_5m",
+    "buy_volume_5m",
+    "sell_volume_5m",
     "volume_5m",
 )
 

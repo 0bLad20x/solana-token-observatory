@@ -2,18 +2,23 @@ import { ActivityTracker } from "./activity.js";
 import { ActivityUI } from "./activity-ui.js";
 import { connectTelemetryStream, connectUniverseStream, requestAnalyst } from "./api.js";
 import { AnalystUI } from "./analyst-ui.js";
+import { MARKET_PULSE_SAMPLE_INTERVAL_MS, MarketPulseSeries } from "./market-pulse.js";
 import { ObservatoryState } from "./state.js";
 import { TelemetryUI } from "./telemetry-ui.js";
 import { TokenUI } from "./token-ui.js";
+import { MarketPulseView } from "./views/market-pulse-view.js";
 import { TokenUniverseView } from "./views/token-universe-view.js";
 
 const state = new ObservatoryState();
 const activity = new ActivityTracker();
+const pulseSeries = new MarketPulseSeries();
 const streamStatus = document.querySelector("#stream-status");
 const stageElement = document.querySelector("#universe-stage");
 const flowStageElement = document.querySelector("#operational-flow-stage");
+const pulseStageElement = document.querySelector("#market-pulse-stage");
 const viewUniverseButton = document.querySelector("#view-token-universe");
 const viewFlowButton = document.querySelector("#view-operational-flow");
+const viewPulseButton = document.querySelector("#view-market-pulse");
 const toolbarLabel = document.querySelector("#primary-view-label");
 const toolbarNote = document.querySelector("#primary-view-note");
 const workspace = document.querySelector("#workspace");
@@ -24,6 +29,7 @@ const SIDE_PANEL_MIN = 360;
 const SIDE_PANEL_MAX = 640;
 
 const telemetryUI = new TelemetryUI(flowStageElement);
+const pulseView = new MarketPulseView(pulseStageElement);
 let currentView = null;
 let tokenUI = null;
 let activityUI = null;
@@ -91,30 +97,50 @@ function ensureOperationalFlow() {
   return flowInitPromise;
 }
 
+function renderPulse() {
+  pulseView.render({ current: pulseSeries.current(), history: pulseSeries.history() });
+}
+
 function setPrimaryMode(mode) {
-  const nextMode = mode === "flow" ? "flow" : "universe";
+  const nextMode = mode === "flow" ? "flow" : mode === "pulse" ? "pulse" : "universe";
   if (nextMode === "flow" && !flowReady) {
     ensureOperationalFlow().then(() => setPrimaryMode("flow")).catch(() => {});
     return;
   }
   primaryMode = nextMode;
+  const universeVisible = primaryMode === "universe";
   const flowVisible = primaryMode === "flow";
-  stageElement.classList.toggle("hidden", flowVisible);
-  viewUniverseButton.classList.toggle("active", !flowVisible);
+  const pulseVisible = primaryMode === "pulse";
+  stageElement.classList.toggle("hidden", !universeVisible);
+  flowStageElement.classList.toggle("hidden", !flowVisible);
+  pulseStageElement.classList.toggle("hidden", !pulseVisible);
+  viewUniverseButton.classList.toggle("active", universeVisible);
   viewFlowButton.classList.toggle("active", flowVisible);
-  viewUniverseButton.setAttribute("aria-pressed", String(!flowVisible));
+  viewPulseButton.classList.toggle("active", pulseVisible);
+  viewUniverseButton.setAttribute("aria-pressed", String(universeVisible));
   viewFlowButton.setAttribute("aria-pressed", String(flowVisible));
-  toolbarLabel.textContent = flowVisible ? "OPERATIONAL FLOW · LIVE" : "TOKEN UNIVERSE · LIVE";
-  toolbarNote.textContent = flowVisible
-    ? "Volatile runtime telemetry · particles are work pulses, not tokens"
-    : "Live population · search reaches every active token";
+  viewPulseButton.setAttribute("aria-pressed", String(pulseVisible));
+
+  if (flowVisible) {
+    toolbarLabel.textContent = "OPERATIONAL FLOW · LIVE";
+    toolbarNote.textContent = "Volatile runtime telemetry · particles are work pulses, not tokens";
+  } else if (pulseVisible) {
+    toolbarLabel.textContent = "MARKET PULSE · LIVE";
+    toolbarNote.textContent = "Rolling 5m market activity · 30s in-memory samples";
+  } else {
+    toolbarLabel.textContent = "TOKEN UNIVERSE · LIVE";
+    toolbarNote.textContent = "Live population · search reaches every active token";
+  }
+
   if (flowReady) telemetryUI.setVisible(flowVisible);
-  if (!flowVisible) renderView();
+  if (universeVisible) renderView();
+  if (pulseVisible) renderPulse();
 }
 
 function setupPrimaryViewSwitch() {
   viewUniverseButton.addEventListener("click", () => setPrimaryMode("universe"));
   viewFlowButton.addEventListener("click", () => setPrimaryMode("flow"));
+  viewPulseButton.addEventListener("click", () => setPrimaryMode("pulse"));
 }
 
 function renderView(events = []) {
@@ -144,16 +170,19 @@ function applySnapshot(snapshot) {
   const selectedBefore = state.selectedMint;
   const tokens = Array.isArray(snapshot?.tokens) ? snapshot.tokens : [];
   const timestamp = Date.parse(snapshot?.generated_at);
+  const sampleAt = Number.isFinite(timestamp) ? timestamp : Date.now();
   activity.reset();
   state.load(tokens);
+  pulseSeries.sample(state.values(), sampleAt);
   syncFlowPopulation();
   renderView();
+  if (primaryMode === "pulse") renderPulse();
   tokenUI.enableSearch();
   tokenUI.renderSelected();
   tokenUI.refreshSearch();
   if (state.selectedMint !== selectedBefore) analystUI.selectionChanged();
   else analystUI.populationChanged();
-  renderDerivedState(Number.isFinite(timestamp) ? timestamp : Date.now());
+  renderDerivedState(sampleAt);
 }
 
 function applyDelta(events, generatedAt) {
@@ -175,6 +204,7 @@ async function bootstrap() {
   setupPrimaryViewSwitch();
   currentView = new TokenUniverseView(stageElement, { onSelect: selectToken });
   await currentView.init();
+  pulseView.init();
   tokenUI = new TokenUI({ state, onSelect: selectToken });
   activityUI = new ActivityUI({ state, onSelect: selectToken });
   analystUI = new AnalystUI({ state, requestAnalyst, onSelect: selectToken });
@@ -199,6 +229,11 @@ setInterval(() => {
   if (tokenUI && activityUI) renderDerivedState();
   telemetryUI.render();
 }, 1000);
+
+setInterval(() => {
+  if (!tokenUI) return;
+  if (pulseSeries.sample(state.values()) && primaryMode === "pulse") renderPulse();
+}, MARKET_PULSE_SAMPLE_INTERVAL_MS);
 
 bootstrap().catch(error => {
   console.error(error);
