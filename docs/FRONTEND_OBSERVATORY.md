@@ -1,97 +1,117 @@
 # Frontend Observatory
 
-## Status und Scope
+## Zweck und Systemgrenze
 
-`src/observatory/` ist ein read-only Consumer des operativen Token-Systems. Das Observatory darf Domain- und Telemetry-Fakten darstellen und analysieren, aber keine operative Mutation oder erfundene Datenbeziehung erzeugen.
+`src/observatory/` ist die read-only Beobachtungs- und Analyseebene von `jupiter-data-transform`. Das Observatory stellt operative Fakten dar, erzeugt deterministische Read Models, visualisiert flüchtige Runtime-Telemetry und bietet bounded Analyst-Workflows.
 
-```text
-Operational Core
-Discovery -> Jupiter Monitoring -> Persistence -> Lifecycle
-                                      │
-                                      ▼
-                              read-only projection
-                                      │
-                 ┌────────────────────┼────────────────────┐
-                 ▼                    ▼                    ▼
-          Browser Workspace      LLM Analyst      Runtime Telemetry
+Es besitzt **keine** Authority über Tracking, Priority, Collector-State oder Lifecycle-Entscheidungen.
+
+```mermaid
+flowchart LR
+    C[Operational Core] -->|read-only PostgreSQL| R[FrontendReader]
+    R --> B[Canonical Browser State]
+    B --> U[Token Universe]
+    B --> I[Search / Inspector]
+    B --> A[Analyst Context]
+
+    C -. localhost UDP .-> T[Telemetry Store]
+    T --> F[Operational Flow]
+
+    E[Web / RugCheck] --> A
 ```
 
 ## 1. Truth Model
 
-### System Truth
+Das Observatory unterscheidet fünf Ebenen. Diese Trennung ist Teil des funktionalen Vertrags.
 
-Direkt gelesene oder deterministisch persistierte operative Fakten wie Mint, Jupiter-Werte, Timestamps und Tracking-/Lifecycle-State.
+| Ebene | Bedeutung | Operative Authority |
+|---|---|---|
+| **System Truth** | direkt gelesene oder deterministisch persistierte operative Fakten | nur der operative Core |
+| **Deterministic Analysis** | reproduzierbare Ableitungen aus Systemdaten | keine |
+| **Runtime Telemetry** | flüchtige Beobachtung tatsächlich ausgeführter Arbeit | keine |
+| **External Evidence** | externe Provider-/Web-Evidence | keine |
+| **LLM Interpretation** | probabilistische Interpretation der bereitgestellten Evidence | keine |
 
-### Deterministic Analysis
+Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden. Insbesondere sind LLM-Antworten keine Lifecycle-Evidence und Runtime-Telemetry ist kein persistenter Systemzustand.
 
-Reproduzierbar abgeleitete Werte wie Rankings, Activity oder Temporal Summary.
+## 2. Canonical Browser State
 
-### Runtime Telemetry
+Der Browser besitzt genau:
 
-Flüchtige Beobachtung tatsächlich ausgeführter Arbeit: Discovery, Search-Lanes, WriteQueue und Lifecycle-Cycles. Telemetry ist keine persistente System Truth und besitzt keine operative Authority.
+- **eine kanonische aktive Token-Population**;
+- **einen gemeinsamen `selectedMint`**.
 
-### External Evidence
-
-Web Search und RugCheck bleiben externe Evidence.
-
-### LLM Interpretation
-
-LLM-Antworten sind probabilistische Interpretation ohne operative Authority.
-
-Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden.
-
-## 2. Functional Core vs Presentation
-
-Der Functional Core bewahrt Domain-Fakten und gemeinsame Interaktionszustände, keine Visualisierungsartefakte.
+Search, Inspector, Token Universe, Activity und selected-token Analyst-Scopes konsumieren diesen gemeinsamen Zustand. Keine View besitzt eine zweite Population oder einen eigenen Transportpfad.
 
 ```text
-FUNCTIONAL CORE
-mint
-market_cap
-liquidity
-holders
-launchpad
-timestamps
-tracking state
-selected Mint
-live token events
-
-PRESENTATION
-x / y
-radius
-color / opacity / stroke
-cluster center
-panel width
-Canvas state
-animation progress
+Universe ────────┐
+Search ──────────┤
+Activity ────────┼──> selectedMint
+                 │        │
+                 │        ├──> Inspector
+                 │        ├──> Token Universe
+                 │        └──> selected-token Analyst
+                 │
+SSE Population ──┘
 ```
 
-Presentation ist austauschbar und keine Domain-Authority.
+Ein bereits selektierter Mint darf nach Retirement als lokaler Kontext sichtbar bleiben. Dadurch wird er nicht wieder Teil der aktiven Population.
 
-## 3. Population und Selection
+Operational Flow besitzt bewusst keine Mint-Selection und keine Mint-Provenance.
 
-Der Browser besitzt genau eine kanonische aktive Population und genau einen `selectedMint`.
+## 3. Synchronisationsvertrag
 
-```text
-Search ──────────┐
-Token Universe ──┤
-Activity Result ─┼──> selected Mint
-Analyst Result ──┘          │
-                            ├──> Inspector
-                            ├──> Token Universe
-                            └──> selected-token Analyst scopes
+`GET /api/events` ist die autoritative Browser-Synchronisationsgrenze für die aktive Population.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Observatory
+    participant DB as PostgreSQL
+
+    Browser->>Observatory: connect / reconnect
+    Observatory->>DB: read active projection
+    Observatory-->>Browser: universe_snapshot
+    loop stream
+        Observatory->>DB: read active projection
+        Observatory-->>Browser: universe_delta
+    end
 ```
 
-Operational Flow besitzt keine Mint-Selection und transportiert keine Mint-Listen.
+Jede Verbindung startet mit genau einem vollständigen `universe_snapshot`. Danach folgen ausschließlich `universe_delta`-Events.
 
-Ein bereits selektierter Token darf nach Retirement als Kontext erhalten bleiben, ohne wieder Teil der aktiven Population zu werden.
+Delta-Typen:
 
-## 4. Browser Responsibility Split
+- `token_added`;
+- `token_updated`;
+- `token_retired`.
+
+Der Snapshot ist zugleich die Server-Baseline für die nachfolgenden Deltas. Ein Reconnect resynchronisiert deshalb den Browser vollständig, bevor weitere Deltas angewendet werden.
+
+`GET /api/token/{mint}` ist eine read-only Detail-Capability und kein zweiter Population-Updatepfad.
+
+## 4. Functional Core und Presentation
+
+Der Functional Core bewahrt Domain-Fakten und gemeinsame Interaktionszustände. Presentation-State bleibt in den Views.
+
+| Functional Core | Presentation |
+|---|---|
+| Mint | x / y |
+| Market Cap / Liquidity / Holders | Radius / Halo / Stroke |
+| Launchpad | Color / Opacity |
+| Timestamps | Animation progress |
+| Tracking-State | Cluster geometry |
+| selected Mint | Canvas transform |
+| canonical token events | transient motion state |
+
+Damit sind konkrete Packing-Algorithmen, Collision-Verhalten, Farben, Halos, Animationstiming und Layoutparameter **keine dauerhafte Domain-Semantik**. Sie dürfen iteriert werden, solange Population-, Selection- und Synchronisationsverträge erhalten bleiben.
+
+## 5. Browser-Verantwortungen
 
 ```text
 static/js/
 ├── app.js                  composition / wiring
-├── api.js                  HTTP + SSE
+├── api.js                  HTTP + SSE transport
 ├── state.js                population + selection + event application
 ├── search.js               pure search / ranking
 ├── activity.js             derived live signals
@@ -105,41 +125,24 @@ static/js/
     └── operational-flow-view.js
 ```
 
-`state.js` besitzt ausschließlich Population, `selectedMint`, Full-Snapshot Load und add/update/retire Event Application. Search, Activity, Telemetry und Presentation State gehören nicht hinein.
+`state.js` besitzt ausschließlich Population, `selectedMint`, Full-Snapshot Load und add/update/retire Event Application. Search, Telemetry und Presentation-State gehören nicht hinein.
 
-Views konsumieren State; sie besitzen weder Transport noch eine zweite Population.
+## 6. Token Universe
 
-## 5. Synchronisationsvertrag
+Das Token Universe visualisiert die aktive Token-Population als räumliche Bubble-Map.
 
-`/api/events` ist die autoritative Browser-Synchronisationsgrenze:
+Seine Verantwortung ist:
 
-```text
-connect / reconnect
-      ↓
-universe_snapshot
-      ↓
-universe_delta*
-```
+- kanonische aktive Tokens darstellen;
+- gemeinsame Selection sichtbar und interaktiv machen;
+- lokale Token-Deltas darstellen;
+- eine analytisch lesbare räumliche Projektion erzeugen.
 
-Delta-Typen:
+Die View darf aus Domain-Fakten Visual Encoding ableiten, aber keine neuen Domain-Fakten erzeugen.
 
-```text
-token_added
-token_updated
-token_retired
-```
+## 7. Operational Flow
 
-Der Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas. `GET /api/token/{mint}` bleibt eine read-only Detail-Capability und ist kein zweiter Population-Updatepfad.
-
-## 6. Aktuelle Main-Stage Views
-
-### Token Universe
-
-Die aktive Token-Population wird als räumliche Bubble-Map dargestellt. Die View konsumiert die kanonische Population, gemeinsame Selection und lokale Token-Deltas. Konkrete Position, Größe, Farbe, Halo, Motion und andere visuelle Kodierungen sind Presentation und keine Domain Truth.
-
-### Operational Flow
-
-Die Runtime wird aus vorhandener flüchtiger Telemetry dargestellt:
+Operational Flow visualisiert die tatsächlich beobachtete Runtime-Arbeit:
 
 ```text
 Discovery -> Admission -> Search -> Write -> Lifecycle -> Tracking
@@ -148,68 +151,95 @@ Discovery -> Admission -> Search -> Write -> Lifecycle -> Tracking
                          └──── monitoring loop ────┘
 ```
 
-Count-Marks und Work-Pakete repräsentieren Mengen bzw. Arbeit und niemals behauptete Mint-Identitäten.
+Die Darstellung verwendet ausschließlich vorhandene flüchtige Telemetry. Count-Marks und Work-Pakete repräsentieren Mengen bzw. Arbeit und niemals behauptete konkrete Mint-Identitäten.
 
-## 7. Runtime Telemetry
+## 8. Runtime Telemetry
 
 Telemetry ist ein separater best-effort Beobachtungspfad:
 
-```text
-Discovery / Search / WriteQueue / Lifecycle
-                ↓
-       localhost UDP
-                ↓
-      bounded RAM buffer
-                ↓
-      telemetry snapshot + SSE
-                ↓
-       Operational Flow
+```mermaid
+flowchart LR
+    P[Discovery / Search / WriteQueue / Lifecycle]
+    P -->|localhost UDP| R[TelemetryReceiver]
+    R --> S[bounded RAM store]
+    S --> H[telemetry snapshot]
+    S --> E[telemetry SSE]
+    H --> F[Operational Flow]
+    E --> F
 ```
 
-Event-Typen:
+Aktuelle Event-Typen:
 
-```text
-discovery_tick
-search_lane_tick
-search_flush
-lifecycle_tick
-```
+- `discovery_tick`;
+- `search_lane_tick`;
+- `search_flush`;
+- `lifecycle_tick`.
 
 Harte Grenzen:
 
 - keine DB-/Disk-Persistenz;
 - keine API Keys;
 - keine Mint-Listen;
-- kein Alerting oder Event Sourcing;
+- kein Event-Sourcing-Anspruch;
+- kein Alerting-Vertrag;
 - keine operative Mutation.
 
-## 8. Analyst Contract
+## 9. Analyst Contract
 
-Der Analyst besitzt vier explizite read-only Use Cases:
+Der Analyst besitzt vier explizite read-only Use Cases.
 
-```text
-current_data
-web
-temporal
-rugcheck
-```
+| Scope | Datenbasis | Grenze |
+|---|---|---|
+| `current_data` | aktuelle aktive Browser-/Server-Projektion | bounded `query_tokens`, kein arbitrary SQL |
+| `web` | externe Web Search | exakte Mint-Adresse ist primäre Identitätsgrenze |
+| `temporal` | deterministischer `<=24h` Temporal Summary | kein Raw-History-Dump und keine erfundene Interpolation |
+| `rugcheck` | RugCheck Provider-Evidence | Provider-Evidence, deterministische Projektion und LLM-Interpretation bleiben getrennt |
 
-- Current Data verwendet bounded `query_tokens` statt arbitrary SQL.
-- Web Research verwendet Exact Mint als Identitätsgrenze.
-- Temporal verwendet einen deterministischen `<=24h` Summary statt Raw-History-Dump.
-- RugCheck trennt direkte Provider-Evidence von deterministischer Projektion und LLM-Interpretation.
-- Modellwahl und API Keys bleiben serverseitig.
+Modellwahl und API Keys bleiben serverseitig. Unsupported Current-Data-Felder werden nicht durch Proxy-Metriken ersetzt. Missing bleibt Missing.
 
-LLM-Antworten dürfen keine operative Mutation oder Lifecycle-Entscheidung auslösen.
+LLM-Antworten dürfen weder operative Mutation noch automatische Lifecycle-Entscheidungen auslösen.
 
-## 9. Non-Goals ohne neuen fachlichen Grund
+## 10. Backend Surface
+
+Das Observatory stellt folgende read-only bzw. Analyst-Endpunkte bereit:
+
+| Endpoint | Rolle |
+|---|---|
+| `GET /api/health` | Prozess-Health |
+| `GET /api/universe` | read-only Universe-Snapshot-Capability |
+| `GET /api/token/{mint}` | read-only Token-Detail-Capability |
+| `GET /api/events` | autoritative Browser-Population via Snapshot + Delta SSE |
+| `GET /api/telemetry` | aktueller flüchtiger Telemetry-Snapshot |
+| `GET /api/telemetry/events` | Telemetry Snapshot + Event SSE |
+| `GET /api/evidence/rugcheck/{mint}` | direkte RugCheck-Evidence |
+| `POST /api/analyst` | bounded Analyst-Scopes |
+
+Der normale Browser-Populationspfad verwendet `/api/events`; `/api/universe` und `/api/token/{mint}` erzeugen keinen parallelen State-Owner.
+
+## 11. Stable Boundaries
+
+Ohne neue explizite Architekturentscheidung gelten folgende Grenzen:
+
+- Observatory bleibt read-only;
+- Browser besitzt genau eine aktive Population;
+- `/api/events` bleibt die Population-Synchronisationsgrenze;
+- Views besitzen weder Transport noch zweite Population;
+- Operational Flow behauptet keine Mint-Provenance;
+- Telemetry bleibt flüchtig und best-effort;
+- External Evidence bleibt externe Evidence;
+- LLM-Interpretation bleibt Interpretation;
+- Presentation-Details werden nicht zu Domain-Verträgen.
+
+## 12. Non-Goals
+
+Ohne neuen fachlichen Grund sind insbesondere nicht Bestandteil des Systems:
 
 - generische Visualization Engine;
 - ViewSpec DSL;
 - Event Bus / Event Sourcing Framework;
-- vorsorglicher serverweiter Token-Stream-Broadcaster;
 - automatischer AI Router;
 - Discovery-Provenance-Persistenz;
-- operative Mutation durch Frontend, Analyst oder Telemetry.
+- operative Mutation durch Frontend, Analyst oder Telemetry;
+- vorsorgliche neue Abstraktionen ohne konkrete Verantwortung.
 
-Neue Presentation- oder Evidence-Arbeit muss aus einer konkreten Produktfrage, einem beobachteten Problem oder einem neuen beweisbaren Datenvertrag abgeleitet werden.
+Neue Presentation- oder Evidence-Arbeit muss aus einer konkreten Produktfrage, einem beobachteten Problem oder einem neuen belegbaren Datenvertrag entstehen.
