@@ -65,8 +65,9 @@ test("breadth and concentration use known rolling volume values", () => {
   assert.equal(pulse.volume_5m.top10_share_pct, 100);
 });
 
-test("market pulse series samples at 30 seconds and retains a bounded six hour window", () => {
+test("market pulse series samples every second and retains a bounded six hour window", () => {
   const series = new MarketPulseSeries();
+  assert.equal(MARKET_PULSE_SAMPLE_INTERVAL_MS, 1000);
   assert.equal(series.sample([token()], 0), true);
   assert.equal(series.sample([token()], MARKET_PULSE_SAMPLE_INTERVAL_MS - 1), false);
   assert.equal(series.sample([token()], MARKET_PULSE_SAMPLE_INTERVAL_MS), true);
