@@ -14,10 +14,6 @@ const apiSource = readFileSync(
   new URL("../src/observatory/static/js/api.js", import.meta.url),
   "utf8",
 );
-const viewSource = readFileSync(
-  new URL("../src/observatory/static/js/views/simple-token-view.js", import.meta.url),
-  "utf8",
-);
 
 class FakeEventSource {
   static latest = null;
@@ -71,14 +67,6 @@ test("browser population bootstrap has no parallel HTTP read path", () => {
   assert.doesNotMatch(apiSource, /export async function fetchUniverse|export async function fetchToken/);
   assert.match(appSource, /onSnapshot:\s*applySnapshot/);
   assert.match(appSource, /state\.load\(tokens\)/);
-});
-
-test("proof view consumes canonical state without owning a second population", () => {
-  assert.doesNotMatch(viewSource, /this\.tokens|this\.selectedMint|applyEvents\(|setSelectedMint\(/);
-  assert.match(viewSource, /render\(\{ tokens, selectedMint \}\)/);
-  assert.match(appSource, /tokens:\s*state\.values\(\)/);
-  assert.match(appSource, /selectedMint:\s*state\.selectedMint/);
-  assert.match(appSource, /events,/);
 });
 
 test("population state has no arbitrary detail upsert path", () => {

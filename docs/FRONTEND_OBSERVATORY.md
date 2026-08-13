@@ -1,18 +1,8 @@
 # Frontend Observatory
 
-## Status
+## Status und Scope
 
-**Authority:** funktionale Frontend-/Analyst-/Telemetry-Grenzen  
-**Scope:** read-only Consumer des operativen Token-Systems  
-**Current checkpoint:** Functional Core, Live Operational Telemetry und Visual WP1–WP4 abgeschlossen  
-**Analyst:** Current Data, Web, Temporal und RugCheck produktiv bewiesen  
-**Primary views:** Token Universe + Operational Flow
-
-Dieses Dokument beschreibt den stabilen funktionalen und akzeptierten visuellen Vertrag des Observatory. Presentation darf Domain- und Telemetry-Fakten darstellen, aber keine neue operative Authority oder erfundene Datenbeziehung erzeugen.
-
-## 1. Product Boundary
-
-Das Observatory ist ein read-only One-Screen-Workspace zum Beobachten, Finden, Selektieren und Analysieren von Solana Tokens sowie zum Beobachten des flüchtigen operativen Datenflusses.
+`src/observatory/` ist ein read-only Consumer des operativen Token-Systems. Das Observatory darf Domain- und Telemetry-Fakten darstellen und analysieren, aber keine operative Mutation oder erfundene Datenbeziehung erzeugen.
 
 ```text
 Operational Core
@@ -26,52 +16,33 @@ Discovery -> Jupiter Monitoring -> Persistence -> Lifecycle
           Browser Workspace      LLM Analyst      Runtime Telemetry
 ```
 
-Primäre Benutzeraktionen:
+## 1. Truth Model
 
-```text
-ansehen -> suchen -> selektieren -> fragen -> analysieren
-```
+### System Truth
 
-Frontend, Analyst und Telemetry-UI dürfen keine Mutation übernehmen von:
+Direkt gelesene oder deterministisch persistierte operative Fakten wie Mint, Jupiter-Werte, Timestamps und Tracking-/Lifecycle-State.
 
-- `tracking_enabled`;
-- Lifecycle State oder Thresholds;
-- Collector-owned Observation State;
-- Priority;
-- operativer Persistenz.
-
-## 2. Truth Model
-
-### SYSTEM TRUTH
-
-Direkt gelesene oder deterministisch persistierte Fakten, beispielsweise Mint, Jupiter-Werte, Timestamps, Tracking-/Lifecycle-State, Market Cap, Liquidity, Holder und Activity Values.
-
-### DETERMINISTIC ANALYSIS
+### Deterministic Analysis
 
 Reproduzierbar abgeleitete Werte wie Rankings, Activity oder Temporal Summary.
 
-### RUNTIME TELEMETRY
+### Runtime Telemetry
 
-Flüchtige Beobachtung tatsächlich ausgeführter Arbeit:
+Flüchtige Beobachtung tatsächlich ausgeführter Arbeit: Discovery, Search-Lanes, WriteQueue und Lifecycle-Cycles. Telemetry ist keine persistente System Truth und besitzt keine operative Authority.
 
-- Discovery intake;
-- Search-Lane RPM, latency und requested/received;
-- WriteQueue polls/source versions/snapshots;
-- Lifecycle Rule-1–7-Breakdown und Cycle-State.
-
-Runtime Telemetry ist keine persistente System Truth und besitzt keine operative Authority.
-
-### EXTERNAL EVIDENCE
+### External Evidence
 
 Web Search und RugCheck bleiben externe Evidence.
 
-### LLM INTERPRETATION
+### LLM Interpretation
 
 LLM-Antworten sind probabilistische Interpretation ohne operative Authority.
 
-## 3. No Presentation Truth in the Functional Core
+Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden.
 
-Der Functional Core bewahrt Domain-Fakten und gemeinsame Interaktionszustände, keine verlustbehafteten Visualisierungsartefakte.
+## 2. Functional Core vs Presentation
+
+Der Functional Core bewahrt Domain-Fakten und gemeinsame Interaktionszustände, keine Visualisierungsartefakte.
 
 ```text
 FUNCTIONAL CORE
@@ -85,20 +56,21 @@ tracking state
 selected Mint
 live token events
 
-NOT FUNCTIONAL CORE
+PRESENTATION
 x / y
 radius
-color / halo / opacity
-stroke
+color / opacity / stroke
 cluster center
-panel position / width
-Canvas/D3/Pixi state
+panel width
+Canvas state
 animation progress
 ```
 
-## 4. Selection Contract
+Presentation ist austauschbar und keine Domain-Authority.
 
-Die gemeinsame Selection ist ausschließlich der ausgewählte Mint.
+## 3. Population und Selection
+
+Der Browser besitzt genau eine kanonische aktive Population und genau einen `selectedMint`.
 
 ```text
 Search ──────────┐
@@ -112,217 +84,37 @@ Analyst Result ──┘          │
 
 Operational Flow besitzt keine Mint-Selection und transportiert keine Mint-Listen.
 
-Ein bereits selektierter Token darf nach Retirement als Kontext erhalten bleiben.
+Ein bereits selektierter Token darf nach Retirement als Kontext erhalten bleiben, ohne wieder Teil der aktiven Population zu werden.
 
-## 5. Browser Responsibility Split
+## 4. Browser Responsibility Split
 
 ```text
 static/js/
-├── app.js
-├── api.js
-├── state.js
-├── search.js
-├── activity.js
-├── format.js
-├── token-ui.js
-├── activity-ui.js
-├── analyst-ui.js
-├── markdown.js
-├── telemetry-ui.js
+├── app.js                  composition / wiring
+├── api.js                  HTTP + SSE
+├── state.js                population + selection + event application
+├── search.js               pure search / ranking
+├── activity.js             derived live signals
+├── token-ui.js             Search + Inspector DOM
+├── activity-ui.js          Live Deltas DOM
+├── analyst-ui.js           Analyst interaction
+├── markdown.js             safe Markdown subset
+├── telemetry-ui.js         volatile telemetry projection
 └── views/
     ├── token-universe-view.js
     └── operational-flow-view.js
 ```
 
-### `app.js`
+`state.js` besitzt ausschließlich Population, `selectedMint`, Full-Snapshot Load und add/update/retire Event Application. Search, Activity, Telemetry und Presentation State gehören nicht hinein.
 
-Composition und Wiring:
+Views konsumieren State; sie besitzen weder Transport noch eine zweite Population.
 
-- Module erzeugen;
-- gemeinsame Selection verbinden;
-- `/api/events` als einzigen Browser-Population-Bootstrap verbinden;
-- `universe_snapshot` und `universe_delta` auf den kanonischen State anwenden;
-- Universe/Flow als zwei Presentation-Views schalten;
-- Telemetry-Stream an `TelemetryUI` weiterreichen;
-- Right-Context Collapse/Resize steuern.
+## 5. Synchronisationsvertrag
 
-Ein Fehler in der Operational-Flow-Presentation darf den Functional Core nicht offline setzen. Token- und Telemetry-SSE werden vor der optionalen Flow-Presentation etabliert.
-
-### `api.js`
-
-Ein Browser-Owner für HTTP/SSE:
-
-- `POST /api/analyst`;
-- `EventSource /api/events`;
-- `EventSource /api/telemetry/events`.
-
-`GET /api/universe` und `GET /api/token/{mint}` bleiben read-only Backend-Capabilities, sind aber keine parallelen Population-State-Owner.
-
-### `state.js`
-
-Besitzt ausschließlich:
-
-- Token Population;
-- `selectedMint`;
-- Full-Snapshot Load;
-- add/update/retire Event Application;
-- kleine direkte Population-Projektionen.
-
-Search, Activity, Telemetry und Visual State gehören nicht hinein.
-
-### `telemetry-ui.js`
-
-Besitzt ausschließlich die flüchtige Browser-Projektion der vier Telemetry-Eventtypen und reicht sie an die Flow-View weiter. Snapshot-Replay stellt Zustand her; nur frisch eintreffende Events erzeugen eventgebundene Motion.
-
-## 6. Accepted Visual Shell — WP1
-
-Akzeptiert:
-
-- dunkle Solana-/Crypto-Farbwelt und bestehender System-Font-Stack;
-- größere Typografie und Abstände;
-- dominante Main Stage;
-- Right Context auf Desktop zwischen 360px und 640px resizebar;
-- Collapse/Restore ohne Verlust von Selection oder Analyst-State;
-- Search über die vollständige aktive Population;
-- Inspector mit bestehenden Token-Fakten;
-- vollständige Mint-Adresse mit Copy.
-
-Panelbreite und Collapse-State sind Presentation State.
-
-## 7. Analyst Focus — WP2
-
-Akzeptiert:
-
-- Analyst lebt idle im Right Context;
-- `Focus` zeigt denselben Analyst als großen Research-Workspace über der Main Stage;
-- Submit öffnet Focus automatisch;
-- Close/Escape erhält Selection, Frage und Antwort;
-- Current Data, Web, Temporal und RugCheck bleiben dieselben vier Scopes;
-- Frage, LLM-Antwort und Evidence/Sources sind visuell getrennt;
-- lange Antworten scrollen im Research-Bereich;
-- Antwort ist kopierbar;
-- `markdown.js` rendert Headings, Bold/Italic, Inline-Code, Listen, Trennlinien und Tabellen über explizite DOM-Nodes;
-- kein ungefiltertes Modell-HTML und kein Mermaid-Renderer im aktuellen Vertrag;
-- keine Conversation-/Scope-History.
-
-## 8. Token Universe — WP3
-
-Analytische Frage:
-
-> Wie verteilt sich die aktive Token-Population auf Launchpads und welche Tokens sind relativ wirtschaftlich groß?
-
-Akzeptierter Data-to-Visual-Vertrag:
+`/api/events` ist die autoritative Browser-Synchronisationsgrenze:
 
 ```text
-cluster       = launchpad membership
-bubble area   = market cap
-liquidity     = separate halo
-focus spoke   = membership connection; holder count influences intensity
-```
-
-Weitere Eigenschaften:
-
-- Launchpads einzeln ein-/ausblendbar;
-- Zoom/Pan + Fit all;
-- Click -> bestehende Selection -> Inspector/Analyst;
-- adaptive stabile Cluster;
-- keine permanente Force-Physics;
-- `token_added` = sichtbarer Eintritt;
-- relevante Market-Cap-Veränderung = gerichtete Größenanimation;
-- `token_retired` = klarer mehrstufiger Exit vor Cluster-Gap-Closure;
-- User-Filter bleibt Authority über Launchpad-Sichtbarkeit.
-
-## 9. Live Operational Flow — WP4
-
-Analytische Frage:
-
-> Wo befindet sich die Datenmasse gerade, wie wird sie durch das System verarbeitet und wo wird Population reduziert oder weiter überwacht?
-
-```text
-Discovery -> Admission -> Search -> Write -> Lifecycle -> Tracking
-                                              └-> retired
-                         ^                         |
-                         └──── monitoring loop ────┘
-```
-
-### Discovery / Admission
-
-Jeder reale `discovery_tick` besitzt `response_items`, `unique_candidates`, `new_mints` und Latenz.
-
-Visualisierung:
-
-```text
-SOURCE -> RAW INTAKE -> DEDUPE -> NEW -> Search
-```
-
-- Raw Intake = bounded Mengenfeld;
-- Dedupe = Gate mit realem Unique Count / Verhältnis;
-- New = admitted output;
-- frische Discovery-Ticks erzeugen mengenabhängige Bursts;
-- Bewegungsdauer wird durch beobachtete Latenz begrenzt;
-- Count-Marks repräsentieren Mengen, nicht konkrete Mints.
-
-### Search
-
-- reale parallele Lane-Struktur;
-- `search_lane_tick` erzeugt Work-Pakete auf der beobachteten Lane;
-- `requested` beeinflusst bounded Paketmenge/-breite;
-- `latency_ms` beeinflusst bounded Laufzeit;
-- keine globale bewegliche Layout-Physics.
-
-### WriteQueue
-
-Große Kondensationsregion:
-
-```text
-POLLS -> SOURCE VERSIONS -> SNAPSHOTS
-```
-
-`search_flush` erzeugt eine sichtbare Kompressionswelle durch die drei Mengenfelder und einen Output-Burst Richtung Lifecycle.
-
-### Lifecycle
-
-- R1–R7 als Gates;
-- `lifecycle_tick` erzeugt einen Sweep;
-- reale non-zero Rule-Breakdowns speisen bounded Units in einen kompakten `RETIRED` / `CANDIDATES`-Sink;
-- Survivors laufen weiter zu Tracking.
-
-### Tracking
-
-Die große sichtbare Tracking-Zahl verwendet **die kanonische Browser-Population** und entspricht damit demselben aktuellen Messpunkt wie Topbar `ACTIVE`.
-
-`lifecycle.active_remaining` bleibt ein anderer Fakt: Stand von `tracking_enabled=true` beim letzten Lifecycle-Cycle. Dieser Wert bleibt im Detail sichtbar, aber nicht als konkurrierende große Population-Zahl.
-
-Änderungen der kanonischen Population erzeugen einen kurzen +/- Reservoir-Pulse.
-
-### Monitoring Loop
-
-Der Rücklauf Tracking -> Search ist ein kontinuierlicher rate-codierter Monitoring-Current:
-
-- Dichte/Breite aus aggregiertem aktuellem Search-RPM;
-- Geschwindigkeit aus bounded medianer Search-Latenz;
-- keine event-per-lane nervöse Rücklaufanimation;
-- kein Punkt steht für einen konkreten Mint.
-
-## 10. Backend Contract
-
-Stabile Endpoints:
-
-```text
-GET  /api/health
-GET  /api/universe
-GET  /api/token/{mint}
-GET  /api/events
-GET  /api/telemetry
-GET  /api/telemetry/events
-GET  /api/evidence/rugcheck/{mint}
-POST /api/analyst
-```
-
-### `/api/events`
-
-```text
-browser start / reconnect
+connect / reconnect
       ↓
 universe_snapshot
       ↓
@@ -337,11 +129,42 @@ token_updated
 token_retired
 ```
 
-Der Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas.
+Der Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas. `GET /api/token/{mint}` bleibt eine read-only Detail-Capability und ist kein zweiter Population-Updatepfad.
 
-### `/api/telemetry/events`
+## 6. Aktuelle Main-Stage Views
 
-Der getrennte Telemetry-SSE beginnt mit `telemetry_snapshot` und liefert danach `telemetry_event`.
+### Token Universe
+
+Die aktive Token-Population wird als räumliche Bubble-Map dargestellt. Die View konsumiert die kanonische Population, gemeinsame Selection und lokale Token-Deltas. Konkrete Position, Größe, Farbe, Halo, Motion und andere visuelle Kodierungen sind Presentation und keine Domain Truth.
+
+### Operational Flow
+
+Die Runtime wird aus vorhandener flüchtiger Telemetry dargestellt:
+
+```text
+Discovery -> Admission -> Search -> Write -> Lifecycle -> Tracking
+                                              └-> retired
+                         ^                         |
+                         └──── monitoring loop ────┘
+```
+
+Count-Marks und Work-Pakete repräsentieren Mengen bzw. Arbeit und niemals behauptete Mint-Identitäten.
+
+## 7. Runtime Telemetry
+
+Telemetry ist ein separater best-effort Beobachtungspfad:
+
+```text
+Discovery / Search / WriteQueue / Lifecycle
+                ↓
+       localhost UDP
+                ↓
+      bounded RAM buffer
+                ↓
+      telemetry snapshot + SSE
+                ↓
+       Operational Flow
+```
 
 Event-Typen:
 
@@ -352,59 +175,34 @@ search_flush
 lifecycle_tick
 ```
 
-Harte Telemetry-Grenzen:
+Harte Grenzen:
 
-- maximal zehn Minuten flüchtiger RAM-Buffer;
 - keine DB-/Disk-Persistenz;
-- best effort;
 - keine API Keys;
 - keine Mint-Listen;
-- kein Alerting, Broker oder Event Sourcing;
+- kein Alerting oder Event Sourcing;
 - keine operative Mutation.
 
-## 11. Analyst Contract
+## 8. Analyst Contract
 
-### Model Policy
-
-```text
-current_data -> FAST   -> ministral-14b-latest
-web          -> STRONG -> mistral-large-latest
-temporal     -> STRONG -> mistral-large-latest
-rugcheck     -> STRONG -> mistral-large-latest
-```
-
-Die UI kennt keine Modellnamen.
-
-### Current Data
-
-Freie Fragen werden in bounded `query_tokens`-Argumente übersetzt. Kein arbitrary SQL und kein vollständiger Dataset-Dump an das LLM.
-
-### Web Research
-
-Exact Mint ist die Identitätsgrenze. Web-Ergebnisse bleiben External Evidence.
-
-### Temporal Summary
-
-Deterministischer `<=24h` Summary -> genau ein STRONG-Modell-Request. Keine Raw-History und keine 1m/5m/15m-Time-Buckets an das LLM.
-
-### RugCheck
-
-Direct full-report fetch -> deterministische `rugcheck_analysis_v4`-Metadaten -> genau ein STRONG-Modell-Request. Keine Wallet-Adressen in der LLM-Projektion, keine Persistence und keine Lifecycle-Mutation.
-
-## 12. Completed Visual Checkpoint
+Der Analyst besitzt vier explizite read-only Use Cases:
 
 ```text
-WP1 Shell / Typography / Inspector      ✓
-WP2 Analyst Focus                       ✓
-WP3 Token Universe                      ✓
-WP4 Operational Flow                    ✓
+current_data
+web
+temporal
+rugcheck
 ```
 
-Universe und Flow verwenden dieselbe Main Stage, dieselbe kanonische Population und dieselbe Shell. Der Wechsel erzeugt keine zweite Seite und keinen zweiten Domain-State.
+- Current Data verwendet bounded `query_tokens` statt arbitrary SQL.
+- Web Research verwendet Exact Mint als Identitätsgrenze.
+- Temporal verwendet einen deterministischen `<=24h` Summary statt Raw-History-Dump.
+- RugCheck trennt direkte Provider-Evidence von deterministischer Projektion und LLM-Interpretation.
+- Modellwahl und API Keys bleiben serverseitig.
 
-Es gibt derzeit kein weiteres beschlossenes Frontend-Design-WP. Neue UI-Arbeit muss aus einer konkreten Produktfrage oder einem beobachteten Usability-/Performance-Problem entstehen.
+LLM-Antworten dürfen keine operative Mutation oder Lifecycle-Entscheidung auslösen.
 
-## 13. Non-Goals ohne neuen fachlichen Grund
+## 9. Non-Goals ohne neuen fachlichen Grund
 
 - generische Visualization Engine;
 - ViewSpec DSL;
@@ -412,9 +210,6 @@ Es gibt derzeit kein weiteres beschlossenes Frontend-Design-WP. Neue UI-Arbeit m
 - vorsorglicher serverweiter Token-Stream-Broadcaster;
 - automatischer AI Router;
 - Discovery-Provenance-Persistenz;
-- Multi-Mint-Vergleich;
 - operative Mutation durch Frontend, Analyst oder Telemetry.
 
-## Completion Principle
-
-Der Functional Core ist richtig geschnitten, wenn neue read-only Views oder Evidence-Consumer hinzugefügt werden können, ohne Population, Search, Selection, SSE, Inspector oder Analyst grundlegend neu zu bauen. Der Telemetry-Pfad ist richtig geschnitten, wenn er reale operative Arbeit beobachtbar macht, ohne selbst Teil dieses operativen Flows zu werden. Presentation bleibt austauschbar und darf keine Domain-Wahrheit übernehmen.
+Neue Presentation- oder Evidence-Arbeit muss aus einer konkreten Produktfrage, einem beobachteten Problem oder einem neuen beweisbaren Datenvertrag abgeleitet werden.

@@ -10,11 +10,6 @@ async function readJson(response, fallbackMessage) {
   return payload;
 }
 
-export async function fetchTelemetry() {
-  const response = await fetch("/api/telemetry");
-  return readJson(response, "Telemetry request failed");
-}
-
 export async function requestAnalyst(body) {
   const response = await fetch("/api/analyst", {
     method: "POST",
