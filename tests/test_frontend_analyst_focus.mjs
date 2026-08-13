@@ -10,6 +10,10 @@ const analystSource = readFileSync(
   new URL("../src/observatory/static/js/analyst-ui.js", import.meta.url),
   "utf8",
 );
+const markdownSource = readFileSync(
+  new URL("../src/observatory/static/js/markdown.js", import.meta.url),
+  "utf8",
+);
 const focusCss = readFileSync(
   new URL("../src/observatory/static/analyst-focus.css", import.meta.url),
   "utf8",
@@ -31,8 +35,19 @@ test("focused research result separates question answer and evidence", () => {
   assert.match(indexSource, /id="analyst-evidence-heading"/);
   assert.match(indexSource, /id="analyst-sources"/);
   assert.match(indexSource, /id="analyst-answer-copy"/);
-  assert.match(analystSource, /#renderAnswer\(text\)/);
-  assert.doesNotMatch(analystSource, /innerHTML/);
+  assert.match(analystSource, /renderMarkdown\(this\.answer, this\.lastAnswer\)/);
+});
+
+test("Analyst Markdown renderer preserves formatting without raw HTML", () => {
+  assert.match(markdownSource, /export function renderMarkdown/);
+  assert.match(markdownSource, /createElement\("strong"\)/);
+  assert.match(markdownSource, /createElement\("em"\)/);
+  assert.match(markdownSource, /createElement\("code"\)/);
+  assert.match(markdownSource, /createElement\("hr"\)/);
+  assert.match(markdownSource, /createElement\("table"\)/);
+  assert.match(markdownSource, /#\{1,6\}/);
+  assert.doesNotMatch(markdownSource, /innerHTML|insertAdjacentHTML/);
+  assert.match(focusCss, /\.markdown-table-wrap/);
 });
 
 test("selected-token analysis exposes exact Mint context", () => {
