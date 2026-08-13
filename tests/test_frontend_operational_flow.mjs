@@ -50,36 +50,70 @@ test("WP4 consumes only the existing volatile telemetry event types", () => {
   assert.doesNotMatch(flowSource, /fetch\(|EventSource|WebSocket/);
 });
 
-test("live telemetry events drive motion while snapshot replay stays static", () => {
+test("live telemetry events drive event motion while snapshot replay stays static", () => {
   assert.match(telemetrySource, /if \(increment\) \{/);
   assert.match(telemetrySource, /this\.view\.observe\(event\)/);
   assert.match(telemetrySource, /this\.apply\(event, false\)/);
   assert.match(flowSource, /observe\(event\)/);
-  assert.match(flowSource, /Motion = observed work/);
+  assert.match(flowSource, /Discovery bursts = bounded candidate counts/);
   assert.doesNotMatch(flowSource, /#drawParticles/);
 });
 
-test("Discovery visualizes the real raw unique new admission funnel", () => {
-  assert.match(flowSource, /MINT FILTER/);
-  assert.match(flowSource, /raw → unique → new/);
+test("Discovery uses one intake field plus a dedupe gate and new admission output", () => {
+  assert.match(flowSource, /ADMISSION/);
+  assert.match(flowSource, /intake → dedupe → new/);
   assert.match(flowSource, /response_items/);
   assert.match(flowSource, /unique_candidates/);
   assert.match(flowSource, /new_mints/);
+  assert.match(flowSource, /RAW INTAKE/);
+  assert.match(flowSource, /DEDUPE/);
   assert.match(flowSource, /new Mints admitted/);
+  assert.doesNotMatch(flowSource, /context\.fillText\("UNIQUE"/);
 });
 
-test("Operational Flow exposes Search Write Lifecycle and compact monitoring return", () => {
-  assert.match(flowSource, /SEARCH/);
-  assert.match(flowSource, /POLLS/);
-  assert.match(flowSource, /VERSIONS/);
-  assert.match(flowSource, /SNAPSHOTS/);
+test("Discovery burst magnitude is data-driven instead of a single decorative packet", () => {
+  assert.match(flowSource, /burstUnits\(raw, 24\)/);
+  assert.match(flowSource, /burstUnits\(unique, 22\)/);
+  assert.match(flowSource, /#drawBurstTrain/);
+  assert.match(flowSource, /latency_ms/);
+});
+
+test("Write owns a large condensation region and flushes visibly toward Lifecycle", () => {
+  assert.match(flowSource, /regionWidth = 252/);
+  assert.match(flowSource, /regionHeight = 270/);
+  assert.match(flowSource, /\["POLLS", "VERSIONS", "SNAPSHOTS"\]/);
+  assert.match(flowSource, /search_flush/);
+  assert.match(flowSource, /toLifecycle/);
+  assert.match(flowSource, /#drawFieldPulse/);
+});
+
+test("Lifecycle uses an observed gate sweep and compact retirement sink", () => {
   assert.match(flowSource, /Lifecycle R1–R7/);
+  assert.match(flowSource, /gate sweep = observed lifecycle_tick/);
   assert.match(flowSource, /RETIRED/);
-  assert.match(flowSource, /TRACKING → SEARCH MONITORING/);
+  assert.match(flowSource, /sinkY/);
+  assert.match(flowSource, /survivorPath/);
+});
+
+test("Tracking uses canonical ACTIVE while preserving last Lifecycle count as context", () => {
+  assert.match(appSource, /syncFlowPopulation/);
+  assert.match(appSource, /telemetryUI\.setActiveCount\(state\.values\(\)\.length\)/);
+  assert.match(telemetrySource, /activeCount: this\.activeCount/);
+  assert.match(flowSource, /current Observatory ACTIVE/);
+  assert.match(flowSource, /at last Lifecycle cycle/);
+  assert.match(flowSource, /ACTIVE TRACKED/);
+});
+
+test("Monitoring loop motion is rate-coded rather than one packet per lane event", () => {
+  assert.match(flowSource, /aggregateRpm/);
+  assert.match(flowSource, /rateIntensity/);
+  assert.match(flowSource, /MONITORING LOOP/);
+  assert.match(flowSource, /monitoring current encodes observed Search rate/);
+  assert.doesNotMatch(flowSource, /recentSearch\.forEach/);
 });
 
 test("WP4 count marks never claim Mint provenance", () => {
-  assert.match(flowSource, /candidate dots = bounded counts, never Mint identities/);
+  assert.match(flowSource, /no dot is a Mint identity/);
   assert.doesNotMatch(flowSource, /sourceMint|mintProvenance|discoveryMint/);
 });
 
