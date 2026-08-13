@@ -11,10 +11,13 @@ export class TokenUI {
     this.changedCount = document.querySelector("#changed-count");
     this.emptyDetail = document.querySelector("#empty-detail");
     this.tokenDetail = document.querySelector("#token-detail");
+    this.detailMint = document.querySelector("#detail-mint");
+    this.detailMintCopy = document.querySelector("#detail-mint-copy");
     this.searchRoot = document.querySelector(".token-search");
     this.searchForm = document.querySelector("#token-search-form");
     this.searchInput = document.querySelector("#token-search-input");
     this.searchResults = document.querySelector("#token-search-results");
+    this.copyResetTimer = null;
 
     this.searchInput.addEventListener("input", () => this.refreshSearch(true));
     this.searchInput.addEventListener("keydown", event => {
@@ -29,6 +32,7 @@ export class TokenUI {
       this.searchInput.value = tokenIdentity(first);
       this.closeSearch();
     });
+    this.detailMintCopy.addEventListener("click", () => this.copySelectedMint());
     document.addEventListener("pointerdown", event => {
       if (!this.searchRoot.contains(event.target)) this.closeSearch();
     });
@@ -50,6 +54,7 @@ export class TokenUI {
   }
 
   renderDetail(token) {
+    this.resetCopyButton();
     if (!token) {
       this.emptyDetail.classList.remove("hidden");
       this.tokenDetail.classList.add("hidden");
@@ -64,7 +69,9 @@ export class TokenUI {
 
     const stateBadge = document.querySelector("#detail-state");
     stateBadge.textContent = token.tracking_enabled ? "ACTIVE" : "RETIRED";
-    stateBadge.className = `state-badge ${token.tracking_enabled ? "active" : "retired"}`;
+    stateBadge.className = token.tracking_enabled
+      ? "state-badge active hidden"
+      : "state-badge retired";
 
     document.querySelector("#detail-mcap").textContent = money(token.market_cap);
     document.querySelector("#detail-liquidity").textContent = money(token.liquidity);
@@ -75,7 +82,29 @@ export class TokenUI {
     document.querySelector("#detail-poll").textContent = `${duration(token.poll_age_seconds)} ago`;
     document.querySelector("#detail-change").textContent = `${duration(token.change_age_seconds)} ago`;
     document.querySelector("#detail-age").textContent = duration(token.age_seconds);
-    document.querySelector("#detail-mint").textContent = token.mint;
+    this.detailMint.textContent = token.mint;
+  }
+
+  async copySelectedMint() {
+    const token = this.state.selectedToken();
+    if (!token?.mint) return;
+
+    try {
+      await navigator.clipboard.writeText(token.mint);
+      this.detailMintCopy.textContent = "Copied";
+    } catch (error) {
+      console.warn("Mint copy failed", error);
+      this.detailMintCopy.textContent = "Copy failed";
+    }
+
+    clearTimeout(this.copyResetTimer);
+    this.copyResetTimer = setTimeout(() => this.resetCopyButton(), 1400);
+  }
+
+  resetCopyButton() {
+    clearTimeout(this.copyResetTimer);
+    this.copyResetTimer = null;
+    this.detailMintCopy.textContent = "Copy";
   }
 
   closeSearch() {
