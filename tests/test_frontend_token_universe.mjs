@@ -29,23 +29,33 @@ test("Token Universe consumes canonical state and delta context without owning t
   assert.doesNotMatch(viewSource, /fetch\(|EventSource|WebSocket/);
 });
 
-test("WP3 uses deterministic layout instead of force physics", () => {
-  assert.match(viewSource, /GOLDEN_ANGLE/);
-  assert.match(viewSource, /SLOT_SPACING/);
+test("WP3 uses bounded local settling instead of permanent force physics", () => {
+  assert.match(viewSource, /packClusters/);
+  assert.match(viewSource, /clusterRadiusForNodes/);
+  assert.match(viewSource, /#stepPhysics/);
+  assert.match(viewSource, /SETTLE_MS/);
   assert.doesNotMatch(viewSource, /forceSimulation|forceManyBody|forceCollide|d3\./);
 });
 
-test("draft exposes the three explicit bubble-scale candidates", () => {
-  assert.match(viewSource, /\["market_cap", "Market cap"\]/);
-  assert.match(viewSource, /\["liquidity", "Liquidity"\]/);
-  assert.match(viewSource, /\["economic", "Economic mix"\]/);
-  assert.match(viewSource, /robustLogRange/);
-  assert.match(viewSource, /radiusForScore/);
+test("market cap is the primary bubble-size signal and liquidity is separate", () => {
+  assert.match(viewSource, /buildMarketRadiusScale/);
+  assert.match(viewSource, /buildLiquidityScale/);
+  assert.match(viewSource, /Bubble radius = robust log market cap/);
+  assert.match(viewSource, /Liquidity = outer halo/);
+  assert.doesNotMatch(viewSource, /Economic mix|SCALE_MODES/);
 });
 
-test("holder count only controls bounded spoke presentation", () => {
+test("membership spokes are contextual and holder-scaled", () => {
   assert.match(viewSource, /buildHolderScale/);
-  assert.match(viewSource, /Spoke strength = holders/);
+  assert.match(viewSource, /#drawContextSpokes/);
+  assert.match(viewSource, /this\.hoverMint/);
+  assert.match(viewSource, /this\.selectedMint/);
+});
+
+test("live transitions are quiet and retirement remains visible", () => {
+  assert.match(viewSource, /ADD_MS = 720/);
+  assert.match(viewSource, /UPDATE_MS = 900/);
+  assert.match(viewSource, /RETIRE_MS = 1800/);
   assert.match(viewSource, /token_retired/);
   assert.match(viewSource, /token_added/);
   assert.match(viewSource, /token_updated/);
