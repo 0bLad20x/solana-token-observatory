@@ -50,19 +50,36 @@ test("WP4 consumes only the existing volatile telemetry event types", () => {
   assert.doesNotMatch(flowSource, /fetch\(|EventSource|WebSocket/);
 });
 
-test("Operational Flow exposes the real pipeline and monitoring loop", () => {
-  assert.match(flowSource, /DISCOVERY/);
-  assert.match(flowSource, /SEARCH/);
-  assert.match(flowSource, /WRITE/);
-  assert.match(flowSource, /LIFECYCLE/);
-  assert.match(flowSource, /TRACKING/);
-  assert.match(flowSource, /MONITORING LOOP/);
-  assert.match(flowSource, /R1–R7/);
+test("live telemetry events drive motion while snapshot replay stays static", () => {
+  assert.match(telemetrySource, /if \(increment\) \{/);
+  assert.match(telemetrySource, /this\.view\.observe\(event\)/);
+  assert.match(telemetrySource, /this\.apply\(event, false\)/);
+  assert.match(flowSource, /observe\(event\)/);
+  assert.match(flowSource, /Motion = observed work/);
+  assert.doesNotMatch(flowSource, /#drawParticles/);
 });
 
-test("WP4 makes particle semantics explicit and does not claim Mint provenance", () => {
-  assert.match(flowSource, /Particles = work pulses/);
-  assert.match(flowSource, /no particle represents a Mint/);
+test("Discovery visualizes the real raw unique new admission funnel", () => {
+  assert.match(flowSource, /MINT FILTER/);
+  assert.match(flowSource, /raw → unique → new/);
+  assert.match(flowSource, /response_items/);
+  assert.match(flowSource, /unique_candidates/);
+  assert.match(flowSource, /new_mints/);
+  assert.match(flowSource, /new Mints admitted/);
+});
+
+test("Operational Flow exposes Search Write Lifecycle and compact monitoring return", () => {
+  assert.match(flowSource, /SEARCH/);
+  assert.match(flowSource, /POLLS/);
+  assert.match(flowSource, /VERSIONS/);
+  assert.match(flowSource, /SNAPSHOTS/);
+  assert.match(flowSource, /Lifecycle R1–R7/);
+  assert.match(flowSource, /RETIRED/);
+  assert.match(flowSource, /TRACKING → SEARCH MONITORING/);
+});
+
+test("WP4 count marks never claim Mint provenance", () => {
+  assert.match(flowSource, /candidate dots = bounded counts, never Mint identities/);
   assert.doesNotMatch(flowSource, /sourceMint|mintProvenance|discoveryMint/);
 });
 
