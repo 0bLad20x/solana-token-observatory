@@ -29,20 +29,37 @@ test("Token Universe consumes canonical state and delta context without owning t
   assert.doesNotMatch(viewSource, /fetch\(|EventSource|WebSocket/);
 });
 
-test("WP3 uses bounded local settling instead of permanent force physics", () => {
+test("WP3 uses bounded local settling while preserving stable launchpad centers", () => {
   assert.match(viewSource, /packClusters/);
-  assert.match(viewSource, /clusterRadiusForNodes/);
+  assert.match(viewSource, /#ensureHubLayout/);
+  assert.match(viewSource, /Centers never move during normal SSE updates/);
   assert.match(viewSource, /#stepPhysics/);
   assert.match(viewSource, /SETTLE_MS/);
   assert.doesNotMatch(viewSource, /forceSimulation|forceManyBody|forceCollide|d3\./);
 });
 
-test("market cap is the primary bubble-size signal and liquidity is separate", () => {
-  assert.match(viewSource, /buildMarketRadiusScale/);
-  assert.match(viewSource, /buildLiquidityScale/);
+test("user launchpad visibility is authoritative across later renders", () => {
+  assert.match(viewSource, /userDisabledLaunchpads/);
+  assert.match(viewSource, /launchpads\.filter\(launchpad => !this\.userDisabledLaunchpads\.has\(launchpad\)\)/);
+  assert.doesNotMatch(viewSource, /selectedToken[\s\S]{0,180}enabledLaunchpads\.add/);
+});
+
+test("market cap owns bubble radius while liquidity remains a separate halo", () => {
+  assert.match(viewSource, /radiusFromMarket/);
+  assert.match(viewSource, /this\.marketRange/);
+  assert.match(viewSource, /this\.liquidityRange/);
   assert.match(viewSource, /Bubble radius = robust log market cap/);
   assert.match(viewSource, /Liquidity = outer halo/);
   assert.doesNotMatch(viewSource, /Economic mix|SCALE_MODES/);
+});
+
+test("meaningful market-cap updates have directed visual semantics", () => {
+  assert.match(viewSource, /MARKET_CHANGE_VISIBLE = 0\.03/);
+  assert.match(viewSource, /MARKET_CHANGE_STRONG = 0\.10/);
+  assert.match(viewSource, /market_cap_updated/);
+  assert.match(viewSource, /#drawMarketChangeSignal/);
+  assert.match(viewSource, /▲/);
+  assert.match(viewSource, /▼/);
 });
 
 test("membership spokes are contextual and holder-scaled", () => {
@@ -52,11 +69,11 @@ test("membership spokes are contextual and holder-scaled", () => {
   assert.match(viewSource, /this\.selectedMint/);
 });
 
-test("live transitions are quiet and retirement remains visible", () => {
-  assert.match(viewSource, /ADD_MS = 720/);
-  assert.match(viewSource, /UPDATE_MS = 900/);
-  assert.match(viewSource, /RETIRE_MS = 1800/);
+test("retirement holds before collapse and cluster gap closure is deferred", () => {
+  assert.match(viewSource, /RETIRE_HOLD_MS = 700/);
+  assert.match(viewSource, /RETIRE_MS = 2400/);
+  assert.match(viewSource, /pendingSettleAt/);
+  assert.match(viewSource, /#drawRetirement/);
+  assert.match(viewSource, /RETIRING/);
   assert.match(viewSource, /token_retired/);
-  assert.match(viewSource, /token_added/);
-  assert.match(viewSource, /token_updated/);
 });
