@@ -28,6 +28,19 @@ test("WP4 adds Operational Flow as a primary view without replacing Token Univer
   assert.match(appSource, /TokenUniverseView/);
 });
 
+test("WP4 presentation cannot gate the functional Observatory streams", () => {
+  const universeConnect = appSource.indexOf("connectUniverseStream({");
+  const telemetryConnect = appSource.indexOf("connectTelemetryStream({");
+  const flowInit = appSource.indexOf("ensureOperationalFlow().catch");
+
+  assert.ok(universeConnect >= 0);
+  assert.ok(telemetryConnect >= 0);
+  assert.ok(flowInit >= 0);
+  assert.ok(universeConnect < flowInit);
+  assert.ok(telemetryConnect < flowInit);
+  assert.match(appSource, /operational_flow_init_failed/);
+});
+
 test("WP4 consumes only the existing volatile telemetry event types", () => {
   assert.match(telemetrySource, /discovery_tick/);
   assert.match(telemetrySource, /search_lane_tick/);
