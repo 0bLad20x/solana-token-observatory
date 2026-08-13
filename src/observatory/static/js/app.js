@@ -12,6 +12,12 @@ const activity = new ActivityTracker();
 const telemetryUI = new TelemetryUI();
 const streamStatus = document.querySelector("#stream-status");
 const stageElement = document.querySelector("#universe-stage");
+const workspace = document.querySelector("#workspace");
+const sidePanel = document.querySelector("#side-panel");
+const sidePanelToggle = document.querySelector("#side-panel-toggle");
+const sidePanelResizer = document.querySelector("#side-panel-resizer");
+const SIDE_PANEL_MIN = 360;
+const SIDE_PANEL_MAX = 640;
 
 let currentView = null;
 let tokenUI = null;
@@ -21,6 +27,51 @@ let analystUI = null;
 function setStreamStatus(mode, label) {
   streamStatus.className = `stream-status ${mode}`;
   streamStatus.querySelector("span").textContent = label;
+}
+
+function setSidePanelWidth(width) {
+  const bounded = Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, width));
+  workspace.style.setProperty("--side-panel-width", `${Math.round(bounded)}px`);
+}
+
+function setSidePanelCollapsed(collapsed) {
+  workspace.classList.toggle("panel-collapsed", collapsed);
+  sidePanelToggle.setAttribute("aria-expanded", String(!collapsed));
+  sidePanelToggle.textContent = collapsed ? "Show" : "Hide";
+}
+
+function setupSidePanel() {
+  sidePanelToggle.addEventListener("click", () => {
+    setSidePanelCollapsed(!workspace.classList.contains("panel-collapsed"));
+  });
+
+  sidePanelResizer.addEventListener("keydown", event => {
+    if (workspace.classList.contains("panel-collapsed")) return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const width = sidePanel.getBoundingClientRect().width;
+    setSidePanelWidth(width + (event.key === "ArrowLeft" ? 24 : -24));
+  });
+
+  sidePanelResizer.addEventListener("pointerdown", event => {
+    if (workspace.classList.contains("panel-collapsed")) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidePanel.getBoundingClientRect().width;
+
+    const move = pointerEvent => {
+      setSidePanelWidth(startWidth + startX - pointerEvent.clientX);
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  });
 }
 
 function renderView(events = []) {
@@ -79,6 +130,8 @@ function applyDelta(events, generatedAt) {
 }
 
 async function bootstrap() {
+  setupSidePanel();
+
   currentView = new SimpleTokenView(stageElement, { onSelect: selectToken });
   await currentView.init();
 

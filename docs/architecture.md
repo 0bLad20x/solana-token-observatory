@@ -142,7 +142,7 @@ Diese Grenze gilt für Research-Skripte, Browser, Analyst und externe Evidence-A
 
 Das Observatory läuft als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/`.
 
-Der Functional Core ist nach der Konsolidierung in Issue #20 / PR #21 und der finalen Synchronisationskorrektur in PR #24 abgeschlossen.
+Der Functional Core ist nach der Konsolidierung in Issue #20 / PR #21, der finalen Synchronisationskorrektur in PR #24 und dem First-Principles-Simplification-Slice PR #32 abgeschlossen.
 
 ```text
 PostgreSQL
@@ -163,7 +163,7 @@ Population State + selected Mint
 
 ```text
 static/js/
-├── app.js                 composition / wiring
+├── app.js                 composition / wiring + shell presentation
 ├── api.js                 HTTP + SSE
 ├── state.js               population + selection + event application
 ├── search.js              pure search/ranking
@@ -185,6 +185,30 @@ Die aktuelle `SimpleTokenView` ist ein austauschbarer funktionaler Proof und kei
 Die Selection ist ausschließlich der Mint. Search, View, Activity und Analyst dürfen Selection anfordern; keiner dieser Consumer besitzt sie.
 
 Ein kürzlich retired Token kann als selected-token Context erhalten bleiben, ohne wieder Teil der aktiven Population zu werden.
+
+### Visual Shell WP1
+
+Visual WP1 ergänzt ausschließlich Presentation und wurde lokal im realen Browser akzeptiert.
+
+```text
+TOPBAR
+
+MAIN STAGE                         RIGHT CONTEXT
+current/future visualization      selected token + analyst + live deltas
+                                  resize / collapse
+
+SECONDARY RUNTIME CONTEXT
+operational telemetry proof
+```
+
+- Main Stage bleibt dominant.
+- Right Context ist auf Desktop zwischen 360px und 640px resizebar und kann collapsed/restored werden.
+- Collapse/Resize verändern keinen Population-, Selection- oder Analyst-State.
+- Search bleibt vollständiger Zugriff auf die aktive Population.
+- Inspector zeigt die vollständige Mint-Adresse und bietet Copy.
+- bestehende Token-Fakten bleiben erhalten.
+- Panelbreite, Collapse-State und andere Layoutwerte sind Presentation State, keine Domain Truth.
+- aktuelle Token-Kacheln und Telemetry-Karten bleiben Visual-Proofs; Bubble Map und Operational Flow werden in eigenen Slices definiert.
 
 ## 8. Observatory Synchronisationsvertrag
 
@@ -412,9 +436,7 @@ Read-only Functional Observatory
    └── RugCheck Evidence
 ```
 
-Der nächste Visual-Slice darf den jetzt bewiesenen operativen Flow verwenden, muss aber seine Data-to-Visual-Semantik explizit definieren. Telemetrie-Metriken sind dabei Runtime-Evidence; sie werden nicht zu einer neuen operativen Steuerungsschicht.
-
-Issue #9 bleibt der separate Visual-/Spatial-Research-Schritt für Token-Darstellungen. Ein Operational-Flow-Visual kann unabhängig davon auf den bereits bewiesenen Telemetrie-Fakten aufbauen.
+Visual WP1 ergänzt jetzt die akzeptierte One-Screen-Presentation-Shell. Der Functional Core bleibt eingefroren. Der nächste Visual-Slice ist Analyst Focus; Token Universe und Operational Flow folgen separat und müssen ihre Data-to-Visual-Semantik explizit definieren.
 
 Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
 

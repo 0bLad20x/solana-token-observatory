@@ -12,11 +12,10 @@
   <main class="shell">
     <header class="topbar">
       <div class="brand-block">
-        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <div>
           <p class="eyebrow">SOLANA TOKEN RESEARCH</p>
           <h1>Token Observatory</h1>
-          <p class="subtitle">A read-only functional view of the live operational population.</p>
+          <p class="subtitle">Live token population, system flow and read-only analysis.</p>
         </div>
       </div>
 
@@ -28,12 +27,12 @@
       </div>
     </header>
 
-    <section class="workspace">
+    <section class="workspace" id="workspace">
       <div class="universe-panel">
         <div class="universe-toolbar">
           <div>
-            <span class="toolbar-label">CORE VIEW · LIVE</span>
-            <span class="toolbar-note">Disposable proof view · search remains complete population access</span>
+            <span class="toolbar-label">TOKEN UNIVERSE · LIVE</span>
+            <span class="toolbar-note">Live population · search reaches every active token</span>
           </div>
           <div class="token-search">
             <form id="token-search-form" role="search">
@@ -53,98 +52,125 @@
             <ol id="token-search-results" class="token-search-results hidden"></ol>
           </div>
         </div>
-        <div id="universe-stage" class="universe-stage" aria-label="Disposable current token proof view"></div>
+        <div id="universe-stage" class="universe-stage" aria-label="Current token population view"></div>
       </div>
 
-      <aside class="side-panel">
-        <section class="detail-card" id="detail-card">
-          <div class="panel-heading">
-            <span class="toolbar-label">INSPECTOR</span>
-            <span class="truth-chip">SYSTEM TRUTH</span>
-          </div>
+      <aside class="side-panel" id="side-panel">
+        <div
+          class="side-panel-resizer"
+          id="side-panel-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize context panel"
+          tabindex="0"
+        ></div>
 
-          <div class="empty-detail" id="empty-detail">
-            <span class="empty-orbit"></span>
-            <h2>Select a token</h2>
-            <p>Use search or the disposable proof view to keep one Mint in shared context.</p>
-          </div>
+        <div class="side-panel-controls">
+          <span class="context-label">CONTEXT</span>
+          <button
+            id="side-panel-toggle"
+            type="button"
+            aria-expanded="true"
+            aria-controls="side-panel-content"
+          >Hide</button>
+        </div>
 
-          <div class="token-detail hidden" id="token-detail">
-            <div class="detail-heading">
-              <div>
-                <p id="detail-launchpad" class="detail-kicker">—</p>
-                <h2 id="detail-name">—</h2>
-                <p id="detail-symbol" class="detail-symbol">—</p>
+        <div class="side-panel-content" id="side-panel-content">
+          <section class="detail-card" id="detail-card">
+            <div class="panel-heading">
+              <span class="toolbar-label">INSPECTOR</span>
+              <span class="truth-chip">SYSTEM TRUTH</span>
+            </div>
+
+            <div class="empty-detail" id="empty-detail">
+              <span class="empty-orbit"></span>
+              <h2>Select a token</h2>
+              <p>Use search or the population view to keep one Mint in shared context.</p>
+            </div>
+
+            <div class="token-detail hidden" id="token-detail">
+              <div class="detail-heading">
+                <div>
+                  <p id="detail-launchpad" class="detail-kicker">—</p>
+                  <h2 id="detail-name">—</h2>
+                  <p id="detail-symbol" class="detail-symbol">—</p>
+                </div>
+                <span id="detail-state" class="state-badge active hidden">ACTIVE</span>
               </div>
-              <span id="detail-state" class="state-badge active">ACTIVE</span>
+
+              <div class="detail-grid">
+                <div><span>Market cap</span><strong id="detail-mcap">—</strong></div>
+                <div><span>Liquidity</span><strong id="detail-liquidity">—</strong></div>
+                <div><span>Holders</span><strong id="detail-holders">—</strong></div>
+                <div><span>Traders 5m</span><strong id="detail-traders">—</strong></div>
+                <div><span>Trades 5m</span><strong id="detail-trades">—</strong></div>
+                <div><span>Volume 5m</span><strong id="detail-volume">—</strong></div>
+              </div>
+
+              <dl class="detail-meta">
+                <div><dt>Last poll</dt><dd id="detail-poll">—</dd></div>
+                <div><dt>Last change</dt><dd id="detail-change">—</dd></div>
+                <div><dt>Age</dt><dd id="detail-age">—</dd></div>
+                <div class="mint-meta-row">
+                  <dt>Mint</dt>
+                  <dd>
+                    <code id="detail-mint">—</code>
+                    <button id="detail-mint-copy" type="button">Copy</button>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+
+          <section class="analyst-card">
+            <div class="panel-heading">
+              <div>
+                <p class="toolbar-label">ANALYST</p>
+                <h2 id="analyst-title">Current token data</h2>
+              </div>
+              <span id="analyst-chip" class="evidence-chip current">CURRENT DATA</span>
             </div>
 
-            <div class="detail-grid">
-              <div><span>Market cap</span><strong id="detail-mcap">—</strong></div>
-              <div><span>Liquidity</span><strong id="detail-liquidity">—</strong></div>
-              <div><span>Holders</span><strong id="detail-holders">—</strong></div>
-              <div><span>Traders 5m</span><strong id="detail-traders">—</strong></div>
-              <div><span>Trades 5m</span><strong id="detail-trades">—</strong></div>
-              <div><span>Volume 5m</span><strong id="detail-volume">—</strong></div>
+            <div class="analyst-modes" aria-label="Analyst scope">
+              <button type="button" class="active" data-analyst-scope="current_data">
+                Current data
+              </button>
+              <button type="button" data-analyst-scope="web">Web research</button>
+              <button type="button" data-analyst-scope="temporal">Temporal</button>
+              <button type="button" data-analyst-scope="rugcheck">RugCheck</button>
             </div>
 
-            <dl class="detail-meta">
-              <div><dt>Last poll</dt><dd id="detail-poll">—</dd></div>
-              <div><dt>Last change</dt><dd id="detail-change">—</dd></div>
-              <div><dt>Age</dt><dd id="detail-age">—</dd></div>
-              <div><dt>Mint</dt><dd id="detail-mint">—</dd></div>
-            </dl>
-          </div>
-        </section>
+            <form id="analyst-form" class="analyst-form">
+              <label id="analyst-context" for="analyst-question">Ask about active tokens</label>
+              <textarea
+                id="analyst-question"
+                name="question"
+                rows="3"
+                maxlength="1000"
+                placeholder="Which five tokens have the highest market cap?"
+                required
+              ></textarea>
+              <button id="analyst-submit" type="submit">Ask</button>
+            </form>
 
-        <section class="analyst-card">
-          <div class="panel-heading">
-            <div>
-              <p class="toolbar-label">ANALYST</p>
-              <h2 id="analyst-title">Current token data</h2>
+            <p id="analyst-status" class="analyst-status" aria-live="polite"></p>
+            <div id="analyst-result" class="analyst-result hidden">
+              <p id="analyst-answer"></p>
+              <div id="analyst-sources" class="analyst-sources"></div>
             </div>
-            <span id="analyst-chip" class="evidence-chip current">CURRENT DATA</span>
-          </div>
+          </section>
 
-          <div class="analyst-modes" aria-label="Analyst scope">
-            <button type="button" class="active" data-analyst-scope="current_data">
-              Current data
-            </button>
-            <button type="button" data-analyst-scope="web">Web research</button>
-            <button type="button" data-analyst-scope="temporal">Temporal</button>
-            <button type="button" data-analyst-scope="rugcheck">RugCheck</button>
-          </div>
-
-          <form id="analyst-form" class="analyst-form">
-            <label id="analyst-context" for="analyst-question">Ask about active tokens</label>
-            <textarea
-              id="analyst-question"
-              name="question"
-              rows="3"
-              maxlength="1000"
-              placeholder="Which five tokens have the highest market cap?"
-              required
-            ></textarea>
-            <button id="analyst-submit" type="submit">Ask</button>
-          </form>
-
-          <p id="analyst-status" class="analyst-status" aria-live="polite"></p>
-          <div id="analyst-result" class="analyst-result hidden">
-            <p id="analyst-answer"></p>
-            <div id="analyst-sources" class="analyst-sources"></div>
-          </div>
-        </section>
-
-        <section class="feed-card">
-          <div class="feed-heading">
-            <div>
-              <p class="toolbar-label">LIVE DELTAS</p>
-              <h2>Volume activity</h2>
+          <section class="feed-card">
+            <div class="feed-heading">
+              <div>
+                <p class="toolbar-label">LIVE DELTAS</p>
+                <h2>Volume activity</h2>
+              </div>
+              <span id="feed-rate">0 ranked · 60s</span>
             </div>
-            <span id="feed-rate">0 ranked · 60s</span>
-          </div>
-          <ol id="event-feed" class="event-feed" aria-live="polite"></ol>
-        </section>
+            <ol id="event-feed" class="event-feed" aria-live="polite"></ol>
+          </section>
+        </div>
       </aside>
     </section>
 
@@ -152,7 +178,7 @@
       <div class="telemetry-heading">
         <div>
           <p class="toolbar-label">PIPELINE TELEMETRY · VOLATILE</p>
-          <h2>Operational dataflow proof</h2>
+          <h2>Operational dataflow</h2>
         </div>
         <div class="telemetry-meta">
           <span id="telemetry-summary">0 lanes · 0 discovery paths · 10m volatile window</span>

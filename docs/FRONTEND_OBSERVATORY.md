@@ -4,15 +4,15 @@
 
 **Authority:** funktionale Frontend-/Analyst-Grenzen  
 **Scope:** read-only Consumer des operativen Token-Systems  
-**Current checkpoint:** Functional Core abgeschlossen; Live Operational Telemetry als flüchtiger read-only Runtime-Proof ergänzt; redundante Browser-State-Pfade vor Visual-Arbeit entfernt  
+**Current checkpoint:** Functional Core abgeschlossen; Live Operational Telemetry als flüchtiger read-only Runtime-Proof ergänzt; redundante Browser-State-Pfade vor Visual-Arbeit entfernt; Visual WP1 Shell lokal akzeptiert  
 **Analyst:** Current Data, Web, Temporal und RugCheck produktiv bewiesen  
-**Visual design:** bewusst getrennt; Operational-Flow-Visualisierung kann auf bewiesener Telemetrie aufbauen, Issue #9 bleibt separater Token-Visual-/Spatial-Research-Schritt
+**Visual design:** Visual WP1 definiert die akzeptierte One-Screen-Shell; Analyst Focus, Token Universe und Operational Flow bleiben eigene Visual-Slices
 
-Dieses Dokument beschreibt den stabilen funktionalen Vertrag des Observatory. Es definiert keine finale Bubble-, Farb-, Layout-, Panel- oder Motion-Semantik.
+Dieses Dokument beschreibt den stabilen funktionalen Vertrag des Observatory. Die akzeptierte WP1-Shell ist Presentation und verändert keine Domain-, Selection-, Synchronisations-, Analyst- oder Evidence-Semantik. Bubble-, Größen-, Farb-, Cluster- und Motion-Semantik bleiben in ihren jeweiligen Visual-Slices zu entscheiden.
 
 ## 1. Product Boundary
 
-Das Observatory ist ein read-only Workspace zum Beobachten, Finden, Selektieren und Analysieren von Solana Tokens sowie zum Beobachten des flüchtigen operativen Datenflusses.
+Das Observatory ist ein read-only One-Screen-Workspace zum Beobachten, Finden, Selektieren und Analysieren von Solana Tokens sowie zum Beobachten des flüchtigen operativen Datenflusses.
 
 ```text
 Operational Core
@@ -24,6 +24,12 @@ Discovery -> Jupiter Monitoring -> Persistence -> Lifecycle
                  ┌────────────────────┼────────────────────┐
                  ▼                    ▼                    ▼
           Browser Workspace      LLM Analyst      Runtime Telemetry
+```
+
+Die primären Benutzeraktionen sind:
+
+```text
+ansehen -> suchen -> selektieren -> fragen -> analysieren
 ```
 
 Frontend, Analyst und Telemetry-UI dürfen lesen bzw. Runtime-Ereignisse darstellen. Sie dürfen keine operative Authority übernehmen. Insbesondere keine Mutation von:
@@ -99,6 +105,7 @@ opacity
 stroke
 cluster center
 panel position
+panel width
 Pixi object
 D3 force state
 telemetry card layout
@@ -154,7 +161,8 @@ Composition und Wiring:
 - `universe_snapshot` und `universe_delta` auf den kanonischen State anwenden;
 - aktuellen State plus optionalen Delta-Event-Kontext an die konkrete View weiterreichen;
 - Telemetry-Stream an die Telemetry-UI weiterreichen;
-- Shell-Level Connection Status.
+- Shell-Level Connection Status;
+- WP1 Right-Context Collapse/Resize als reine Presentation steuern.
 
 ### `api.js`
 
@@ -191,13 +199,21 @@ WP4 Volume Activity und 60s Changed-Mint Count sind deterministische Derived Sig
 
 Search- und Inspector-DOM. Der aktuelle Inspector rendert den selektierten Token aus dem kanonischen Population-State und besitzt keinen separaten 5s Selected-token Poll.
 
+WP1 ergänzt ausschließlich Presentation:
+
+- vollständige Mint-Adresse ohne Truncation;
+- Copy-Aktion für die vollständige Mint-Adresse;
+- größere typografische Hierarchie;
+- aktiver Standardzustand benötigt keinen redundanten `ACTIVE`-Badge;
+- ein erhaltener retired Selected-Context zeigt weiterhin `RETIRED`.
+
 ### `activity-ui.js`
 
 Rendert ausschließlich die bereits deterministisch berechnete Activity-Projektion.
 
 ### `analyst-ui.js`
 
-Besitzt die heutige Analyst-UI und die sichtbaren vier Scopes. Die Anwendung selbst ist nicht an diese Button-Struktur als dauerhaftes Routing-Modell gekoppelt.
+Besitzt die heutige Analyst-UI und die sichtbaren vier Scopes. Die Anwendung selbst ist nicht an diese Button-Struktur als dauerhaftes Routing-Modell gekoppelt. WP1 verbessert nur Shell-/Typografie-Kontext; der eigentliche Analyst-Focus-State gehört zu Visual WP2.
 
 ### `telemetry-ui.js`
 
@@ -209,7 +225,39 @@ Konkrete Darstellung als Consumer des funktionalen Zustands.
 
 `SimpleTokenView` ist absichtlich ein kleiner vertikaler Proof und kein Designvorschlag. Sie besitzt weder eine zweite Token-Population noch eine zweite Selection-Authority. Erst bei einer realen neuen View wird entschieden, welche zusätzliche Presentation-State oder Rendering-Technik tatsächlich erforderlich ist.
 
-## 6. Current View Integration
+## 6. Accepted Visual Shell — WP1
+
+Visual WP1 etabliert die One-Screen-Geometrie, ohne den Functional Core zu verändern.
+
+```text
+TOPBAR
+status + search context
+
+MAIN STAGE                         RIGHT CONTEXT
+primary visualization             selected token + analyst + live deltas
+                                  resize / collapse
+
+SECONDARY RUNTIME CONTEXT
+operational telemetry proof
+```
+
+Akzeptierte Presentation-Eigenschaften:
+
+- bestehende dunkle Solana-/Crypto-Farbwelt bleibt erhalten;
+- bestehender System-Font-Stack bleibt erhalten;
+- Typografie und Abstände sind gegenüber dem funktionalen Proof vergrößert;
+- Main Stage bleibt die dominante Visualisierungsfläche;
+- Right Context startet breiter;
+- auf Desktop ist Right Context zwischen 360px und 640px resizebar;
+- Right Context kann collapsed/restored werden, ohne Selection oder Analyst-State zu verlieren;
+- Search bleibt vollständiger Zugriff auf die aktive Population;
+- Inspector zeigt weiterhin Market Cap, Liquidity, Holders, Traders/Trades/Volume 5m, Last Poll, Last Change und Age;
+- vollständige Mint-Adresse ist sichtbar und kopierbar;
+- aktuelle Token-Kacheln und Telemetry-Karten bleiben vor WP3/WP4 ausdrücklich Visual-Proofs, nicht finale Darstellung.
+
+Panelbreite, Collapse-State und andere Shell-Geometrie sind Presentation State und keine Domain Truth. Eine spätere Visual-View darf innerhalb der Main Stage andere Rendering-Techniken verwenden, ohne diese Grenze umzudeuten.
+
+## 7. Current View Integration
 
 Die aktuelle Proof-View besitzt nur die heute notwendige Integrationsfläche:
 
@@ -227,7 +275,7 @@ destroy()
 
 Diese Signatur ist **kein universeller Visualization Standard**. Eine zukünftige View darf ihre konkrete Rendering-Integration im ausdrücklich beauftragten Visual-Slice ändern. Es gibt keine generische ViewSpec-/Visualization-DSL und keine View-Base-Class im Functional Core.
 
-## 7. Backend Contract
+## 8. Backend Contract
 
 Stabile Endpoints:
 
@@ -287,7 +335,7 @@ Fingerprint und numerische Changes werden aus demselben Contract abgeleitet. Mis
 
 Der Server erzeugt Deltas heute weiterhin per Connection durch Snapshot/Diff-Polling. Das ist akzeptierte Skalierungsschuld, aber kein fachlicher Browser-Vertrag. Ein Broadcaster/Event-Replay-System wird nicht vorsorglich eingeführt.
 
-## 8. Live Operational Telemetry Contract
+## 9. Live Operational Telemetry Contract
 
 Die Telemetrie beantwortet ausschließlich die Frage: **Was tut das operative System gerade?**
 
@@ -342,7 +390,7 @@ Sie sollen im stabilen Betrieb eng zusammenliegen, sind aber **nicht als exakt d
 
 `lifecycle_tick.breakdown` zeigt R1 bis R7. Die Telemetry-UI verändert oder interpretiert die Lifecycle-Regeln nicht.
 
-## 9. Analyst Contract
+## 10. Analyst Contract
 
 Der Analyst besitzt vier bewiesene Use Cases.
 
@@ -421,7 +469,7 @@ Der Provider-Fetch selbst verwendet keinen LLM Tool Call. Der vollständige Repo
 
 RugCheck-Fakten bleiben RugCheck-Fakten. Missing bleibt Missing. Es gibt keinen internen Safety Score, keine Persistence und keine Lifecycle-Mutation.
 
-## 10. Vertical Functional Proof
+## 11. Vertical Functional Proof
 
 Der bewiesene Browserpfad ist:
 
@@ -474,13 +522,15 @@ RugCheck          ✓
 Read-only         ✓
 ```
 
-Visuelle Ähnlichkeit zu früheren Bubble-Experimenten ist kein Acceptance-Kriterium.
+WP1 wurde im realen Browser lokal akzeptiert. Visuelle Ähnlichkeit zu früheren Bubble-Experimenten ist kein Acceptance-Kriterium.
 
-## 11. Evidence Readiness Before Design
+## 12. Evidence Readiness Before Further Visual Work
 
-Der Functional Core und der Live-Telemetrie-Proof sind abgeschlossen. Daraus folgt **nicht**, dass eine bestimmte Visualisierung bereits festgelegt ist.
+Der Functional Core, Live-Telemetrie-Proof und die WP1-Shell sind abgeschlossen. Daraus folgt **nicht**, dass eine bestimmte Bubble- oder Flow-Visualisierung bereits festgelegt ist.
 
-Für den nächsten Operational-Flow-Visual-Slice existieren jetzt reale Metriken für Discovery, Search, WriteQueue und Lifecycle. Diese können strukturell visualisiert werden, ohne neue Domain-Evidence zu erfinden.
+Der nächste Visual-Slice ist WP2: Analyst Focus Workspace. Danach können Token Universe und Operational Flow auf derselben akzeptierten One-Screen-Shell implementiert werden.
+
+Für den Operational-Flow-Visual-Slice existieren reale Metriken für Discovery, Search, WriteQueue und Lifecycle. Diese können strukturell visualisiert werden, ohne neue Domain-Evidence zu erfinden.
 
 Für Token-bezogene Spatial Views bleibt weiterhin zu prüfen, ob eine zukünftige Benutzerfrage zusätzliche Evidence-/Relation-Grenzen benötigt.
 
@@ -510,27 +560,20 @@ Multi-Mint-Vergleich, zusätzliche Summaries oder weitere externe Quellen werden
 
 Ein späterer einheitlicher Frageeingang könnte die bereits bewiesenen Evidence-Pfade routen. Ob Routing deterministisch, LLM-basiert, hybrid oder parallel erfolgt, ist noch nicht entschieden und wird nicht aus den heutigen vier UI-Buttons abgeleitet.
 
-## 12. Visual / Spatial Design Is Separate
+## 13. Visual / Spatial Design Is Separate
 
-Operational-Flow-Visualisierung und Token-Spatial-Research sind getrennte Fragen.
-
-Der Operational-Flow-Slice kann unmittelbar auf den bewiesenen Telemetrie-Fakten aufbauen:
+Die Visual-Phase ist in getrennte Fragen geschnitten:
 
 ```text
-Discovery intake
-      ↓
-Search lanes
-      ↓
-WriteQueue
-      ↓
-Lifecycle R1-R7
-      ↓
-Tracking survivors ↺ Search
+WP1 Shell / Typography / Inspector      ✓
+WP2 Analyst Focus                       next
+WP3 Token Universe Bubble Map           open
+WP4 Operational Flow                    open
 ```
 
-Zuerst wird eine strukturelle Data-to-Visual-Semantik definiert; Motion wird nur ergänzt, wenn sie einen realen Zustandswechsel oder Durchsatz transportiert.
+Token Universe und Operational Flow verwenden dieselbe Main Stage, beantworten aber unterschiedliche Fragen. Die konkrete Umschaltung wird bei Integration der ersten echten Main-Stage-View minimal entschieden; daraus entsteht keine Multi-Page-Navigation.
 
-Issue #9 bleibt der separate Design-/Research-Schritt für Token-/Spatial-Darstellungen. Dort beginnt Design weiterhin mit einer analytischen Frage, nicht mit Bubble Physics. Erst danach werden festgelegt:
+Bubble-/Spatial-Design beginnt mit einer analytischen Frage, nicht mit Bubble Physics. Erst im jeweiligen Visual-Slice werden festgelegt:
 
 - Daten → Position;
 - Daten → Größe;
@@ -541,7 +584,7 @@ Issue #9 bleibt der separate Design-/Research-Schritt für Token-/Spatial-Darste
 - Motion mit expliziter Bedeutung;
 - reale Population-/Viewport-Akzeptanz.
 
-## 13. Frozen-Core Non-Goals
+## 14. Frozen-Core Non-Goals
 
 Ohne einen neuen expliziten fachlichen Grund wird der Functional Core nicht erweitert um:
 
@@ -558,4 +601,4 @@ Ohne einen neuen expliziten fachlichen Grund wird der Functional Core nicht erwe
 
 ## Completion Principle
 
-Der Functional Core ist richtig geschnitten, wenn eine heute unbekannte zukünftige View oder ein zusätzlicher read-only Evidence-Consumer hinzugefügt werden kann, ohne Population, Search, Selection, SSE, Inspector oder bestehende Analyst-Pfade grundlegend neu zu bauen. Eine konkrete View erhält die kanonische State-Projektion und kann zusätzlich den aktuellen Delta-Kontext für Motion/Transitions nutzen, ohne Domain State zu duplizieren. Der Telemetrie-Pfad ist richtig geschnitten, wenn er den realen operativen Flow beobachtbar macht, ohne selbst Teil dieses operativen Flows zu werden.
+Der Functional Core ist richtig geschnitten, wenn eine heute unbekannte zukünftige View oder ein zusätzlicher read-only Evidence-Consumer hinzugefügt werden kann, ohne Population, Search, Selection, SSE, Inspector oder bestehende Analyst-Pfade grundlegend neu zu bauen. Eine konkrete View erhält die kanonische State-Projektion und kann zusätzlich den aktuellen Delta-Kontext für Motion/Transitions nutzen, ohne Domain State zu duplizieren. Der Telemetrie-Pfad ist richtig geschnitten, wenn er den realen operativen Flow beobachtbar macht, ohne selbst Teil dieses operativen Flows zu werden. Die WP1-Shell bleibt eine Presentation Boundary und darf den Functional Core nicht zur Layout-Authority machen.
