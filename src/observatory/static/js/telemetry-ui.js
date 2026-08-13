@@ -11,6 +11,7 @@ export class TelemetryUI {
     this.lanes = new Map();
     this.flush = null;
     this.lifecycle = null;
+    this.activeCount = 0;
     this.windowSeconds = 600;
     this.receivedCount = 0;
     this.connection = "Connecting";
@@ -29,6 +30,12 @@ export class TelemetryUI {
 
   setConnection(label) {
     this.connection = label;
+  }
+
+  setActiveCount(count) {
+    const next = Number(count);
+    this.activeCount = Number.isFinite(next) ? next : 0;
+    this.render();
   }
 
   reset() {
@@ -55,8 +62,8 @@ export class TelemetryUI {
 
     if (increment) {
       this.receivedCount += 1;
-      // Only live telemetry events create motion. Snapshot replay establishes
-      // current state without fabricating historical animation.
+      // Only newly received live telemetry creates event motion. Snapshot replay
+      // establishes the current 10m state without fabricating historical work.
       this.view.observe(event);
     }
   }
@@ -67,6 +74,7 @@ export class TelemetryUI {
       connection: this.connection,
       windowSeconds: this.windowSeconds,
       receivedCount: this.receivedCount,
+      activeCount: this.activeCount,
       discovery: [...this.discovery.values()].sort((a, b) => String(a.source).localeCompare(String(b.source))),
       lanes: [...this.lanes.values()].sort((a, b) => laneNumber(a.lane) - laneNumber(b.lane)),
       flush: this.flush,
