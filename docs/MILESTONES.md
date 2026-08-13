@@ -33,7 +33,7 @@ Der Functional Core bleibt eingefroren. Presentation darf ihn konsumieren, aber 
 
 ## Observatory Visual Phase — abgeschlossen
 
-Issue #36 definierte die Reihenfolge und Designprinzipien. Die vier Visual-Slices wurden nacheinander mit realen Browserdaten akzeptiert.
+Issue #36 definierte Reihenfolge und Designprinzipien. Die vier Visual-Slices wurden nacheinander mit realen Browserdaten akzeptiert.
 
 ### WP1 — Visual Shell / Typography / Inspector (#33 / PR #37)
 
@@ -104,13 +104,7 @@ UNIVERSE  -> aktive Token-Population als Launchpad Bubble Map
 FLOW      -> laufende operative Datenverarbeitung als Live Operational Flow
 ```
 
-Dazu kommen:
-
-- Search;
-- Selected Token Inspector;
-- Analyst im Right Context + Focus Workspace;
-- Live Deltas;
-- Topbar Runtime-Kontext.
+Dazu kommen Search, Selected Token Inspector, Analyst im Right Context + Focus Workspace, Live Deltas und Topbar Runtime-Kontext.
 
 **Es gibt derzeit kein weiteres beschlossenes Frontend-Design-Arbeitspaket.** WP1–WP4 erfüllen den definierten Visual-Checkpoint. Weitere UI-Arbeit sollte nur aus einer neuen konkreten Benutzerfrage oder einem beobachteten Usability-/Performance-Problem entstehen, nicht aus vorsorglichem Redesign.
 
