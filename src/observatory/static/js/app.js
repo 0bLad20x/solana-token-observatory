@@ -149,6 +149,12 @@ function renderDerivedState(now = Date.now()) {
   activityUI.render(ranked);
 }
 
+function syncFlowPopulation() {
+  // Read the already-canonical browser population. This does not create a second
+  // state owner; it only keeps the visual Tracking reservoir aligned with ACTIVE.
+  telemetryUI.setActiveCount(state.values().length);
+}
+
 function applySnapshot(snapshot) {
   const selectedBefore = state.selectedMint;
   const tokens = Array.isArray(snapshot?.tokens) ? snapshot.tokens : [];
@@ -156,6 +162,7 @@ function applySnapshot(snapshot) {
 
   activity.reset();
   state.load(tokens);
+  syncFlowPopulation();
   renderView();
   tokenUI.enableSearch();
   tokenUI.renderSelected();
@@ -174,6 +181,7 @@ function applyDelta(events, generatedAt) {
     activity.applyEvent(event, timestamp);
   }
 
+  syncFlowPopulation();
   renderView(events);
   tokenUI.renderSelected();
   tokenUI.refreshSearch();
