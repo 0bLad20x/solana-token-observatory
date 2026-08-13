@@ -1,8 +1,12 @@
 const TAU = Math.PI * 2;
-const FLOW_PADDING_X = 54;
-const FLOW_PADDING_Y = 72;
-const PARTICLE_RADIUS = 2.2;
+const FLOW_PADDING_X = 46;
+const FLOW_PADDING_Y = 70;
 const STAGE_DOT_RADIUS = 3;
+const MAX_TRANSIENTS = 240;
+const DISCOVERY_BURST_MS = 1350;
+const SEARCH_PACKET_MS = 1500;
+const WRITE_BURST_MS = 1550;
+const LIFECYCLE_BURST_MS = 2600;
 
 function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -20,11 +24,6 @@ function formatMs(value) {
   return Number.isFinite(value) ? `${Math.round(value)} ms` : "—";
 }
 
-function ageSeconds(at, now) {
-  const timestamp = Date.parse(at || "");
-  return Number.isFinite(timestamp) ? Math.max(0, (now - timestamp) / 1000) : Infinity;
-}
-
 function hashString(value) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -34,31 +33,17 @@ function hashString(value) {
   return hash >>> 0;
 }
 
-function bezierPoint(curve, t) {
+function bezierPoint(path, t) {
   const mt = 1 - t;
-  const x = mt ** 3 * curve.x0
-    + 3 * mt ** 2 * t * curve.x1
-    + 3 * mt * t ** 2 * curve.x2
-    + t ** 3 * curve.x3;
-  const y = mt ** 3 * curve.y0
-    + 3 * mt ** 2 * t * curve.y1
-    + 3 * mt * t ** 2 * curve.y2
-    + t ** 3 * curve.y3;
-  return { x, y };
+  return {
+    x: mt ** 3 * path.x0 + 3 * mt ** 2 * t * path.x1 + 3 * mt * t ** 2 * path.x2 + t ** 3 * path.x3,
+    y: mt ** 3 * path.y0 + 3 * mt ** 2 * t * path.y1 + 3 * mt * t ** 2 * path.y2 + t ** 3 * path.y3,
+  };
 }
 
 function curve(x0, y0, x3, y3, bend = 0.42) {
   const dx = x3 - x0;
-  return {
-    x0,
-    y0,
-    x1: x0 + dx * bend,
-    y1: y0,
-    x2: x3 - dx * bend,
-    y2: y3,
-    x3,
-    y3,
-  };
+  return { x0, y0, x1: x0 + dx * bend, y1: y0, x2: x3 - dx * bend, y2: y3, x3, y3 };
 }
 
 function drawCurve(context, path) {
@@ -70,11 +55,25 @@ function drawCurve(context, path) {
 
 function stageColor(kind) {
   if (kind === "discovery") return "20,241,217";
+  if (kind === "filter") return "49,196,255";
   if (kind === "search") return "73,217,255";
   if (kind === "write") return "153,69,255";
   if (kind === "lifecycle") return "214,88,255";
   if (kind === "tracking") return "20,241,217";
   return "146,155,173";
+}
+
+function eventId(event) {
+  if (!event?.type) return "unknown";
+  if (event.type === "discovery_tick") return `${event.type}:${event.source}:${event.at}`;
+  if (event.type === "search_lane_tick") return `${event.type}:${event.lane}:${event.at}`;
+  return `${event.type}:${event.at}`;
+}
+
+function boundedDots(value, maxValue, limit = 36) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (!Number.isFinite(maxValue) || maxValue <= 0) return 1;
+  return clamp(Math.round((Math.sqrt(value) / Math.sqrt(maxValue)) * limit), 1, limit);
 }
 
 export class OperationalFlowView {
@@ -87,9 +86,10 @@ export class OperationalFlowView {
     this.model = null;
     this.visible = false;
     this.frame = null;
-    this.pointer = null;
     this.hitTargets = [];
     this.resizeObserver = null;
+    this.transients = [];
+    this.seenEvents = new Set();
   }
 
   async init() {
@@ -105,13 +105,12 @@ export class OperationalFlowView {
     eyebrow.className = "flow-eyebrow";
     eyebrow.textContent = "LIVE OPERATIONAL FLOW";
     const heading = document.createElement("strong");
-    heading.textContent = "Discovery → Search → Write → Lifecycle → Tracking";
+    heading.textContent = "Discovery → Mint filter → Search → Write → Lifecycle → Tracking";
     title.append(eyebrow, heading);
 
     this.meta = document.createElement("div");
     this.meta.className = "flow-meta";
     this.meta.textContent = "Waiting for telemetry…";
-
     chrome.append(title, this.meta);
 
     this.canvas = document.createElement("canvas");
@@ -121,16 +120,14 @@ export class OperationalFlowView {
 
     const legend = document.createElement("div");
     legend.className = "flow-legend";
-    legend.textContent = "Particles = work pulses · density = observed rate/count · no particle represents a Mint";
+    legend.textContent = "Motion = observed work · candidate dots = bounded counts, never Mint identities · no decorative continuous particles";
 
     this.tooltip = document.createElement("div");
     this.tooltip.className = "flow-tooltip hidden";
-
     this.stage.append(chrome, this.canvas, legend, this.tooltip);
 
     this.canvas.addEventListener("pointermove", event => this.#pointerMove(event));
     this.canvas.addEventListener("pointerleave", () => this.#hideTooltip());
-
     this.resizeObserver = new ResizeObserver(() => this.#resize());
     this.resizeObserver.observe(this.stage);
     this.#resize();
@@ -153,6 +150,32 @@ export class OperationalFlowView {
       cancelAnimationFrame(this.frame);
       this.frame = null;
     }
+  }
+
+  observe(event) {
+    if (!event?.type) return;
+    const id = eventId(event);
+    if (this.seenEvents.has(id)) return;
+    this.seenEvents.add(id);
+    if (this.seenEvents.size > 4000) this.seenEvents.clear();
+
+    const now = performance.now();
+    const duration = event.type === "discovery_tick"
+      ? DISCOVERY_BURST_MS
+      : event.type === "search_lane_tick"
+        ? SEARCH_PACKET_MS
+        : event.type === "search_flush"
+          ? WRITE_BURST_MS
+          : event.type === "lifecycle_tick"
+            ? LIFECYCLE_BURST_MS
+            : 0;
+    if (!duration) return;
+
+    this.transients.push({ id, event: { ...event }, startedAt: now, duration });
+    if (this.transients.length > MAX_TRANSIENTS) {
+      this.transients.splice(0, this.transients.length - MAX_TRANSIENTS);
+    }
+    if (this.visible) this.#schedule();
   }
 
   render(model) {
@@ -196,8 +219,8 @@ export class OperationalFlowView {
     const width = (this.canvas?.width || 1) / dpr;
     const height = (this.canvas?.height || 1) / dpr;
     const innerWidth = width - FLOW_PADDING_X * 2;
-    const top = FLOW_PADDING_Y + 58;
-    const bottom = height - FLOW_PADDING_Y - 30;
+    const top = FLOW_PADDING_Y + 60;
+    const bottom = height - FLOW_PADDING_Y - 34;
     const center = (top + bottom) / 2;
     return {
       width,
@@ -205,31 +228,36 @@ export class OperationalFlowView {
       top,
       bottom,
       center,
-      discoveryX: FLOW_PADDING_X + innerWidth * 0.06,
-      searchX: FLOW_PADDING_X + innerWidth * 0.29,
-      writeX: FLOW_PADDING_X + innerWidth * 0.50,
-      lifecycleX: FLOW_PADDING_X + innerWidth * 0.70,
-      trackingX: FLOW_PADDING_X + innerWidth * 0.91,
+      sourceX: FLOW_PADDING_X + innerWidth * 0.035,
+      rawX: FLOW_PADDING_X + innerWidth * 0.13,
+      uniqueX: FLOW_PADDING_X + innerWidth * 0.205,
+      newX: FLOW_PADDING_X + innerWidth * 0.265,
+      searchX: FLOW_PADDING_X + innerWidth * 0.355,
+      writeX: FLOW_PADDING_X + innerWidth * 0.565,
+      lifecycleX: FLOW_PADDING_X + innerWidth * 0.755,
+      trackingX: FLOW_PADDING_X + innerWidth * 0.925,
     };
   }
 
   #draw(timestamp) {
     if (!this.canvas || !this.context) return;
     this.#resize();
+    this.transients = this.transients.filter(item => timestamp - item.startedAt <= item.duration);
+
     const context = this.context;
     const dpr = Number(this.canvas.dataset.dpr || 1);
-    const geometry = this.#geometry();
+    const g = this.#geometry();
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, geometry.width, geometry.height);
+    context.clearRect(0, 0, g.width, g.height);
     this.hitTargets = [];
 
-    this.#drawBackground(context, geometry);
-    this.#drawLayerHeadings(context, geometry);
-    this.#drawDiscovery(context, geometry, timestamp);
-    this.#drawSearch(context, geometry, timestamp);
-    this.#drawWrite(context, geometry, timestamp);
-    this.#drawLifecycle(context, geometry, timestamp);
-    this.#drawTracking(context, geometry, timestamp);
+    this.#drawBackground(context, g);
+    this.#drawLayerHeadings(context, g);
+    this.#drawDiscovery(context, g, timestamp);
+    this.#drawSearch(context, g, timestamp);
+    this.#drawWrite(context, g, timestamp);
+    this.#drawLifecycle(context, g, timestamp);
+    this.#drawTracking(context, g, timestamp);
   }
 
   #drawBackground(context, g) {
@@ -241,134 +269,185 @@ export class OperationalFlowView {
     context.fillRect(0, 0, g.width, g.height);
 
     const glow = context.createRadialGradient(g.writeX, g.center, 10, g.writeX, g.center, Math.min(g.width, g.height) * 0.5);
-    glow.addColorStop(0, "rgba(153,69,255,.10)");
-    glow.addColorStop(0.42, "rgba(73,217,255,.035)");
+    glow.addColorStop(0, "rgba(153,69,255,.12)");
+    glow.addColorStop(0.48, "rgba(73,217,255,.035)");
     glow.addColorStop(1, "rgba(0,0,0,0)");
     context.fillStyle = glow;
     context.fillRect(0, 0, g.width, g.height);
   }
 
   #drawLayerHeadings(context, g) {
+    const filterX = (g.rawX + g.newX) / 2;
     const headings = [
-      ["DISCOVERY", g.discoveryX, "discovery"],
-      ["SEARCH", g.searchX, "search"],
-      ["WRITE", g.writeX, "write"],
-      ["LIFECYCLE", g.lifecycleX, "lifecycle"],
-      ["TRACKING", g.trackingX, "tracking"],
+      ["DISCOVERY", g.sourceX, "discovery", this.#stageMetric("discovery")],
+      ["MINT FILTER", filterX, "filter", "raw → unique → new"],
+      ["SEARCH", g.searchX, "search", this.#stageMetric("search")],
+      ["WRITE", g.writeX, "write", this.#stageMetric("write")],
+      ["LIFECYCLE", g.lifecycleX, "lifecycle", this.#stageMetric("lifecycle")],
+      ["TRACKING", g.trackingX, "tracking", this.#stageMetric("tracking")],
     ];
     context.textAlign = "center";
     context.textBaseline = "middle";
-    for (const [label, x, kind] of headings) {
-      context.fillStyle = `rgba(${stageColor(kind)},.62)`;
+    for (const [label, x, kind, metric] of headings) {
+      context.fillStyle = `rgba(${stageColor(kind)},.64)`;
       context.font = "700 10px Inter, system-ui, sans-serif";
       context.fillText(label, x, FLOW_PADDING_Y + 8);
       context.fillStyle = "rgba(243,245,248,.92)";
-      context.font = "700 13px Inter, system-ui, sans-serif";
-      context.fillText(this.#stageMetric(kind), x, FLOW_PADDING_Y + 29);
+      context.font = "700 12px Inter, system-ui, sans-serif";
+      context.fillText(metric, x, FLOW_PADDING_Y + 29);
     }
   }
 
   #stageMetric(kind) {
     const model = this.model || {};
     if (kind === "discovery") {
-      const total = (model.discovery || []).reduce((sum, event) => sum + finite(event.new_mints), 0);
-      return `${formatNumber(total)} new / latest ticks`;
+      const raw = (model.discovery || []).reduce((sum, event) => sum + finite(event.response_items), 0);
+      const fresh = (model.discovery || []).reduce((sum, event) => sum + finite(event.new_mints), 0);
+      return `${formatNumber(raw)} raw · ${formatNumber(fresh)} new`;
     }
     if (kind === "search") {
       const rpm = (model.lanes || []).reduce((sum, event) => sum + finite(event.rpm60), 0);
       return `${formatNumber(rpm)} rpm`;
     }
-    if (kind === "write") {
-      return model.flush ? `${formatNumber(model.flush.new_snapshots)} snapshots` : "waiting";
-    }
-    if (kind === "lifecycle") {
-      return model.lifecycle ? `${formatNumber(model.lifecycle.affected_count)} affected` : "waiting";
-    }
-    if (kind === "tracking") {
-      return model.lifecycle ? `${formatNumber(model.lifecycle.active_remaining)} tracking` : "waiting";
-    }
+    if (kind === "write") return model.flush ? `${formatNumber(model.flush.new_snapshots)} snapshots` : "waiting";
+    if (kind === "lifecycle") return model.lifecycle ? `${formatNumber(model.lifecycle.affected_count)} affected` : "waiting";
+    if (kind === "tracking") return model.lifecycle ? `${formatNumber(model.lifecycle.active_remaining)} tracking` : "waiting";
     return "—";
   }
 
   #drawDiscovery(context, g, timestamp) {
     const events = this.model?.discovery || [];
     const count = Math.max(events.length, 1);
-    const span = Math.min(g.bottom - g.top, 360);
+    const span = Math.min(g.bottom - g.top - 80, 400);
     const startY = g.center - span / 2;
-    const searchEntryX = g.searchX - 32;
+    const rawMax = Math.max(...events.map(event => finite(event.response_items)), 1);
+    const uniqueMax = Math.max(...events.map(event => finite(event.unique_candidates)), 1);
+    const newMax = Math.max(...events.map(event => finite(event.new_mints)), 1);
 
     if (!events.length) {
-      this.#drawEmptyLayer(context, g.discoveryX, g.center, "waiting for discovery");
+      this.#drawEmptyLayer(context, g.sourceX, g.center, "waiting for discovery");
       return;
     }
 
     events.forEach((event, index) => {
-      const y = count === 1 ? g.center : startY + (span * index) / (count - 1);
-      const newMints = finite(event.new_mints);
+      const y = count === 1 ? g.center : startY + (span * index) / Math.max(count - 1, 1);
+      const raw = finite(event.response_items);
       const unique = finite(event.unique_candidates);
-      const density = clamp(Math.log10(newMints + 1) / 1.5, 0.08, 1);
-      const path = curve(g.discoveryX + 18, y, searchEntryX, g.center + (y - g.center) * 0.38, 0.48);
-
-      context.strokeStyle = `rgba(20,241,217,${0.10 + density * 0.20})`;
-      context.lineWidth = 0.8 + density * 1.5;
-      drawCurve(context, path);
-      this.#drawParticles(context, path, timestamp, {
-        count: 1 + Math.round(density * 4),
-        speed: 0.00010 + density * 0.00011,
-        phase: hashString(String(event.source)) / 0xffffffff,
-        color: "20,241,217",
-        alpha: 0.35 + density * 0.55,
-      });
-
-      context.beginPath();
-      context.arc(g.discoveryX, y, 8 + density * 3, 0, TAU);
-      context.fillStyle = "rgba(9,23,34,.98)";
-      context.fill();
-      context.strokeStyle = "rgba(20,241,217,.72)";
-      context.lineWidth = 1.2;
-      context.stroke();
+      const fresh = finite(event.new_mints);
+      const livePulse = this.transients.findLast(item => item.event.type === "discovery_tick" && item.event.source === event.source);
+      const pulseProgress = livePulse ? clamp((timestamp - livePulse.startedAt) / livePulse.duration, 0, 1) : null;
 
       context.textAlign = "right";
       context.fillStyle = "rgba(243,245,248,.90)";
-      context.font = "650 11px Inter, system-ui, sans-serif";
-      context.fillText(String(event.source), g.discoveryX - 15, y - 2);
-      context.fillStyle = "rgba(146,155,173,.72)";
-      context.font = "10px Inter, system-ui, sans-serif";
-      context.fillText(`${formatNumber(unique)} unique · ${formatNumber(newMints)} new`, g.discoveryX - 15, y + 13);
+      context.font = "650 10px Inter, system-ui, sans-serif";
+      context.fillText(String(event.source), g.sourceX - 14, y - 2);
+      context.fillStyle = "rgba(146,155,173,.64)";
+      context.font = "9px Inter, system-ui, sans-serif";
+      context.fillText(`${formatNumber(raw)} raw`, g.sourceX - 14, y + 12);
+
+      context.beginPath();
+      context.arc(g.sourceX, y, 7, 0, TAU);
+      context.fillStyle = "rgba(9,23,34,.98)";
+      context.fill();
+      context.strokeStyle = "rgba(20,241,217,.68)";
+      context.stroke();
+
+      this.#drawCountField(context, g.rawX, y, raw, rawMax, "20,241,217", 18);
+      this.#drawCountField(context, g.uniqueX, y, unique, uniqueMax, "49,196,255", 18);
+      this.#drawCountField(context, g.newX, y, fresh, newMax, "73,217,255", 14);
+
+      const sourceToRaw = curve(g.sourceX + 9, y, g.rawX - 17, y, 0.4);
+      const rawToUnique = curve(g.rawX + 18, y, g.uniqueX - 18, y, 0.4);
+      const uniqueToNew = curve(g.uniqueX + 18, y, g.newX - 16, y, 0.4);
+      const newToSearch = curve(g.newX + 16, y, g.searchX - 38, g.center + (y - g.center) * 0.42, 0.48);
+      for (const [path, alpha] of [[sourceToRaw, .12], [rawToUnique, .14], [uniqueToNew, .16], [newToSearch, fresh > 0 ? .30 : .08]]) {
+        context.strokeStyle = `rgba(20,241,217,${alpha})`;
+        context.lineWidth = 1;
+        drawCurve(context, path);
+      }
+
+      if (pulseProgress != null) {
+        const phases = [
+          [sourceToRaw, clamp(pulseProgress * 3.2, 0, 1), "20,241,217", raw],
+          [rawToUnique, clamp(pulseProgress * 3.2 - .75, 0, 1), "49,196,255", unique],
+          [uniqueToNew, clamp(pulseProgress * 3.2 - 1.5, 0, 1), "73,217,255", fresh],
+          [newToSearch, clamp(pulseProgress * 3.2 - 2.2, 0, 1), "73,217,255", fresh],
+        ];
+        for (const [path, progress, color, value] of phases) {
+          if (progress <= 0 || progress >= 1 || value <= 0) continue;
+          this.#drawPacket(context, path, progress, color, clamp(2 + Math.log10(value + 1) * 1.8, 2, 7));
+        }
+      }
 
       this.hitTargets.push({
-        x: g.discoveryX - 90,
-        y: y - 22,
-        width: 105,
-        height: 44,
+        x: g.sourceX - 105,
+        y: y - 23,
+        width: g.newX - g.sourceX + 125,
+        height: 46,
         title: String(event.source),
         lines: [
-          `${formatNumber(event.response_items)} raw`,
-          `${formatNumber(event.unique_candidates)} unique`,
-          `${formatNumber(event.new_mints)} new`,
+          `${formatNumber(raw)} raw intake`,
+          `${formatNumber(unique)} unique candidates`,
+          `${formatNumber(fresh)} new Mints admitted`,
           `latency ${formatMs(event.latency_ms)}`,
         ],
       });
     });
+
+    context.textAlign = "center";
+    context.fillStyle = "rgba(146,155,173,.48)";
+    context.font = "700 8px Inter, system-ui, sans-serif";
+    context.fillText("RAW", g.rawX, g.bottom - 4);
+    context.fillText("UNIQUE", g.uniqueX, g.bottom - 4);
+    context.fillText("NEW", g.newX, g.bottom - 4);
   }
 
-  #drawSearch(context, g, timestamp) {
+  #drawCountField(context, x, y, value, maxValue, color, limit) {
+    const dots = boundedDots(value, maxValue, limit);
+    const columns = dots > 10 ? 5 : 4;
+    const gap = 6;
+    const rows = Math.ceil(Math.max(dots, 1) / columns);
+    for (let index = 0; index < dots; index += 1) {
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      const px = x + (col - (columns - 1) / 2) * gap;
+      const py = y + (row - (rows - 1) / 2) * gap;
+      context.beginPath();
+      context.arc(px, py, 1.8, 0, TAU);
+      context.fillStyle = `rgba(${color},${0.34 + 0.5 * (index + 1) / Math.max(dots, 1)})`;
+      context.fill();
+    }
+    if (!dots) {
+      context.beginPath();
+      context.arc(x, y, 2, 0, TAU);
+      context.strokeStyle = `rgba(${color},.18)`;
+      context.stroke();
+    }
+  }
+
+  #searchLayout(g) {
     const lanes = this.model?.lanes || [];
     const laneCount = Math.max(lanes.length, 1);
     const rows = Math.min(16, Math.ceil(Math.sqrt(laneCount * 2)));
     const columns = Math.ceil(laneCount / rows);
     const cellX = 12;
     const cellY = 16;
-    const width = Math.max(34, columns * cellX);
-    const height = Math.max(120, rows * cellY);
+    const width = Math.max(36, columns * cellX);
+    const height = Math.max(130, rows * cellY);
     const left = g.searchX - width / 2;
     const top = g.center - height / 2;
+    return { lanes, rows, columns, cellX, cellY, width, height, left, top };
+  }
 
-    context.fillStyle = "rgba(10,19,32,.68)";
-    context.strokeStyle = "rgba(73,217,255,.18)";
+  #drawSearch(context, g, timestamp) {
+    const layout = this.#searchLayout(g);
+    const { lanes, rows, cellX, cellY, width, height, left, top } = layout;
+
+    context.fillStyle = "rgba(10,19,32,.70)";
+    context.strokeStyle = "rgba(73,217,255,.20)";
     context.lineWidth = 1;
     context.beginPath();
-    context.roundRect(left - 18, top - 20, width + 36, height + 40, 18);
+    context.roundRect(left - 20, top - 22, width + 40, height + 44, 18);
     context.fill();
     context.stroke();
 
@@ -377,50 +456,57 @@ export class OperationalFlowView {
       return;
     }
 
+    const lanePositions = new Map();
     lanes.forEach((lane, index) => {
       const row = index % rows;
       const column = Math.floor(index / rows);
       const x = left + column * cellX + cellX / 2;
       const y = top + row * cellY + cellY / 2;
+      lanePositions.set(String(lane.lane), { x, y, row });
       const rpm = finite(lane.rpm60);
-      const latency = Math.max(80, finite(lane.latency_ms, 900));
       const statusGood = lane.status === 200;
       const intensity = clamp(rpm / 58, 0.15, 1);
-
       context.beginPath();
-      context.arc(x, y, STAGE_DOT_RADIUS + intensity * 1.4, 0, TAU);
+      context.arc(x, y, STAGE_DOT_RADIUS + intensity * 1.5, 0, TAU);
       context.fillStyle = statusGood
-        ? `rgba(73,217,255,${0.36 + intensity * 0.58})`
+        ? `rgba(73,217,255,${0.34 + intensity * 0.60})`
         : "rgba(255,92,119,.92)";
       context.fill();
 
-      const path = curve(x, y, g.writeX - 58, g.center + (row / Math.max(rows - 1, 1) - 0.5) * 210, 0.55);
+      const path = curve(x, y, g.writeX - 86, g.center + (row / Math.max(rows - 1, 1) - 0.5) * 235, 0.55);
       context.strokeStyle = statusGood
-        ? `rgba(73,217,255,${0.035 + intensity * 0.065})`
-        : "rgba(255,92,119,.12)";
-      context.lineWidth = 0.55 + intensity * 0.65;
+        ? `rgba(73,217,255,${0.035 + intensity * 0.08})`
+        : "rgba(255,92,119,.15)";
+      context.lineWidth = 0.6 + intensity * 0.7;
       drawCurve(context, path);
-
-      const speed = clamp(1 / latency, 0.00035, 0.004) * 0.55;
-      this.#drawParticles(context, path, timestamp, {
-        count: statusGood ? 1 + Math.round(intensity * 2) : 1,
-        speed,
-        phase: (hashString(String(lane.lane)) % 1000) / 1000,
-        color: statusGood ? "73,217,255" : "255,92,119",
-        alpha: statusGood ? 0.28 + intensity * 0.58 : 0.72,
-      });
     });
 
+    const searchBursts = this.transients.filter(item => item.event.type === "search_lane_tick");
+    for (const burst of searchBursts) {
+      const lane = burst.event;
+      const position = lanePositions.get(String(lane.lane));
+      if (!position) continue;
+      const latency = clamp(finite(lane.latency_ms, 900), 120, 2600);
+      const duration = clamp(latency * 1.15, 280, 1500);
+      const progress = clamp((timestamp - burst.startedAt) / duration, 0, 1);
+      if (progress <= 0 || progress >= 1) continue;
+      const path = curve(position.x, position.y, g.writeX - 86, g.center + (position.row / Math.max(rows - 1, 1) - 0.5) * 235, 0.55);
+      const widthScale = clamp(finite(lane.requested) / 100, 0.25, 1);
+      const color = lane.status === 200 ? "73,217,255" : "255,92,119";
+      this.#drawPacket(context, path, progress, color, 2.5 + widthScale * 3.5);
+    }
+
     this.hitTargets.push({
-      x: left - 18,
-      y: top - 20,
-      width: width + 36,
-      height: height + 40,
+      x: left - 20,
+      y: top - 22,
+      width: width + 40,
+      height: height + 44,
       title: "Jupiter Search",
       lines: [
-        `${lanes.length} lanes`,
+        `${lanes.length} parallel lanes`,
         `${formatNumber(lanes.reduce((sum, lane) => sum + finite(lane.rpm60), 0))} aggregate rpm`,
         `median latency ${formatMs(this.#median(lanes.map(lane => lane.latency_ms)))}`,
+        "live packets = observed lane work",
       ],
     });
   }
@@ -431,59 +517,66 @@ export class OperationalFlowView {
       ? [finite(flush.polled_tokens), finite(flush.source_versions), finite(flush.new_snapshots)]
       : [0, 0, 0];
     const labels = ["POLLS", "VERSIONS", "SNAPSHOTS"];
-    const xs = [g.writeX - 44, g.writeX, g.writeX + 44];
+    const xs = [g.writeX - 62, g.writeX, g.writeX + 62];
     const maxValue = Math.max(...values, 1);
+    const fieldWidth = 42;
+    const fieldHeight = 180;
 
     for (let index = 0; index < 3; index += 1) {
       const ratio = Math.sqrt(values[index] / maxValue);
-      const rows = 11;
-      const cols = 4;
-      for (let row = 0; row < rows; row += 1) {
-        for (let col = 0; col < cols; col += 1) {
-          const normalized = (row * cols + col) / (rows * cols - 1);
-          const active = normalized <= ratio;
-          const x = xs[index] + (col - 1.5) * 8;
-          const y = g.center + (row - (rows - 1) / 2) * 12;
-          context.beginPath();
-          context.arc(x, y, active ? 2.6 : 1.8, 0, TAU);
-          context.fillStyle = active
-            ? `rgba(153,69,255,${0.38 + ratio * 0.54})`
-            : "rgba(153,69,255,.08)";
-          context.fill();
-        }
+      const maxDots = 70;
+      const dots = boundedDots(values[index], maxValue, maxDots);
+      const columns = 7;
+      const rows = 10;
+      for (let slot = 0; slot < maxDots; slot += 1) {
+        const row = slot % rows;
+        const col = Math.floor(slot / rows);
+        const x = xs[index] + (col - 3) * 7;
+        const y = g.center + (row - 4.5) * 13;
+        const active = slot < dots;
+        context.beginPath();
+        context.arc(x, y, active ? 3.0 : 1.6, 0, TAU);
+        context.fillStyle = active
+          ? `rgba(153,69,255,${0.36 + ratio * 0.58})`
+          : "rgba(153,69,255,.045)";
+        context.fill();
       }
 
       context.textAlign = "center";
       context.fillStyle = "rgba(146,155,173,.62)";
       context.font = "700 8px Inter, system-ui, sans-serif";
-      context.fillText(labels[index], xs[index], g.center + 86);
-      context.fillStyle = "rgba(243,245,248,.92)";
-      context.font = "700 11px Inter, system-ui, sans-serif";
-      context.fillText(formatNumber(values[index]), xs[index], g.center + 102);
+      context.fillText(labels[index], xs[index], g.center + fieldHeight / 2 + 9);
+      context.fillStyle = "rgba(243,245,248,.94)";
+      context.font = "800 12px Inter, system-ui, sans-serif";
+      context.fillText(formatNumber(values[index]), xs[index], g.center + fieldHeight / 2 + 25);
     }
 
     if (flush) {
       for (let index = 0; index < 2; index += 1) {
         const ratio = clamp(values[index + 1] / Math.max(values[index], 1), 0, 1);
-        const path = curve(xs[index] + 18, g.center, xs[index + 1] - 18, g.center, 0.46);
-        context.strokeStyle = `rgba(153,69,255,${0.12 + ratio * 0.30})`;
-        context.lineWidth = 1.5 + ratio * 5;
+        const path = curve(xs[index] + fieldWidth / 2, g.center, xs[index + 1] - fieldWidth / 2, g.center, 0.46);
+        context.strokeStyle = `rgba(153,69,255,${0.10 + ratio * 0.32})`;
+        context.lineWidth = 1.2 + ratio * 5.5;
         drawCurve(context, path);
-        this.#drawParticles(context, path, timestamp, {
-          count: 2 + Math.round(ratio * 5),
-          speed: 0.00016,
-          phase: 0.21 + index * 0.31,
-          color: "183,124,255",
-          alpha: 0.58,
-        });
       }
     }
 
+    const burst = this.transients.findLast(item => item.event.type === "search_flush");
+    if (burst) {
+      const p = clamp((timestamp - burst.startedAt) / burst.duration, 0, 1);
+      const first = curve(xs[0] + fieldWidth / 2, g.center, xs[1] - fieldWidth / 2, g.center, 0.46);
+      const second = curve(xs[1] + fieldWidth / 2, g.center, xs[2] - fieldWidth / 2, g.center, 0.46);
+      const p1 = clamp(p * 2, 0, 1);
+      const p2 = clamp(p * 2 - 1, 0, 1);
+      if (p1 > 0 && p1 < 1) this.#drawPacket(context, first, p1, "183,124,255", 7);
+      if (p2 > 0 && p2 < 1) this.#drawPacket(context, second, p2, "183,124,255", 5);
+    }
+
     this.hitTargets.push({
-      x: g.writeX - 78,
-      y: g.center - 92,
-      width: 156,
-      height: 210,
+      x: g.writeX - 96,
+      y: g.center - 110,
+      width: 192,
+      height: 230,
       title: "WriteQueue condensation",
       lines: flush ? [
         `${formatNumber(flush.polled_tokens)} polls`,
@@ -493,85 +586,105 @@ export class OperationalFlowView {
       ] : ["Waiting for first flush"],
     });
 
-    const toLifecycle = curve(g.writeX + 64, g.center, g.lifecycleX - 55, g.center, 0.5);
-    context.strokeStyle = "rgba(183,124,255,.14)";
-    context.lineWidth = 1.4;
+    const toLifecycle = curve(g.writeX + 92, g.center, g.lifecycleX - 82, g.center, 0.5);
+    context.strokeStyle = "rgba(183,124,255,.15)";
+    context.lineWidth = 2;
     drawCurve(context, toLifecycle);
-    if (flush) this.#drawParticles(context, toLifecycle, timestamp, {
-      count: clamp(1 + Math.round(Math.log10(finite(flush.new_snapshots) + 1) * 2), 1, 6),
-      speed: 0.00014,
-      phase: 0.4,
-      color: "183,124,255",
-      alpha: 0.62,
-    });
+    if (burst) {
+      const progress = clamp((timestamp - burst.startedAt) / burst.duration, 0, 1);
+      if (progress > .48 && progress < 1) this.#drawPacket(context, toLifecycle, (progress - .48) / .52, "183,124,255", 5);
+    }
   }
 
   #drawLifecycle(context, g, timestamp) {
     const lifecycle = this.model?.lifecycle;
     const breakdown = lifecycle?.breakdown || {};
     const ruleKeys = ["rule1", "rule2", "rule3", "rule4", "rule5", "rule6", "rule7"];
-    const span = 280;
-    const startY = g.center - span / 2;
+    const gateLeft = g.lifecycleX - 70;
+    const gateRight = g.lifecycleX + 54;
+    const gateGap = (gateRight - gateLeft) / (ruleKeys.length - 1);
+    const mainY = g.center;
+    const sinkY = g.center + 118;
+
+    context.strokeStyle = "rgba(214,88,255,.18)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(g.lifecycleX - 98, mainY);
+    context.lineTo(g.lifecycleX + 82, mainY);
+    context.stroke();
+
+    const burst = this.transients.findLast(item => item.event.type === "lifecycle_tick");
+    const burstProgress = burst ? clamp((timestamp - burst.startedAt) / burst.duration, 0, 1) : null;
 
     ruleKeys.forEach((key, index) => {
-      const y = startY + (span * index) / (ruleKeys.length - 1);
+      const x = gateLeft + gateGap * index;
       const affected = finite(breakdown[key]);
+      const burstAffected = finite(burst?.event?.breakdown?.[key]);
+      const activeBurst = burstProgress != null && burstAffected > 0;
       const intensity = clamp(Math.log10(affected + 1) / 2, 0, 1);
       context.beginPath();
-      context.arc(g.lifecycleX, y, 8 + intensity * 4, 0, TAU);
-      context.fillStyle = affected > 0
-        ? `rgba(214,88,255,${0.42 + intensity * 0.48})`
-        : "rgba(26,22,42,.96)";
+      context.roundRect(x - 9, mainY - 18, 18, 36, 7);
+      context.fillStyle = activeBurst
+        ? `rgba(214,88,255,${0.58 + (1 - burstProgress) * 0.30})`
+        : affected > 0
+          ? `rgba(214,88,255,${0.26 + intensity * 0.34})`
+          : "rgba(26,22,42,.96)";
       context.fill();
-      context.strokeStyle = affected > 0 ? "rgba(214,88,255,.92)" : "rgba(214,88,255,.24)";
-      context.lineWidth = 1.2;
+      context.strokeStyle = activeBurst ? "rgba(255,154,255,.95)" : "rgba(214,88,255,.28)";
       context.stroke();
 
-      context.textAlign = "left";
-      context.fillStyle = "rgba(243,245,248,.82)";
-      context.font = "700 10px Inter, system-ui, sans-serif";
-      context.fillText(`R${index + 1}`, g.lifecycleX + 17, y + 1);
-      context.fillStyle = "rgba(146,155,173,.72)";
-      context.font = "9px Inter, system-ui, sans-serif";
-      context.fillText(formatNumber(affected), g.lifecycleX + 17, y + 13);
+      context.textAlign = "center";
+      context.fillStyle = "rgba(243,245,248,.90)";
+      context.font = "700 9px Inter, system-ui, sans-serif";
+      context.fillText(`R${index + 1}`, x, mainY - 28);
+      context.fillStyle = affected > 0 ? "rgba(255,188,255,.90)" : "rgba(146,155,173,.58)";
+      context.font = "700 9px Inter, system-ui, sans-serif";
+      context.fillText(formatNumber(affected), x, mainY + 31);
+
+      if (activeBurst) {
+        const branch = curve(x, mainY + 18, g.lifecycleX, sinkY - 24, 0.46);
+        context.strokeStyle = "rgba(255,92,119,.24)";
+        context.lineWidth = 1 + clamp(Math.log10(burstAffected + 1), 0, 2.5);
+        drawCurve(context, branch);
+        const branchProgress = clamp((burstProgress - .16 - index * .018) / .52, 0, 1);
+        if (branchProgress > 0 && branchProgress < 1) {
+          this.#drawPacket(context, branch, branchProgress, "255,92,119", clamp(3 + Math.log10(burstAffected + 1) * 2, 3, 8));
+        }
+      }
     });
 
-    const survivorPath = curve(g.lifecycleX + 28, g.center, g.trackingX - 46, g.center, 0.50);
-    context.strokeStyle = "rgba(20,241,217,.22)";
-    context.lineWidth = 2.2;
+    const survivorPath = curve(g.lifecycleX + 82, mainY, g.trackingX - 48, mainY, 0.5);
+    context.strokeStyle = "rgba(20,241,217,.24)";
+    context.lineWidth = 2.4;
     drawCurve(context, survivorPath);
-    if (lifecycle) this.#drawParticles(context, survivorPath, timestamp, {
-      count: 5,
-      speed: 0.00013,
-      phase: 0.13,
-      color: "20,241,217",
-      alpha: 0.72,
-    });
 
-    if (lifecycle && finite(lifecycle.affected_count) > 0 && ageSeconds(lifecycle.at, Date.now()) < 30) {
-      const exit = curve(g.lifecycleX, g.center + 46, g.lifecycleX + 70, g.bottom + 18, 0.35);
-      const intensity = clamp(Math.log10(finite(lifecycle.affected_count) + 1) / 2.5, 0.25, 1);
-      context.strokeStyle = `rgba(255,92,119,${0.18 + intensity * 0.48})`;
-      context.lineWidth = 1.5 + intensity * 4;
-      drawCurve(context, exit);
-      this.#drawParticles(context, exit, timestamp, {
-        count: 2 + Math.round(intensity * 7),
-        speed: 0.00018,
-        phase: 0.7,
-        color: "255,92,119",
-        alpha: 0.88,
-      });
-      context.textAlign = "left";
-      context.fillStyle = "rgba(255,125,147,.90)";
-      context.font = "700 10px Inter, system-ui, sans-serif";
-      context.fillText(`${formatNumber(lifecycle.affected_count)} ${lifecycle.apply ? "RETIRED" : "CANDIDATES"}`, g.lifecycleX + 80, g.bottom - 2);
+    if (burstProgress != null) {
+      const survivorProgress = clamp((burstProgress - .25) / .50, 0, 1);
+      if (survivorProgress > 0 && survivorProgress < 1) {
+        this.#drawPacket(context, survivorPath, survivorProgress, "20,241,217", 5.5);
+      }
     }
 
+    const affectedCount = finite(lifecycle?.affected_count);
+    context.beginPath();
+    context.arc(g.lifecycleX, sinkY, 26, 0, TAU);
+    context.fillStyle = affectedCount > 0 ? "rgba(54,14,28,.92)" : "rgba(22,15,30,.88)";
+    context.fill();
+    context.strokeStyle = affectedCount > 0 ? "rgba(255,92,119,.62)" : "rgba(255,92,119,.18)";
+    context.lineWidth = 1.2;
+    context.stroke();
+    context.textAlign = "center";
+    context.fillStyle = affectedCount > 0 ? "rgba(255,155,171,.95)" : "rgba(146,155,173,.52)";
+    context.font = "800 12px Inter, system-ui, sans-serif";
+    context.fillText(formatNumber(affectedCount), g.lifecycleX, sinkY - 2);
+    context.font = "700 8px Inter, system-ui, sans-serif";
+    context.fillText(lifecycle?.apply ? "RETIRED" : "CANDIDATES", g.lifecycleX, sinkY + 12);
+
     this.hitTargets.push({
-      x: g.lifecycleX - 22,
-      y: startY - 18,
-      width: 95,
-      height: span + 42,
+      x: gateLeft - 18,
+      y: mainY - 46,
+      width: gateRight - gateLeft + 36,
+      height: 205,
       title: "Lifecycle R1–R7",
       lines: lifecycle ? [
         `${formatNumber(lifecycle.affected_count)} ${lifecycle.apply ? "retired" : "candidates"}`,
@@ -601,10 +714,8 @@ export class OperationalFlowView {
       const position = index % 18;
       const angle = (position / 18) * TAU + ring * 0.19;
       const r = radius * (0.22 + ring * 0.17);
-      const x = g.trackingX + Math.cos(angle) * r;
-      const y = g.center + Math.sin(angle) * r;
       context.beginPath();
-      context.arc(x, y, 1.8 + (index % 5 === 0 ? 0.8 : 0), 0, TAU);
+      context.arc(g.trackingX + Math.cos(angle) * r, g.center + Math.sin(angle) * r, 1.8 + (index % 5 === 0 ? 0.8 : 0), 0, TAU);
       context.fillStyle = `rgba(20,241,217,${0.18 + (index % 7) * 0.035})`;
       context.fill();
     }
@@ -617,30 +728,31 @@ export class OperationalFlowView {
     context.font = "700 9px Inter, system-ui, sans-serif";
     context.fillText("TRACKING", g.trackingX, g.center + 17);
 
-    const loop = {
-      x0: g.trackingX - 12,
-      y0: g.center - radius - 4,
-      x1: g.trackingX - 90,
-      y1: g.top - 80,
-      x2: g.searchX + 90,
-      y2: g.top - 80,
-      x3: g.searchX + 18,
-      y3: g.center - 78,
-    };
+    const loopY = Math.min(g.bottom - 22, g.center + 182);
+    const down = curve(g.trackingX - 8, g.center + radius + 3, g.trackingX - 28, loopY, 0.40);
+    const returnPath = curve(g.trackingX - 28, loopY, g.searchX, loopY, 0.42);
+    const up = curve(g.searchX, loopY, g.searchX, g.center + 92, 0.40);
     context.strokeStyle = "rgba(20,241,217,.13)";
-    context.lineWidth = 1.4;
-    drawCurve(context, loop);
-    if (lifecycle) this.#drawParticles(context, loop, timestamp, {
-      count: 7,
-      speed: 0.000075,
-      phase: 0.08,
-      color: "20,241,217",
-      alpha: 0.55,
+    context.lineWidth = 2;
+    drawCurve(context, down);
+    drawCurve(context, returnPath);
+    drawCurve(context, up);
+
+    const recentSearch = this.transients.filter(item => item.event.type === "search_lane_tick").slice(-18);
+    recentSearch.forEach((burst, index) => {
+      const progress = clamp((timestamp - burst.startedAt) / burst.duration, 0, 1);
+      const offset = index / Math.max(recentSearch.length, 1) * 0.16;
+      const p = clamp(progress + offset, 0, 1);
+      if (p <= 0 || p >= 1) return;
+      if (p < .20) this.#drawPacket(context, down, p / .20, "20,241,217", 2.8);
+      else if (p < .82) this.#drawPacket(context, returnPath, (p - .20) / .62, "20,241,217", 2.8);
+      else this.#drawPacket(context, up, (p - .82) / .18, "20,241,217", 2.8);
     });
+
     context.textAlign = "center";
     context.fillStyle = "rgba(20,241,217,.46)";
     context.font = "700 9px Inter, system-ui, sans-serif";
-    context.fillText("MONITORING LOOP", (g.trackingX + g.searchX) / 2, g.top - 43);
+    context.fillText("TRACKING → SEARCH MONITORING", (g.trackingX + g.searchX) / 2, loopY + 18);
 
     this.hitTargets.push({
       x: g.trackingX - radius,
@@ -650,34 +762,30 @@ export class OperationalFlowView {
       title: "Tracking survivors",
       lines: lifecycle ? [
         `${formatNumber(lifecycle.active_remaining)} tracking`,
-        "returns to Jupiter Search monitoring",
+        "survivor reservoir feeding Jupiter Search monitoring",
+        "return motion is driven by observed search work",
         "not identical to Observatory ACTIVE",
       ] : ["Waiting for lifecycle telemetry"],
     });
   }
 
-  #drawParticles(context, path, timestamp, options) {
-    const count = Math.max(1, Math.round(options.count || 1));
-    const speed = options.speed || 0.0001;
-    for (let index = 0; index < count; index += 1) {
-      const phase = (options.phase || 0) + index / count;
-      const t = ((timestamp * speed + phase) % 1 + 1) % 1;
-      const point = bezierPoint(path, t);
-      const tail = bezierPoint(path, clamp(t - 0.035, 0, 1));
-      const gradient = context.createLinearGradient(tail.x, tail.y, point.x, point.y);
-      gradient.addColorStop(0, `rgba(${options.color},0)`);
-      gradient.addColorStop(1, `rgba(${options.color},${options.alpha || 0.6})`);
-      context.strokeStyle = gradient;
-      context.lineWidth = 1.3;
-      context.beginPath();
-      context.moveTo(tail.x, tail.y);
-      context.lineTo(point.x, point.y);
-      context.stroke();
-      context.beginPath();
-      context.arc(point.x, point.y, PARTICLE_RADIUS, 0, TAU);
-      context.fillStyle = `rgba(${options.color},${options.alpha || 0.6})`;
-      context.fill();
-    }
+  #drawPacket(context, path, progress, color, width = 4) {
+    const t = clamp(progress, 0, 1);
+    const point = bezierPoint(path, t);
+    const tail = bezierPoint(path, clamp(t - 0.055, 0, 1));
+    const gradient = context.createLinearGradient(tail.x, tail.y, point.x, point.y);
+    gradient.addColorStop(0, `rgba(${color},0)`);
+    gradient.addColorStop(1, `rgba(${color},.95)`);
+    context.strokeStyle = gradient;
+    context.lineWidth = width;
+    context.beginPath();
+    context.moveTo(tail.x, tail.y);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    context.beginPath();
+    context.arc(point.x, point.y, Math.max(2.2, width * .58), 0, TAU);
+    context.fillStyle = `rgba(${color},.95)`;
+    context.fill();
   }
 
   #drawEmptyLayer(context, x, y, label) {
@@ -724,10 +832,8 @@ export class OperationalFlowView {
     }
     this.tooltip.classList.remove("hidden");
     const tooltipRect = this.tooltip.getBoundingClientRect();
-    const left = clamp(x + 18, 12, rect.width - tooltipRect.width - 12);
-    const top = clamp(y + 18, 12, rect.height - tooltipRect.height - 12);
-    this.tooltip.style.left = `${left}px`;
-    this.tooltip.style.top = `${top}px`;
+    this.tooltip.style.left = `${clamp(x + 18, 12, rect.width - tooltipRect.width - 12)}px`;
+    this.tooltip.style.top = `${clamp(y + 18, 12, rect.height - tooltipRect.height - 12)}px`;
   }
 
   #hideTooltip() {
