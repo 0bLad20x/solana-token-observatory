@@ -142,7 +142,7 @@ Diese Grenze gilt für Research-Skripte, Browser, Analyst und externe Evidence-A
 
 Das Observatory läuft als separater read-only FastAPI-/Browser-Prozess unter `src/observatory/`.
 
-Der Functional Core ist nach der Konsolidierung in Issue #20 / PR #21 und der finalen Synchronisationskorrektur in PR #24 abgeschlossen.
+Der Functional Core ist nach der Konsolidierung in Issue #20 / PR #21, der finalen Synchronisationskorrektur in PR #24 und dem First-Principles-Simplification-Slice PR #32 abgeschlossen.
 
 ```text
 PostgreSQL
@@ -163,7 +163,7 @@ Population State + selected Mint
 
 ```text
 static/js/
-├── app.js                 composition / wiring
+├── app.js                 composition / wiring + shell presentation
 ├── api.js                 HTTP + SSE
 ├── state.js               population + selection + event application
 ├── search.js              pure search/ranking
@@ -185,6 +185,30 @@ Die aktuelle `SimpleTokenView` ist ein austauschbarer funktionaler Proof und kei
 Die Selection ist ausschließlich der Mint. Search, View, Activity und Analyst dürfen Selection anfordern; keiner dieser Consumer besitzt sie.
 
 Ein kürzlich retired Token kann als selected-token Context erhalten bleiben, ohne wieder Teil der aktiven Population zu werden.
+
+### Visual Shell WP1
+
+Visual WP1 ergänzt ausschließlich Presentation und wurde lokal im realen Browser akzeptiert.
+
+```text
+TOPBAR
+
+MAIN STAGE                         RIGHT CONTEXT
+current/future visualization      selected token + analyst + live deltas
+                                  resize / collapse
+
+SECONDARY RUNTIME CONTEXT
+operational telemetry proof
+```
+
+- Main Stage bleibt dominant.
+- Right Context ist auf Desktop zwischen 360px und 640px resizebar und kann collapsed/restored werden.
+- Collapse/Resize verändern keinen Population-, Selection- oder Analyst-State.
+- Search bleibt vollständiger Zugriff auf die aktive Population.
+- Inspector zeigt die vollständige Mint-Adresse und bietet Copy.
+- bestehende Token-Fakten bleiben erhalten.
+- Panelbreite, Collapse-State und andere Layoutwerte sind Presentation State, keine Domain Truth.
+- aktuelle Token-Kacheln und Telemetry-Karten bleiben Visual-Proofs; Bubble Map und Operational Flow werden in eigenen Slices definiert.
 
 ## 8. Observatory Synchronisationsvertrag
 
@@ -370,77 +394,17 @@ Der Fetch selbst benötigt keinen LLM Tool Call. Der vollständige Provider-Repo
 
 RugCheck bleibt externe Provider-Evidence. Es gibt keine Persistence, keinen internen Safety Score und keine Lifecycle-Mutation.
 
-## 12. Truth Layers
+## 12. Visual Phase
 
-Das Observatory unterscheidet vier Ebenen:
-
-1. **System Truth:** persistierte oder direkt gelesene operative Fakten.
-2. **Deterministic Analysis:** reproduzierbare Derived Values wie Rankings, Activity oder Temporal Summary.
-3. **External Evidence:** Web Search und RugCheck.
-4. **LLM Interpretation:** probabilistische Interpretation ohne operative Authority.
-
-Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden.
-
-Live Operational Telemetry ist flüchtige Beobachtung realer Runtime-Ereignisse und keine zusätzliche persistente Truth-Schicht.
-
-## 13. Generierte Artefakte
-
-Lokale oder eingecheckte Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
-
-Dauerhafte Regeln und Verträge gehören in Code oder die benannte Dokumentations-Authority. Große historische Analysis-Artefakte werden separat bewertet; dieser Architekturvertrag erklärt sie nicht automatisch zu dauerhaft benötigten Repository-Bestandteilen.
-
-## 14. Aktuelle Architekturgrenze
-
-Die operative und funktionale Foundation steht:
+Der Functional Core ist eingefroren. Die Visual-Phase baut als Presentation auf diesen Verträgen auf:
 
 ```text
-Discovery
-   ↓
-Monitoring
-   ↓
-24h Raw Observations
-   ↓
-Lifecycle v0.3
-   ↓
-Survivor Population
-   ↓
-Read-only Functional Observatory
-   ├── Live Operational Telemetry
-   ├── Current Data
-   ├── Web Evidence
-   ├── Temporal Summary
-   └── RugCheck Evidence
+WP1 Shell / Typography / Inspector      ✓
+WP2 Analyst Focus                       next
+WP3 Token Universe Bubble Map           open
+WP4 Operational Flow                    open
 ```
 
-Der nächste Visual-Slice darf den jetzt bewiesenen operativen Flow verwenden, muss aber seine Data-to-Visual-Semantik explizit definieren. Telemetrie-Metriken sind dabei Runtime-Evidence; sie werden nicht zu einer neuen operativen Steuerungsschicht.
+Die Main Stage trägt später Token Universe und Operational Flow, ohne dass daraus eine zweite Domain-Population oder eine Multi-Page-App entsteht.
 
-Issue #9 bleibt der separate Visual-/Spatial-Research-Schritt für Token-Darstellungen. Ein Operational-Flow-Visual kann unabhängig davon auf den bereits bewiesenen Telemetrie-Fakten aufbauen.
-
-Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
-
-## 15. Authority-Modell
-
-| Frage | Authority |
-|---|---|
-| Was ist das Projekt und wie wird es benutzt? | `README.md` |
-| Wie fließen Daten und wer besitzt welche Verantwortung? | `docs/architecture.md` |
-| Wie funktioniert der operative Lifecycle fachlich exakt? | `docs/LIFECYCLE_CONTRACT.md` |
-| Welche funktionalen Produkt-/Truth-Grenzen gelten für das Observatory? | `docs/FRONTEND_OBSERVATORY.md` |
-| Wo steht das Projekt und welche Entscheidung ist als Nächstes offen? | `docs/MILESTONES.md` |
-| Welche Regeln gelten für Repository-Änderungen? | `AGENTS.md` |
-
-## 16. Architekturprinzipien
-
-1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Domain-Wahrheit.
-2. **Poll und Snapshot sind verschiedene Ereignisse.**
-3. **Source-Versionen gehen nicht durch Writer-Coalescing verloren.**
-4. **Raw-Auflösung ist temporär.** `mint_snapshots` ist auf 24 Stunden begrenzt.
-5. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
-6. **Lifecycle-Semantik ist versioniert.** Retention ist Storage-Maintenance und keine Lifecycle-Regel.
-7. **Downstream ist read-only gegenüber operativem State.**
-8. **Presentation ist keine Functional-Core-Truth.**
-9. **Operational Telemetry ist flüchtige Beobachtung, keine operative Authority.**
-10. **External Evidence ist keine Jupiter- oder Lifecycle-Truth.**
-11. **LLM-Interpretation besitzt keine operative Authority.**
-12. **Generierte Daten sind Evidence, nicht Architektur.**
-13. **Roadmap ist keine Implementation.**
+Keine Visualisierung darf neue Fakten oder Relationen nur deshalb erfinden, weil sie grafisch attraktiv wären.
