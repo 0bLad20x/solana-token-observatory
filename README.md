@@ -1,21 +1,21 @@
 # jupiter-data-transform
 
-`jupiter-data-transform` entdeckt Solana-Mints, beobachtet deren Jupiter-Zustände, hält eine begrenzte hochaufgelöste Raw-Historie und reduziert die operative Population über einen transparenten, versionierten Lifecycle.
+`jupiter-data-transform` entdeckt Solana-Mints, beobachtet deren Jupiter-Zustände, hält eine begrenzte hochaufgelöste Raw-Historie, reduziert die operative Population über einen versionierten Lifecycle und projiziert den laufenden Zustand read-only in das Token Observatory.
 
 ## System in einem Satz
 
 ```text
-Discovery -> Jupiter Monitoring -> Persistent Observations -> Operational Lifecycle -> Read-only Observatory / Research
+Discovery -> Jupiter Monitoring -> Persistence -> Lifecycle -> Read-only Observatory / Research
 ```
 
 Der operative Core besitzt vier Verantwortungen:
 
 1. **Discovery:** neue Mint-Adressen aus externen Quellen aufnehmen.
 2. **Monitoring:** aktive Mints über Jupiter Tokens V2 Search beobachten.
-3. **Persistence:** tatsächlich beobachtete Jupiter-Source-Versionen nachvollziehbar persistieren und über eine begrenzte Retention pflegen.
+3. **Persistence:** tatsächlich beobachtete Jupiter-Source-Versionen persistieren und über eine begrenzte Retention pflegen.
 4. **Operational Lifecycle:** Tokens anhand des eingefrorenen Lifecycle-Contracts deaktivieren.
 
-Frontend, Analyst, Telemetry und Research sind read-only Downstream-Consumer bzw. Beobachtungspfade und besitzen keine operative Mutation-Authority.
+Frontend, Analyst, Telemetry und Research sind read-only Downstream-Consumer und besitzen keine operative Mutation-Authority.
 
 ## Datenfluss
 
@@ -24,7 +24,7 @@ Discovery sources
     ↓
 PostgreSQL: mints
     ↓
-Jupiter Search refresh
+Jupiter Search lanes
     ↓
 WriteQueue -> MintRepository
     ↓
@@ -39,13 +39,13 @@ Read-only Observatory / Research
 
 Ein erfolgreicher Poll und ein neuer Snapshot sind verschiedene Ereignisse:
 
-- `first_observed_at`: erste vom Collector persistierte Jupiter-Source-Version;
+- `first_observed_at`: erste persistierte Jupiter-Source-Version;
 - `last_polled_at`: letzter erfolgreicher Search-Poll;
 - `last_changed_at`: lokale Beobachtungszeit der jüngsten neuen Source-Version;
 - `source_updated_at`: jüngster persistierter Jupiter-`updatedAt`-Wert;
-- `mint_snapshots`: immutable Historie tatsächlich beobachteter Source-Versionen innerhalb des Raw-Buffers.
+- `mint_snapshots`: immutable Historie tatsächlich beobachteter Source-Versionen innerhalb des 24h-Raw-Buffers.
 
-Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot. Rows in `mint_snapshots` mit `observed_at` älter als 24 Stunden werden unabhängig vom Lifecycle-Zustand entfernt.
+Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen redundanten Snapshot.
 
 ## Voraussetzungen
 
@@ -53,7 +53,7 @@ Unveränderte Antworten aktualisieren `last_polled_at`, erzeugen aber keinen red
 - PostgreSQL
 - Jupiter API Key(s)
 - PumpPortal API Key für die entsprechende Discovery-Quelle
-- Mistral API Key für die Analyst-Funktionen des Observatory
+- Mistral API Key für die Analyst-Funktionen
 
 ## Installation
 
@@ -86,40 +86,33 @@ Discovery, Jupiter-Refresh und Snapshot-Maintenance laufen parallel. Die Mainten
 
 ## Operational Lifecycle
 
-Dry-Run:
-
 ```powershell
+# Dry-Run
 python src/lifecycle_clean.py --once
-```
 
-Einmalig anwenden:
-
-```powershell
+# einmalig anwenden
 python src/lifecycle_clean.py --apply --once
-```
 
-Dauerbetrieb:
-
-```powershell
+# Dauerbetrieb
 python src/lifecycle_clean.py --apply
 ```
 
-Ohne `--apply` schreibt der Lifecycle keine Deaktivierungen. Mit `--apply` setzt ausschließlich der definierte Lifecycle-Pfad `tracking_enabled=false` und persistiert `disabled_at` sowie `disabled_reason`.
+Mit `--apply` setzt ausschließlich der definierte Lifecycle-Pfad `tracking_enabled=false` und persistiert `disabled_at` sowie `disabled_reason`.
 
 Die fachliche Semantik von Rule 1–7 ist in [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) als Contract v0.3 eingefroren.
 
-- Rule 6 ergänzt einen T+30-Checkpoint auf frühe Holder-Distribution: `holderCount < 5` wird deaktiviert, sofern die definierte Checkpoint-Evidence vorhanden ist.
-- Rule 7 deaktiviert Mints, die weiterhin frisch von Jupiter Search gepollt werden, deren `last_changed_at` aber seit mindestens 24 Stunden unverändert ist. Dafür ist kein Snapshot erforderlich; die Entscheidung verwendet die langlebigen Collector-Timestamps in `mints`.
+- Rule 6: T+30 Early Holder Failure, `holderCount < 5` bei vorhandener Checkpoint-Evidence.
+- Rule 7: Persistent Source Inactivity bei weiterhin frischen Polls und mindestens 24h ohne neue Source-Version.
 
-Rule 1–5 bleiben gegenüber v0.1 unverändert. Der bestehende Verifier prüft weiterhin genau diese geerbten Regeln gegen die eingefrorene v0.1-Referenz:
+Rule 1–5 bleiben gegenüber v0.1 unverändert. Der bestehende Verifier prüft weiterhin genau diese geerbten Regeln:
 
 ```powershell
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-## Read-only Observatory
+## Token Observatory
 
-Das Observatory läuft als separater FastAPI-/Browser-Prozess:
+Start:
 
 ```powershell
 python src/frontend.py
@@ -127,7 +120,7 @@ python src/frontend.py
 
 Standardmäßig unter `http://127.0.0.1:8000`.
 
-Der Browser besitzt eine gemeinsame aktive Population und genau einen `selected Mint`. Search, Inspector, Activity, aktuelle View und selected-token Analyst-Funktionen konsumieren diese gemeinsame Selection.
+Der Browser besitzt genau eine kanonische aktive Population und einen `selected Mint`. Search, Universe, Inspector, Activity und Analyst konsumieren denselben State.
 
 Die Live-Synchronisation besitzt eine explizite Grenze:
 
@@ -139,64 +132,90 @@ full universe_snapshot
 subsequent universe_delta events
 ```
 
-Der initiale Stream-Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas. `GET /api/token/{mint}` bleibt eine read-only Detail-Capability und schreibt nicht als zweiter Pfad in die Population.
+`GET /api/token/{mint}` bleibt eine read-only Detail-Capability und schreibt nicht als zweiter Pfad in die Population.
 
-### Visual Shell
+### Akzeptierte Visual-Slices
 
-Visual WP1 etabliert die akzeptierte One-Screen-Shell:
+Der definierte Observatory-Visual-Checkpoint ist abgeschlossen:
 
-- Main Stage bleibt die dominante Visualisierungsfläche;
-- Right Context ist breiter, auf Desktop resizebar und ein-/ausblendbar;
-- Collapse/Resize verändern weder Selection noch Analyst-State;
-- Search bleibt vollständiger aktiver Population-Zugriff;
-- Inspector zeigt die vollständige Mint-Adresse und bietet Copy;
-- bestehende Token-Fakten bleiben erhalten;
-- aktuelle Token-Kacheln und Telemetry-Karten sind weiterhin Visual-Proofs für spätere Bubble-/Flow-Slices.
+```text
+WP1  Visual Shell / Typography / Inspector   ✓
+WP2  Analyst Focus Workspace                 ✓
+WP3  Launchpad Token Universe                ✓
+WP4  Live Operational Flow                   ✓
+```
 
-Die dunkle Solana-/Crypto-Farbwelt und der bestehende System-Font-Stack bleiben zunächst erhalten.
+#### Universe
 
-### Analyst Focus Workspace
+Die Token-Population wird als launchpad-zentrierte Bubble Map dargestellt:
 
-Visual WP2 macht den Analyst zum primären Research-Workspace, ohne dessen Backend- oder Evidence-Semantik zu verändern:
+- Launchpads einzeln ein-/ausblendbar;
+- Zoom/Pan;
+- Bubble-Größe = Market Cap;
+- Liquidity = separater Halo;
+- Holder Count beeinflusst die Membership-Verbindung im Fokus;
+- adaptive stabile Cluster ohne permanente Force-Physics;
+- semantische Add/Market-Cap-Update/Retire-Motion;
+- Click verwendet dieselbe Selection für Inspector und Analyst.
 
-- derselbe Analyst lebt idle im Right Context und kann als großer Focus-Workspace über der Main Stage geöffnet werden;
-- Submit öffnet Focus automatisch; Close/Escape bringt denselben Zustand zurück;
-- Selection, Frage und Antwort bleiben beim Öffnen/Schließen erhalten;
-- Current Data, Web, Temporal und RugCheck bleiben dieselben vier Scopes;
-- User-Frage, LLM-Antwort und Evidence/Sources sind visuell getrennt;
-- lange Antworten scrollen innerhalb des Research-Bereichs;
-- Antworten können kopiert werden;
-- ein kleiner sicherer Markdown-Subset-Renderer stellt Headings, Bold/Italic, Inline-Code, Listen, Trennlinien und Tabellen dar, ohne Modell-HTML über `innerHTML` zu injizieren;
-- Mermaid/Diagramm-Rendering ist ausdrücklich kein Bestandteil von WP2.
+#### Flow
 
-Der nächste Visual-Slice ist WP3: Token Universe Bubble Map.
+Die operative Runtime wird als Live-Datenfluss dargestellt:
+
+```text
+Discovery -> Admission -> Search -> Write -> Lifecycle -> Tracking
+                                              └-> retired
+                         ^                         |
+                         └──── monitoring loop ────┘
+```
+
+Data-to-Visual-Semantik:
+
+- Discovery: `raw intake -> dedupe -> new`;
+- Discovery-Ticks: bounded mengenabhängige Bursts;
+- Search: reale parallele Lanes und beobachtete Work-Pakete;
+- WriteQueue: `polls -> source versions -> snapshots` als sichtbare Kondensation;
+- Lifecycle: R1–R7 als Gates mit Retirement-/Candidate-Sink;
+- Tracking: große sichtbare Zahl folgt derselben kanonischen Browser-Population wie Topbar `ACTIVE`;
+- `lifecycle.active_remaining` bleibt als Stand des letzten Lifecycle-Cycles im Detail verfügbar;
+- Tracking->Search: rate-codierter Monitoring-Current aus realem Search-RPM und beobachteter Latenz.
+
+Count-Marks und Work-Pakete sind Mengen-/Arbeitskodierungen und **keine Mint-Identitäten**.
+
+### Shell und Analyst
+
+- Main Stage bleibt dominant.
+- Right Context ist auf Desktop resizebar und ein-/ausblendbar.
+- Inspector zeigt die vollständige Mint-Adresse mit Copy.
+- Analyst bleibt idle im Right Context und kann als großer Focus-Workspace über der Main Stage geöffnet werden.
+- Current Data, Web, Temporal und RugCheck bleiben dieselben vier read-only Scopes.
+- LLM-Antworten werden über einen kleinen sicheren Markdown-Subset-Renderer dargestellt; kein Modell-HTML wird ungefiltert injiziert.
 
 ## Live Operational Telemetry
 
-Collector und Lifecycle emittieren zusätzlich kleine best-effort Runtime-Events über localhost UDP. Das Observatory hält diese Events standardmäßig zehn Minuten ausschließlich im RAM und stellt sie separat bereit:
+Collector und Lifecycle emittieren kleine best-effort Runtime-Events über localhost UDP. Das Observatory hält sie standardmäßig zehn Minuten ausschließlich im RAM:
 
 ```text
 GET /api/telemetry
 GET /api/telemetry/events
 ```
 
-Beobachtet werden:
+Event-Typen:
 
 ```text
-Discovery intake
-Jupiter Search lanes
-WriteQueue flow
-Lifecycle R1-R7
+discovery_tick
+search_lane_tick
+search_flush
+lifecycle_tick
 ```
 
-Die Telemetrie ist flüchtig: keine DB-/Disk-Persistenz, keine API Keys, keine Mint-Listen, kein Alerting und keine operative Mutation.
+Harte Grenzen:
 
-Im Browser bedeuten die beiden Population-Zähler bewusst nicht exakt dasselbe:
-
-- `ACTIVE` oben: aktuell vom Observatory-Read-Model sichtbare Token-Population;
-- `TRACKING` im Lifecycle-Telemetrieblock: alle `mints` mit `tracking_enabled=true` nach dem jeweiligen Lifecycle-Cycle.
-
-Im stabilen Betrieb liegen beide eng zusammen. Kleine Differenzen sind zulässig, weil beide Pfade unabhängig lesen und das Observatory zusätzlich einen verfügbaren jüngsten Raw-Snapshot benötigt.
+- keine DB-/Disk-Persistenz;
+- keine API Keys;
+- keine Mint-Listen;
+- kein Alerting;
+- keine operative Mutation.
 
 Konfiguration:
 
@@ -227,40 +246,11 @@ MISTRAL_WEB_SEARCH_MODE=web_search
 
 Die Modellwahl ist serverseitige Use-Case-Policy. Die UI kennt keine Modellnamen.
 
-### Current Data
-
-Freie Fragen zur aktuellen Population werden in genau den bounded `query_tokens`-Vertrag übersetzt. Das Tool akzeptiert ausschließlich beschriebene Felder, Limits und Filter; kein SQL und keine operative Mutation. Unsupported oder mehrdeutige Fragen dürfen keine Proxy-Metrik erfinden.
-
-### Web Research
-
-Web Research verwendet den exakt selektierten Mint als Identitätsgrenze. Externe Ergebnisse bleiben externe Evidenz und werden nicht persistiert oder zu Jupiter System Truth umgedeutet.
-
-### Temporal Summary
-
-Der produktive Temporal-Pfad lädt einen deterministischen Summary aus maximal 24 Stunden verfügbarer Raw-Historie und sendet **keine Raw-History und keine 1m/5m/15m-Buckets** an das LLM. Danach erfolgt genau eine STRONG-Modell-Interpretation.
-
-`tools/inspect_token_history.py` bleibt als read-only Research-/Diagnosewerkzeug im Repository, ist aber nicht der produktive Observatory-Vertrag.
-
-### RugCheck
-
-Der direkte Evidence-Endpunkt ist:
-
-```text
-GET /api/evidence/rugcheck/{mint}
-```
-
-Der vollständige RugCheck Token Report bleibt als Provider-Evidence verfügbar. Für die Analyst-Interpretation wird daraus deterministisch eine kompakte Safety-Metadaten-Projektion (`rugcheck_analysis_v4`) erzeugt; einzelne Wallet-/Holder-/Market-Rohzeilen werden nicht an das LLM geschickt. RugCheck-Evidence wird weder persistiert noch zu Jupiter- oder Lifecycle-Truth.
-
 ## Funktionale Observatory-Grenze
 
-Der Functional Core ist abgeschlossen. Live Telemetry ergänzt Observability; Visual WP1 und WP2 ergänzen ausschließlich Presentation und führen keine neue Domain- oder Mutation-Authority ein.
+Der Functional Core und der definierte Visual-Checkpoint sind abgeschlossen. Presentation, Telemetry und Analyst führen keine neue Domain- oder Mutation-Authority ein.
 
-Die weiteren Visual-Slices sind bewusst getrennt:
-
-```text
-WP3 Token Universe Bubble Map
-WP4 Operational Flow
-```
+Es gibt derzeit **kein weiteres beschlossenes Frontend-Design-Arbeitspaket**. Weitere UI-Arbeit sollte aus einer konkreten neuen Benutzerfrage oder einem beobachteten Usability-/Performance-Problem entstehen.
 
 Der aktuelle Projektcheckpoint steht in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
@@ -276,15 +266,13 @@ python src/lifecycle_clean.py --help
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Für Lifecycle v0.3 zusätzlich gezielt:
+Für Lifecycle v0.3 zusätzlich:
 
 ```powershell
 python -m unittest tests.test_lifecycle_rule6 tests.test_lifecycle_rule7 -v
 ```
 
-Hinweis: Der repository-weite `unittest discover` besitzt aktuell zwei bereits auf `main` vorhandene Importfehler in veralteten `diagnostics`-Tests. Lifecycle-v0.3 und Telemetry verändern diesen unabhängigen Baseline-Zustand nicht.
-
-Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
+Der repository-weite `unittest discover` besitzt aktuell zwei bereits bekannte veraltete `diagnostics`-Importfehler; Lifecycle, Telemetry und Observatory ändern diesen unabhängigen Baseline-Zustand nicht.
 
 ## Dokumentations-Authorities
 
@@ -294,5 +282,3 @@ Externe Integrationen zusätzlich gegen den realen betroffenen Ablauf prüfen.
 - [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md): funktionaler Observatory-/Analyst-/Telemetry-Vertrag und Truth-Grenzen.
 - [`docs/MILESTONES.md`](docs/MILESTONES.md): aktueller Checkpoint und nächste Entwicklungsentscheidung.
 - [`AGENTS.md`](AGENTS.md): verbindliche Regeln für Repository-Änderungen.
-
-Änderungshistorie gehört in Git. Temporäre Refactoring-, Research- oder Optimization-Notizen sind keine dauerhaften Architektur-Authorities.
