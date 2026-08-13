@@ -32,9 +32,15 @@
     <section class="workspace" id="workspace">
       <div class="universe-panel">
         <div class="universe-toolbar">
-          <div>
-            <span class="toolbar-label">TOKEN UNIVERSE · LIVE</span>
-            <span class="toolbar-note">Live population · search reaches every active token</span>
+          <div class="primary-view-heading">
+            <div>
+              <span class="toolbar-label" id="primary-view-label">TOKEN UNIVERSE · LIVE</span>
+              <span class="toolbar-note" id="primary-view-note">Live population · search reaches every active token</span>
+            </div>
+            <div class="primary-view-switch" aria-label="Primary Observatory view">
+              <button id="view-token-universe" class="active" type="button" aria-pressed="true">Universe</button>
+              <button id="view-operational-flow" type="button" aria-pressed="false">Flow</button>
+            </div>
           </div>
           <div class="token-search">
             <form id="token-search-form" role="search">
@@ -55,6 +61,7 @@
           </div>
         </div>
         <div id="universe-stage" class="universe-stage" aria-label="Current token population view"></div>
+        <div id="operational-flow-stage" class="operational-flow-stage hidden" aria-label="Live operational telemetry flow"></div>
       </div>
 
       <aside class="side-panel" id="side-panel">
@@ -202,41 +209,6 @@
           </section>
         </div>
       </aside>
-    </section>
-
-    <section class="telemetry-panel" aria-label="Live pipeline telemetry proof">
-      <div class="telemetry-heading">
-        <div>
-          <p class="toolbar-label">PIPELINE TELEMETRY · VOLATILE</p>
-          <h2>Operational dataflow</h2>
-        </div>
-        <div class="telemetry-meta">
-          <span id="telemetry-summary">0 lanes · 0 discovery paths · 10m volatile window</span>
-          <span id="telemetry-status" class="telemetry-status">Connecting</span>
-        </div>
-      </div>
-
-      <div class="telemetry-grid">
-        <article class="telemetry-card">
-          <h3>Discovery intake</h3>
-          <div id="telemetry-discovery" class="telemetry-stack"></div>
-        </article>
-
-        <article class="telemetry-card">
-          <h3>Write queue</h3>
-          <div id="telemetry-flush" class="telemetry-stack"></div>
-        </article>
-
-        <article class="telemetry-card search">
-          <h3>Jupiter Search lanes</h3>
-          <div id="telemetry-lanes" class="telemetry-lanes"></div>
-        </article>
-
-        <article class="telemetry-card search">
-          <h3>Lifecycle</h3>
-          <div id="telemetry-lifecycle" class="telemetry-stack"></div>
-        </article>
-      </div>
     </section>
   </main>
 
