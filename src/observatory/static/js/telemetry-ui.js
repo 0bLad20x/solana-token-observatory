@@ -52,7 +52,13 @@ export class TelemetryUI {
     else if (event.type === "search_lane_tick") this.lanes.set(event.lane, event);
     else if (event.type === "search_flush") this.flush = event;
     else if (event.type === "lifecycle_tick") this.lifecycle = event;
-    if (increment) this.receivedCount += 1;
+
+    if (increment) {
+      this.receivedCount += 1;
+      // Only live telemetry events create motion. Snapshot replay establishes
+      // current state without fabricating historical animation.
+      this.view.observe(event);
+    }
   }
 
   render(now = Date.now()) {
