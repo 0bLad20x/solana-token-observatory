@@ -8,7 +8,7 @@
 
 ## Vision
 
-Neue Solana-Tokens entstehen schneller, als sie sinnvoll dauerhaft überwacht werden können. `jupiter-data-transform` baut deshalb keinen vollständigen historischen Index und keinen Trading-Stack. Das System beantwortet eine engere Frage:
+Neue Solana-Tokens entstehen schneller, als sie sinnvoll dauerhaft überwacht werden können. `solana-token-observatory` baut deshalb keinen vollständigen historischen Index und keinen Trading-Stack. Das System beantwortet eine engere Frage:
 
 > **Welche Tokens sind gerade relevant genug, um weiter beobachtet zu werden – und wie lässt sich dieser laufende Zustand nachvollziehbar untersuchen?**
 

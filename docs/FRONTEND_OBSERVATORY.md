@@ -2,7 +2,7 @@
 
 ## Zweck und Systemgrenze
 
-`src/observatory/` ist die read-only Beobachtungs- und Analyseebene von `jupiter-data-transform`. Das Observatory stellt operative Fakten dar, erzeugt deterministische Read Models, visualisiert flüchtige Runtime-Telemetry und bietet bounded Analyst-Workflows.
+`src/observatory/` ist die read-only Beobachtungs- und Analyseebene von `solana-token-observatory`. Das Observatory stellt operative Fakten dar, erzeugt deterministische Read Models, visualisiert flüchtige Runtime-Telemetry und bietet bounded Analyst-Workflows.
 
 Es besitzt **keine** Authority über Tracking, Priority, Collector-State oder Lifecycle-Entscheidungen.
 

@@ -2,7 +2,7 @@
 
 ## Zweck
 
-Dieses Dokument beschreibt die implementierte technische Architektur von `jupiter-data-transform`: Runtime-Topologie, Datenfluss, Ownership und die Grenzen zwischen operativem Core und read-only Downstream.
+Dieses Dokument beschreibt die implementierte technische Architektur von `solana-token-observatory`: Runtime-Topologie, Datenfluss, Ownership und die Grenzen zwischen operativem Core und read-only Downstream.
 
 Die fachliche Lifecycle-Semantik steht ausschließlich in [`LIFECYCLE_CONTRACT.md`](LIFECYCLE_CONTRACT.md). Der Frontend-/Analyst-/Telemetry-Vertrag steht ausschließlich in [`FRONTEND_OBSERVATORY.md`](FRONTEND_OBSERVATORY.md).
 

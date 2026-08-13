@@ -19,7 +19,7 @@ from telemetry import TelemetryEmitter
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="jupiter-data-transform")
+    p = argparse.ArgumentParser(prog="solana-token-observatory")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("init-schema")
     sub.add_parser("run")

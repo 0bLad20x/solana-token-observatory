@@ -2,7 +2,7 @@
 
 ## Zweck
 
-Dieses Dokument definiert die verbindlichen Regeln für Änderungen an `jupiter-data-transform`. Projektbeschreibung und Bedienung stehen in `README.md`; Architektur- und Fachverträge besitzen eigene Authorities.
+Dieses Dokument definiert die verbindlichen Regeln für Änderungen an `solana-token-observatory`. Projektbeschreibung und Bedienung stehen in `README.md`; Architektur- und Fachverträge besitzen eigene Authorities.
 
 ## Verbindlicher Einstieg
 
