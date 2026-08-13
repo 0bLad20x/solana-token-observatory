@@ -394,17 +394,75 @@ Der Fetch selbst benötigt keinen LLM Tool Call. Der vollständige Provider-Repo
 
 RugCheck bleibt externe Provider-Evidence. Es gibt keine Persistence, keinen internen Safety Score und keine Lifecycle-Mutation.
 
-## 12. Visual Phase
+## 12. Truth Layers
 
-Der Functional Core ist eingefroren. Die Visual-Phase baut als Presentation auf diesen Verträgen auf:
+Das Observatory unterscheidet vier Ebenen:
+
+1. **System Truth:** persistierte oder direkt gelesene operative Fakten.
+2. **Deterministic Analysis:** reproduzierbare Derived Values wie Rankings, Activity oder Temporal Summary.
+3. **External Evidence:** Web Search und RugCheck.
+4. **LLM Interpretation:** probabilistische Interpretation ohne operative Authority.
+
+Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden.
+
+Live Operational Telemetry ist flüchtige Beobachtung realer Runtime-Ereignisse und keine zusätzliche persistente Truth-Schicht.
+
+## 13. Generierte Artefakte
+
+Lokale oder eingecheckte Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
+
+Dauerhafte Regeln und Verträge gehören in Code oder die benannte Dokumentations-Authority. Große historische Analysis-Artefakte werden separat bewertet; dieser Architekturvertrag erklärt sie nicht automatisch zu dauerhaft benötigten Repository-Bestandteilen.
+
+## 14. Aktuelle Architekturgrenze
+
+Die operative und funktionale Foundation steht:
 
 ```text
-WP1 Shell / Typography / Inspector      ✓
-WP2 Analyst Focus                       next
-WP3 Token Universe Bubble Map           open
-WP4 Operational Flow                    open
+Discovery
+   ↓
+Monitoring
+   ↓
+24h Raw Observations
+   ↓
+Lifecycle v0.3
+   ↓
+Survivor Population
+   ↓
+Read-only Functional Observatory
+   ├── Live Operational Telemetry
+   ├── Current Data
+   ├── Web Evidence
+   ├── Temporal Summary
+   └── RugCheck Evidence
 ```
 
-Die Main Stage trägt später Token Universe und Operational Flow, ohne dass daraus eine zweite Domain-Population oder eine Multi-Page-App entsteht.
+Visual WP1 ergänzt jetzt die akzeptierte One-Screen-Presentation-Shell. Der Functional Core bleibt eingefroren. Der nächste Visual-Slice ist Analyst Focus; Token Universe und Operational Flow folgen separat und müssen ihre Data-to-Visual-Semantik explizit definieren.
 
-Keine Visualisierung darf neue Fakten oder Relationen nur deshalb erfinden, weil sie grafisch attraktiv wären.
+Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
+
+## 15. Authority-Modell
+
+| Frage | Authority |
+|---|---|
+| Was ist das Projekt und wie wird es benutzt? | `README.md` |
+| Wie fließen Daten und wer besitzt welche Verantwortung? | `docs/architecture.md` |
+| Wie funktioniert der operative Lifecycle fachlich exakt? | `docs/LIFECYCLE_CONTRACT.md` |
+| Welche funktionalen Produkt-/Truth-Grenzen gelten für das Observatory? | `docs/FRONTEND_OBSERVATORY.md` |
+| Wo steht das Projekt und welche Entscheidung ist als Nächstes offen? | `docs/MILESTONES.md` |
+| Welche Regeln gelten für Repository-Änderungen? | `AGENTS.md` |
+
+## 16. Architekturprinzipien
+
+1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Domain-Wahrheit.
+2. **Poll und Snapshot sind verschiedene Ereignisse.**
+3. **Source-Versionen gehen nicht durch Writer-Coalescing verloren.**
+4. **Raw-Auflösung ist temporär.** `mint_snapshots` ist auf 24 Stunden begrenzt.
+5. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
+6. **Lifecycle-Semantik ist versioniert.** Retention ist Storage-Maintenance und keine Lifecycle-Regel.
+7. **Downstream ist read-only gegenüber operativem State.**
+8. **Presentation ist keine Functional-Core-Truth.**
+9. **Operational Telemetry ist flüchtige Beobachtung, keine operative Authority.**
+10. **External Evidence ist keine Jupiter- oder Lifecycle-Truth.**
+11. **LLM-Interpretation besitzt keine operative Authority.**
+12. **Generierte Daten sind Evidence, nicht Architektur.**
+13. **Roadmap ist keine Implementation.**
