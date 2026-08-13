@@ -101,7 +101,8 @@
 }
 
 .analyst-answer h3,
-.analyst-answer h4 {
+.analyst-answer h4,
+.analyst-answer h5 {
   max-width: 76ch;
   margin: 22px 0 10px;
   color: var(--text-primary);
@@ -110,6 +111,23 @@
 
 .analyst-answer h3 { font-size: 19px; }
 .analyst-answer h4 { font-size: 16px; }
+.analyst-answer h5 { font-size: 14px; }
+.analyst-answer strong { color: #fff; font-weight: 780; }
+.analyst-answer em { color: var(--text-secondary); }
+.analyst-answer code {
+  padding: 1px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: rgba(146, 155, 173, .06);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: .9em;
+}
+.analyst-answer hr {
+  max-width: 76ch;
+  margin: 22px 0;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+}
 .analyst-answer ul,
 .analyst-answer ol {
   max-width: 76ch;
@@ -117,6 +135,36 @@
   padding-left: 24px;
 }
 .analyst-answer li + li { margin-top: 7px; }
+.markdown-table-wrap {
+  max-width: 100%;
+  margin: 10px 0 20px;
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+}
+.analyst-answer table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .9em;
+}
+.analyst-answer th,
+.analyst-answer td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+}
+.analyst-answer th:last-child,
+.analyst-answer td:last-child { border-right: 0; }
+.analyst-answer tbody tr:last-child td { border-bottom: 0; }
+.analyst-answer th {
+  color: var(--text-secondary);
+  background: rgba(146, 155, 173, .045);
+  font-size: .78em;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 
 .analyst-evidence {
   margin-top: 18px;
@@ -249,6 +297,7 @@ body.analyst-focus-active::before {
 
 .analyst-card.analyst-focused .analyst-answer h3 { font-size: 23px; }
 .analyst-card.analyst-focused .analyst-answer h4 { font-size: 18px; }
+.analyst-card.analyst-focused .analyst-answer h5 { font-size: 16px; }
 .analyst-card.analyst-focused .analyst-sources { font-size: 12px; }
 
 @media (max-width: 720px) {
