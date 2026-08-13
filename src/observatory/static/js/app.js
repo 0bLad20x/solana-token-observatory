@@ -29,6 +29,8 @@ let tokenUI = null;
 let activityUI = null;
 let analystUI = null;
 let primaryMode = "universe";
+let flowReady = false;
+let flowInitPromise = null;
 
 function setStreamStatus(mode, label) {
   streamStatus.className = `stream-status ${mode}`;
@@ -80,8 +82,31 @@ function setupSidePanel() {
   });
 }
 
+function ensureOperationalFlow() {
+  if (flowInitPromise) return flowInitPromise;
+  flowInitPromise = telemetryUI.init()
+    .then(() => {
+      flowReady = true;
+      telemetryUI.setVisible(primaryMode === "flow");
+    })
+    .catch(error => {
+      console.error("operational_flow_init_failed", error);
+      telemetryUI.setConnection("Presentation error");
+      throw error;
+    });
+  return flowInitPromise;
+}
+
 function setPrimaryMode(mode) {
-  primaryMode = mode === "flow" ? "flow" : "universe";
+  const nextMode = mode === "flow" ? "flow" : "universe";
+  if (nextMode === "flow" && !flowReady) {
+    ensureOperationalFlow()
+      .then(() => setPrimaryMode("flow"))
+      .catch(() => {});
+    return;
+  }
+
+  primaryMode = nextMode;
   const flowVisible = primaryMode === "flow";
   stageElement.classList.toggle("hidden", flowVisible);
   viewUniverseButton.classList.toggle("active", !flowVisible);
@@ -92,7 +117,7 @@ function setPrimaryMode(mode) {
   toolbarNote.textContent = flowVisible
     ? "Volatile runtime telemetry · particles are work pulses, not tokens"
     : "Live population · search reaches every active token";
-  telemetryUI.setVisible(flowVisible);
+  if (flowReady) telemetryUI.setVisible(flowVisible);
   if (!flowVisible) renderView();
 }
 
@@ -162,14 +187,15 @@ async function bootstrap() {
 
   currentView = new TokenUniverseView(stageElement, { onSelect: selectToken });
   await currentView.init();
-  await telemetryUI.init();
-  setPrimaryMode("universe");
 
   tokenUI = new TokenUI({ state, onSelect: selectToken });
   activityUI = new ActivityUI({ state, onSelect: selectToken });
   analystUI = new AnalystUI({ state, requestAnalyst, onSelect: selectToken });
   analystUI.sync(false);
+  setPrimaryMode("universe");
 
+  // Functional streams are established before the optional WP4 presentation.
+  // A visual rendering failure must never take the canonical population offline.
   connectUniverseStream({
     onOpen: () => setStreamStatus("live", "Live"),
     onError: () => setStreamStatus("error", "Reconnecting"),
@@ -183,6 +209,9 @@ async function bootstrap() {
     onSnapshot: snapshot => telemetryUI.load(snapshot),
     onEvent: event => telemetryUI.apply(event),
   });
+
+  // Presentation initialization is intentionally isolated from the functional core.
+  ensureOperationalFlow().catch(() => {});
 }
 
 setInterval(() => {
@@ -193,5 +222,4 @@ setInterval(() => {
 bootstrap().catch(error => {
   console.error(error);
   setStreamStatus("error", "Offline");
-  telemetryUI.setConnection("Offline");
 });
