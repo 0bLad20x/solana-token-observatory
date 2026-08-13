@@ -38,6 +38,7 @@ Die vertikalen Slices haben die funktionale Basis bewiesen:
 | Model Routing + RugCheck / Issue #22 / PR #23 | FAST/STRONG Policy + exact-Mint RugCheck Evidence + v4 Projection |
 | Final Core Sync / PR #24 | verlustfreie Connect/Reconnect-Synchronisationsgrenze + ein Population-Updatepfad |
 | Live Operational Telemetry / Issue #26 / PR #27 | Discovery, Search lanes, WriteQueue und Lifecycle als flüchtiger realer Runtime-Flow |
+| First-Principles Simplification / Issue #31 / PR #32 | redundante Browser-Reads/State-Duplikation entfernt; Visual-Freiheit erhalten |
 
 ## Live Operational Telemetry — abgeschlossen
 
@@ -86,45 +87,93 @@ STRONG = mistral-large-latest
 
 RugCheck ist damit kein offener Readiness-Punkt mehr. Der ältere Issue #18 ist durch Issue #22 / PR #23 erfüllt.
 
-## Nächster Slice — Operational Flow Visualization
+## Visual Phase — jetzt offen
 
-Der nächste sinnvolle Schritt ist nicht mehr das Sammeln weiterer Runtime-Metriken, sondern die strukturelle Visualisierung des jetzt bewiesenen Datenflusses.
-
-Die Ausgangsfrage lautet:
-
-> Wie werden große Discovery-Massen durch Search, WriteQueue und Lifecycle zu einer kleinen weiter überwachten Survivor-Population reduziert?
-
-Der erste Visual-Slice darf ausschließlich bereits bewiesene Telemetrie-Fakten verwenden:
+Für den Start der Visual-Phase gibt es keinen offenen Core-, Backend- oder Datenvertrags-Blocker. Der aktuelle Produktmodus ist ein One-Screen `Read + Inspect + Ask` Workspace:
 
 ```text
-Discovery intake
-      ↓
-Search lanes
-      ↓
-WriteQueue
-      ↓
-Lifecycle R1-R7
-      ↓
-Tracking survivors ↺ Search
+ansehen -> suchen -> selektieren -> fragen -> analysieren
 ```
 
-First-Principles-Grenzen:
+Search und Analyst sind die wesentlichen aktiven Interaktionen. Bubble Map und Operational Flow sind primär visuelle Informationsflächen; Click/Selection öffnet Detailkontext.
 
-- zuerst Data-to-Visual-Semantik, dann Gestaltung;
-- Mengen, Durchsatz, Reduktion und Loop müssen verständlich sein;
-- keine neue Discovery-Provenance erfinden;
-- keine Mint-Identitäten aus Telemetrie ableiten;
-- keine Bubble Physics als Ausgangspunkt;
-- Motion nur, wenn sie reale Richtung, Durchsatz oder Zustandswechsel transportiert;
-- Telemetry bleibt read-only und flüchtig.
+Der Reihenfolge-/Entscheidungsanker ist Issue #36.
 
-Dieser Operational-Flow-Slice ist von Issue #9 Token Visual / Spatial Research getrennt. Er visualisiert das System selbst, nicht die räumliche Beziehung einzelner Tokens.
+### Visual WP1 — Shell / Typography / Inspector (#33)
 
-## Danach — Evidence / Token Visual Research
+Zuerst wird die visuelle Grundfläche stabilisiert:
 
-Nach dem Operational-Flow-Slice wird anhand einer konkreten Benutzerfrage entschieden, ob noch eine Evidence-/Relation-Grenze fehlt oder Issue #9 Visual / Spatial Research der nächste Schritt ist.
+- größere und klar hierarchisierte Typografie;
+- Main Stage als dominante Visualisierungsfläche;
+- Search klarer sichtbar;
+- Right Context breiter sowie resize-/collapse-fähig;
+- vollständige Mint-Adresse sichtbar und kopierbar;
+- bestehende Selected-Token-Fakten bleiben erhalten;
+- keine Bubble- oder Flow-Semantik in diesem Slice.
 
-Mögliche spätere Kandidaten bleiben:
+### Visual WP2 — Analyst Focus Workspace (#34)
+
+Danach wird der Analyst als wichtigste aktive Interaktion aufgewertet:
+
+- klarer Focus-State innerhalb derselben Seite;
+- deutlich größere Lesefläche für Antworten;
+- LLM-Text, Tool-/Evidence-Metadaten und Quellen visuell getrennt;
+- lange Antworten zerstören nicht mehr die Sidebar-Geometrie;
+- keine neue Analyst-/Evidence-Semantik.
+
+### Visual WP3 — Launchpad Token Universe Bubble Map (#9)
+
+Issue #9 ist nicht mehr deferred. Die konkrete V1-Frage ist jetzt definiert:
+
+> Wie verteilt sich die aktive Token-Population auf Launchpads, und welche Tokens sind relativ groß, liquide und holder-stark?
+
+V1 verwendet:
+
+- Launchpad-Hubs + Token-Nodes;
+- ein-/ausblendbare Launchpad-Cluster;
+- Zoom/Pan;
+- kompakte Bubble-Labels;
+- Click -> bestehender Inspector/Analyst Context;
+- Holder Count als zusätzliche visuelle Dimension der Membership-Verbindung;
+- semantische Add/Update/Retire-Motion.
+
+Die Bubble-Größenfunktion wird innerhalb des WP mit realer Population entschieden. Market Cap, Liquidity und ein explizit dokumentierter normalisierter Composite-Kandidat werden verglichen; keine willkürliche Formel wird vorab zum Vertrag.
+
+### Visual WP4 — Live Operational Flow (#35)
+
+Die heutige Telemetry-Karten-/Tabellenwahrnehmung wird durch eine Systemvisualisierung ersetzt:
+
+```text
+Discovery -> Search -> WriteQueue -> Lifecycle -> Tracking -> Search
+                                      └-> retired exit
+```
+
+Als Designmuster dienen layered neural/data networks sowie fan-in/fan-out flows. Die Visualisierung verwendet ausschließlich bestehende Telemetrie-Fakten; keine per-Mint Discovery-Provenance und keine neue Runtime-Semantik werden erfunden.
+
+## Referenzmuster
+
+Aus der Design-Diskussion sind drei Muster als Inspiration festgehalten:
+
+1. Hub-and-spoke / radial network für Launchpad -> Tokens;
+2. layered neural/data network für parallele Verarbeitungslanes;
+3. fan-in / fan-out stream für Bündelung, Verteilung und Kondensation.
+
+Die verwendeten Stock-/Referenzbilder sind keine Produktassets und kein 1:1-Ziel. Entscheidend sind die zugrunde liegenden Muster und ihre überprüfbare Data-to-Visual-Semantik.
+
+## Offene Designentscheidungen — keine Vorab-Blocker
+
+Folgende Fragen werden bewusst erst im zuständigen Browser-Prototyp entschieden:
+
+- Main-Stage-Wechselmechanik zwischen Universe und Flow -> #33;
+- Analyst Focus als Expand/Overlay/anderer minimaler Focus-State -> #34;
+- Bubble-Größenfunktion, Missing- und Outlier-Scale -> #9;
+- genaue Flow-Geometrie zwischen Layer- und Fan-in/Fan-out-Muster -> #35.
+
+Keine dieser Fragen rechtfertigt eine weitere Core-/Backend-Phase vor Beginn der Visual-Arbeit.
+
+## Mögliche spätere Evidence-Erweiterungen
+
+Nur aus einer konkreten Benutzerfrage ableiten, ob weitere Verträge nötig werden.
 
 ### Discovery Provenance
 
@@ -150,31 +199,18 @@ Die vier bewiesenen Analyst-Pfade könnten später hinter einem gemeinsamen Frag
 
 Kein generisches Agent-/Tool-Framework vorsorglich bauen.
 
-## Issue #9 Visual / Spatial Research
-
-Issue #9 bleibt der separate Design-/Research-Schritt für Token-Darstellungen.
-
-Visual Design beginnt dort erst mit einer konkreten analytischen Frage und einem expliziten Mapping:
-
-- welche Frage beantwortet die View;
-- welche Datenfelder werden auf Position, Größe, Farbe, Opacity oder Text gemappt;
-- Missing/Outlier-/Scale-Regeln;
-- Density, Zoom und Aggregation;
-- reale Populationen und Browser-Prototypen.
-
-Keine frühere Bubble-, Farb-, Cluster- oder Panel-Semantik ist ein zukünftiger Designvertrag.
-
 ## Separater Repository-Cleanup
 
 Große Dateien unter `analysis/` sind historische Research-Evidence und werden **nicht** in diesem Dokumentations-Checkpoint automatisch gelöscht. Ob einzelne Artefakte reproduzierbar, noch fachlich nützlich oder entbehrlich sind, ist ein separater Cleanup mit eigener Prüfung.
 
 ## Stop Condition dieses Checkpoints
 
-Der Repository-Zustand ist für den nächsten Slice bereit, wenn:
+Der Repository-Zustand ist für die Visual-Phase bereit, weil:
 
-- die dauerhaften Authorities den aktuellen `main` widerspiegeln;
+- Functional Core und First-Principles Simplification auf `main` abgeschlossen sind;
 - Lifecycle v0.3 und Live Telemetry semantisch zusammenpassen;
 - `ACTIVE` versus `TRACKING` dokumentiert und im UI klar benannt ist;
 - Lifecycle-Telemetrie R1–R7 vollständig zeigt;
-- abgeschlossene Issues nicht mehr als offene Roadmap erscheinen;
-- kein Dokument einen bereits verworfenen Research-Pfad als Produktvertrag beschreibt.
+- Search/Selection/Analyst als stabile Interaktionsgrenzen bewiesen sind;
+- die vier Visual Work Packages eine klare Reihenfolge und eigene Acceptance-Gates besitzen;
+- offene Designentscheidungen nicht mehr mit fehlenden Core-Daten verwechselt werden.
