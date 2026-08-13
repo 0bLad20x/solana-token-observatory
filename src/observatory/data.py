@@ -110,6 +110,8 @@ class FrontendReader:
                        + COALESCE(NULLIF(s.payload->'stats5m'->>'numSells', '')::integer, 0)
                 END AS trades_5m,
                 NULLIF(s.payload->'stats5m'->>'numTraders', '')::integer AS traders_5m,
+                NULLIF(s.payload->'stats5m'->>'buyVolume', '')::double precision AS buy_volume_5m,
+                NULLIF(s.payload->'stats5m'->>'sellVolume', '')::double precision AS sell_volume_5m,
                 CASE
                     WHEN NULLIF(s.payload->'stats5m'->>'buyVolume', '') IS NULL
                      AND NULLIF(s.payload->'stats5m'->>'sellVolume', '') IS NULL
@@ -162,6 +164,8 @@ class FrontendReader:
             "holders": _int(row["holders"]),
             "trades_5m": _int(row["trades_5m"]),
             "traders_5m": _int(row["traders_5m"]),
+            "buy_volume_5m": _float(row["buy_volume_5m"]),
+            "sell_volume_5m": _float(row["sell_volume_5m"]),
             "volume_5m": _float(row["volume_5m"]),
             "age_seconds": _float(row["age_seconds"]),
             "poll_age_seconds": _float(row["poll_age_seconds"]),

@@ -6,7 +6,7 @@ from src.observatory.delta import DELTA_NUMERIC_FIELDS, changes, fingerprint
 
 
 class ObservatoryDeltaContractTests(unittest.TestCase):
-    def test_numeric_delta_fields_include_trades(self) -> None:
+    def test_numeric_delta_fields_include_trade_and_volume_split(self) -> None:
         self.assertEqual(
             DELTA_NUMERIC_FIELDS,
             (
@@ -15,6 +15,8 @@ class ObservatoryDeltaContractTests(unittest.TestCase):
                 "holders",
                 "trades_5m",
                 "traders_5m",
+                "buy_volume_5m",
+                "sell_volume_5m",
                 "volume_5m",
             ),
         )

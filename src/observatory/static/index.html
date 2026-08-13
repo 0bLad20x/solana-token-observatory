@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/assets/analyst-focus.css">
   <link rel="stylesheet" href="/assets/token-universe.css">
   <link rel="stylesheet" href="/assets/telemetry.css">
+  <link rel="stylesheet" href="/assets/market-pulse.css">
 </head>
 <body>
   <main class="shell">
@@ -40,6 +41,7 @@
             <div class="primary-view-switch" aria-label="Primary Observatory view">
               <button id="view-token-universe" class="active" type="button" aria-pressed="true">Universe</button>
               <button id="view-operational-flow" type="button" aria-pressed="false">Flow</button>
+              <button id="view-market-pulse" type="button" aria-pressed="false">Pulse</button>
             </div>
           </div>
           <div class="token-search">
@@ -62,6 +64,7 @@
         </div>
         <div id="universe-stage" class="universe-stage" aria-label="Current token population view"></div>
         <div id="operational-flow-stage" class="operational-flow-stage hidden" aria-label="Live operational telemetry flow"></div>
+        <div id="market-pulse-stage" class="market-pulse-stage hidden" aria-label="Observed market pulse over the active token population"></div>
       </div>
 
       <aside class="side-panel" id="side-panel">
