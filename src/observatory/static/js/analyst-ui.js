@@ -10,6 +10,7 @@ const SCOPE_CONFIG = {
     placeholder: "Which five tokens have the highest market cap?",
     needsToken: false,
     contextVerb: "",
+    evidenceLabel: "QUERY EVIDENCE",
   },
   web: {
     title: "Token web research",
@@ -20,6 +21,7 @@ const SCOPE_CONFIG = {
     placeholder: "What can be verified about this token?",
     needsToken: true,
     contextVerb: "Researching",
+    evidenceLabel: "WEB SOURCES",
   },
   temporal: {
     title: "Temporal summary analysis",
@@ -30,6 +32,7 @@ const SCOPE_CONFIG = {
     placeholder: "Give an expert assessment of this token from its observed summary.",
     needsToken: true,
     contextVerb: "Analyzing",
+    evidenceLabel: "TEMPORAL EVIDENCE",
   },
   rugcheck: {
     title: "RugCheck safety evidence",
@@ -40,6 +43,7 @@ const SCOPE_CONFIG = {
     placeholder: "Assess the safety evidence for this token.",
     needsToken: true,
     contextVerb: "Checking",
+    evidenceLabel: "RUGCHECK EVIDENCE",
   },
 };
 
@@ -49,26 +53,51 @@ export class AnalystUI {
     this.requestAnalyst = requestAnalyst;
     this.onSelect = onSelect;
     this.scope = "current_data";
+    this.lastAnswer = "";
+    this.copyResetTimer = null;
 
+    this.card = document.querySelector("#analyst-card");
+    this.focusToggle = document.querySelector("#analyst-focus-toggle");
     this.form = document.querySelector("#analyst-form");
     this.question = document.querySelector("#analyst-question");
     this.submit = document.querySelector("#analyst-submit");
     this.context = document.querySelector("#analyst-context");
+    this.contextMint = document.querySelector("#analyst-context-mint");
     this.status = document.querySelector("#analyst-status");
     this.result = document.querySelector("#analyst-result");
+    this.resultQuestion = document.querySelector("#analyst-result-question");
     this.answer = document.querySelector("#analyst-answer");
+    this.answerCopy = document.querySelector("#analyst-answer-copy");
     this.sources = document.querySelector("#analyst-sources");
+    this.evidenceHeading = document.querySelector("#analyst-evidence-heading");
     this.title = document.querySelector("#analyst-title");
     this.chip = document.querySelector("#analyst-chip");
     this.modes = [...document.querySelectorAll("[data-analyst-scope]")];
 
     this.form.addEventListener("submit", event => this.#submit(event));
+    this.focusToggle.addEventListener("click", () => {
+      this.setFocused(!this.card.classList.contains("analyst-focused"));
+    });
+    this.answerCopy.addEventListener("click", () => this.copyAnswer());
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && this.card.classList.contains("analyst-focused")) {
+        this.setFocused(false);
+      }
+    });
+
     for (const button of this.modes) {
       button.addEventListener("click", () => {
         this.scope = button.dataset.analystScope;
         this.sync(true);
       });
     }
+  }
+
+  setFocused(focused) {
+    this.card.classList.toggle("analyst-focused", focused);
+    document.body.classList.toggle("analyst-focus-active", focused);
+    this.focusToggle.setAttribute("aria-pressed", String(focused));
+    this.focusToggle.textContent = focused ? "Close" : "Focus";
   }
 
   sync(clearResult = false) {
@@ -78,6 +107,7 @@ export class AnalystUI {
     this.title.textContent = config.title;
     this.chip.textContent = config.chip;
     this.chip.classList.toggle("current", this.scope === "current_data");
+    this.evidenceHeading.textContent = config.evidenceLabel;
 
     for (const button of this.modes) {
       button.classList.toggle("active", button.dataset.analystScope === this.scope);
@@ -87,11 +117,18 @@ export class AnalystUI {
     this.submit.disabled = config.needsToken && !token;
     this.submit.textContent = config.submit;
     this.question.placeholder = config.placeholder;
-    this.context.textContent = config.needsToken
-      ? token
-        ? `${config.contextVerb} ${tokenIdentity(token)} · exact mint`
-        : "Select a token first"
-      : `Ask about ${integerFormat.format(this.state.stats().active)} active tokens`;
+
+    if (config.needsToken) {
+      this.context.textContent = token
+        ? `${tokenIdentity(token)} · exact mint`
+        : "Select a token first";
+      this.contextMint.textContent = token?.mint || "";
+      this.contextMint.classList.toggle("hidden", !token?.mint);
+    } else {
+      this.context.textContent = `${integerFormat.format(this.state.stats().active)} active tokens`;
+      this.contextMint.textContent = "";
+      this.contextMint.classList.add("hidden");
+    }
 
     if (clearResult) this.clear();
   }
@@ -107,8 +144,32 @@ export class AnalystUI {
   clear() {
     this.status.textContent = "";
     this.result.classList.add("hidden");
-    this.answer.textContent = "";
+    this.resultQuestion.textContent = "";
+    this.answer.replaceChildren();
     this.sources.replaceChildren();
+    this.lastAnswer = "";
+    this.resetCopyButton();
+  }
+
+  async copyAnswer() {
+    if (!this.lastAnswer) return;
+
+    try {
+      await navigator.clipboard.writeText(this.lastAnswer);
+      this.answerCopy.textContent = "Copied";
+    } catch (error) {
+      console.warn("Analyst answer copy failed", error);
+      this.answerCopy.textContent = "Copy failed";
+    }
+
+    clearTimeout(this.copyResetTimer);
+    this.copyResetTimer = setTimeout(() => this.resetCopyButton(), 1400);
+  }
+
+  resetCopyButton() {
+    clearTimeout(this.copyResetTimer);
+    this.copyResetTimer = null;
+    this.answerCopy.textContent = "Copy answer";
   }
 
   async #submit(event) {
@@ -119,6 +180,7 @@ export class AnalystUI {
     const mint = this.state.selectedMint;
     if (!question || (config.needsToken && !mint)) return;
 
+    this.setFocused(true);
     this.submit.disabled = true;
     this.submit.textContent = config.pendingSubmit;
     this.status.textContent = config.pendingStatus;
@@ -128,7 +190,7 @@ export class AnalystUI {
       const body = { scope: requestScope, question };
       if (config.needsToken) body.mint = mint;
       const payload = await this.requestAnalyst(body);
-      if (this.scope === requestScope) this.#render(payload);
+      if (this.scope === requestScope) this.#render(payload, question);
     } catch (error) {
       this.status.textContent = error.message;
     } finally {
@@ -136,8 +198,10 @@ export class AnalystUI {
     }
   }
 
-  #render(payload) {
-    this.answer.textContent = payload.answer;
+  #render(payload, question) {
+    this.lastAnswer = payload.answer || "";
+    this.resultQuestion.textContent = question;
+    this.#renderAnswer(this.lastAnswer);
     this.sources.replaceChildren();
 
     if (payload.scope === "current_data") {
@@ -154,10 +218,7 @@ export class AnalystUI {
     } else if (payload.scope === "rugcheck") {
       this.#renderRugCheckEvidence(payload.evidence);
       this.status.textContent = "RugCheck evidence analysis completed";
-    } else if (payload.sources.length) {
-      const heading = document.createElement("strong");
-      heading.textContent = "Sources";
-      this.sources.append(heading);
+    } else if (Array.isArray(payload.sources) && payload.sources.length) {
       for (const source of payload.sources) {
         const link = document.createElement("a");
         link.href = source.url;
@@ -177,6 +238,62 @@ export class AnalystUI {
     }
 
     this.result.classList.remove("hidden");
+  }
+
+  #renderAnswer(text) {
+    this.answer.replaceChildren();
+    let list = null;
+    let listType = "";
+
+    for (const rawLine of String(text || "").split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) {
+        list = null;
+        listType = "";
+        continue;
+      }
+
+      const heading = line.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        const element = document.createElement(heading[1].length === 1 ? "h3" : "h4");
+        element.textContent = heading[2];
+        this.answer.append(element);
+        list = null;
+        listType = "";
+        continue;
+      }
+
+      const unordered = line.match(/^[-*]\s+(.+)$/);
+      const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+      if (unordered || ordered) {
+        const nextType = unordered ? "ul" : "ol";
+        if (!list || listType !== nextType) {
+          list = document.createElement(nextType);
+          listType = nextType;
+          this.answer.append(list);
+        }
+        const item = document.createElement("li");
+        item.textContent = (unordered || ordered)[1];
+        list.append(item);
+        continue;
+      }
+
+      const strongLine = line.match(/^\*\*(.+)\*\*$/);
+      if (strongLine) {
+        const element = document.createElement("h4");
+        element.textContent = strongLine[1];
+        this.answer.append(element);
+        list = null;
+        listType = "";
+        continue;
+      }
+
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      this.answer.append(paragraph);
+      list = null;
+      listType = "";
+    }
   }
 
   #renderCapabilities(capabilities) {
