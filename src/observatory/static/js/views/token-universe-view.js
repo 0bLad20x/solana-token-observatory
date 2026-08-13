@@ -12,13 +12,16 @@ const CLUSTER_MIN_RADIUS = 88;
 const CLUSTER_PADDING = 42;
 const CLUSTER_GAP = 72;
 const ADD_MS = 720;
-const UPDATE_MS = 900;
-const RETIRE_MS = 1800;
+const UPDATE_MS = 1250;
+const RETIRE_HOLD_MS = 700;
+const RETIRE_MS = 2400;
 const SETTLE_MS = 950;
 const COLLISION_CELL = NODE_RADIUS_MAX * 2 + NODE_GAP * 2;
 const MARKET_LOW_QUANTILE = 0.05;
 const MARKET_HIGH_QUANTILE = 0.995;
 const LIQUIDITY_HIGH_QUANTILE = 0.98;
+const MARKET_CHANGE_VISIBLE = 0.03;
+const MARKET_CHANGE_STRONG = 0.10;
 
 function finitePositive(value) {
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -52,10 +55,7 @@ function robustLogRange(tokens, field, lowFraction = 0.05, highFraction = 0.98) 
   if (!values.length) return null;
   const low = percentile(values, lowFraction);
   const high = percentile(values, highFraction);
-  return {
-    low,
-    high: high > low ? high : low + 1,
-  };
+  return { low, high: high > low ? high : low + 1 };
 }
 
 function normalizedLog(value, range) {
@@ -65,26 +65,10 @@ function normalizedLog(value, range) {
   return Math.max(0, Math.min(1, (logged - range.low) / (range.high - range.low)));
 }
 
-function buildMarketRadiusScale(tokens) {
-  const range = robustLogRange(
-    tokens,
-    "market_cap",
-    MARKET_LOW_QUANTILE,
-    MARKET_HIGH_QUANTILE,
-  );
-  return value => {
-    const score = normalizedLog(value, range);
-    if (score == null) return null;
-    // Radius, not area, carries the robust log-scaled market-cap signal.
-    // The >1 exponent keeps the long tail visibly distinct without allowing one outlier
-    // to consume the whole stage.
-    return NODE_RADIUS_MIN + (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * (score ** 1.45);
-  };
-}
-
-function buildLiquidityScale(tokens) {
-  const range = robustLogRange(tokens, "liquidity", 0.05, LIQUIDITY_HIGH_QUANTILE);
-  return value => normalizedLog(value, range);
+function radiusFromMarket(value, range) {
+  const score = normalizedLog(value, range);
+  if (score == null) return null;
+  return NODE_RADIUS_MIN + (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * (score ** 1.45);
 }
 
 function buildHolderScale(tokens) {
@@ -101,9 +85,21 @@ function buildHolderScale(tokens) {
   };
 }
 
+function marketChange(previous, next) {
+  const before = finitePositive(previous);
+  const after = finitePositive(next);
+  if (before == null || after == null) return null;
+  return (after - before) / before;
+}
+
 function easeOutCubic(value) {
   const t = Math.max(0, Math.min(1, value));
   return 1 - (1 - t) ** 3;
+}
+
+function easeInOutCubic(value) {
+  const t = Math.max(0, Math.min(1, value));
+  return t < 0.5 ? 4 * t ** 3 : 1 - ((-2 * t + 2) ** 3) / 2;
 }
 
 function shortLabel(token) {
@@ -124,39 +120,32 @@ function circlesOverlap(left, right, gap = CLUSTER_GAP) {
   return Math.hypot(left.x - right.x, left.y - right.y) < left.radius + right.radius + gap;
 }
 
+function placeCluster(spec, existing) {
+  if (!existing.length) return { ...spec, x: 0, y: 0 };
+  const phase = (hashString(spec.launchpad) % 360) * Math.PI / 180;
+  for (let attempt = 1; attempt < 6000; attempt += 1) {
+    const angle = phase + attempt * GOLDEN_ANGLE;
+    const distance = 24 * Math.sqrt(attempt) + spec.radius;
+    const candidate = {
+      ...spec,
+      x: Math.cos(angle) * distance,
+      y: Math.sin(angle) * distance,
+    };
+    if (existing.every(item => !circlesOverlap(candidate, item))) return candidate;
+  }
+  return {
+    ...spec,
+    x: (existing.length + 1) * (spec.radius + CLUSTER_GAP),
+    y: 0,
+  };
+}
+
 function packClusters(specs) {
   const ordered = [...specs].sort((left, right) =>
     right.radius - left.radius || left.launchpad.localeCompare(right.launchpad)
   );
   const placed = [];
-  for (const spec of ordered) {
-    if (!placed.length) {
-      placed.push({ ...spec, x: 0, y: 0 });
-      continue;
-    }
-
-    const phase = (hashString(spec.launchpad) % 360) * Math.PI / 180;
-    let candidate = null;
-    for (let attempt = 1; attempt < 6000; attempt += 1) {
-      const angle = phase + attempt * GOLDEN_ANGLE;
-      const distance = 24 * Math.sqrt(attempt) + spec.radius;
-      const next = {
-        ...spec,
-        x: Math.cos(angle) * distance,
-        y: Math.sin(angle) * distance,
-      };
-      if (placed.every(existing => !circlesOverlap(next, existing))) {
-        candidate = next;
-        break;
-      }
-    }
-
-    placed.push(candidate || {
-      ...spec,
-      x: (placed.length + 1) * (spec.radius + CLUSTER_GAP),
-      y: 0,
-    });
-  }
+  for (const spec of ordered) placed.push(placeCluster(spec, placed));
   return placed;
 }
 
@@ -166,7 +155,10 @@ function anchorForNode(node, hub, slot, total) {
   const phase = (hashString(node.launchpad) % 360) * Math.PI / 180;
   const mintJitter = ((hashString(node.mint) % 1000) / 1000 - 0.5) * 0.38;
   const angle = phase + slot * GOLDEN_ANGLE + mintJitter;
-  const radial = Math.min(usable, HUB_RADIUS + 24 + normalized * Math.max(0, usable - HUB_RADIUS - 24));
+  const radial = Math.min(
+    usable,
+    HUB_RADIUS + 24 + normalized * Math.max(0, usable - HUB_RADIUS - 24),
+  );
   return {
     x: hub.x + Math.cos(angle) * radial,
     y: hub.y + Math.sin(angle) * radial,
@@ -183,24 +175,37 @@ export class TokenUniverseView {
     this.launchpadControls = null;
     this.status = null;
     this.resizeObserver = null;
+
     this.nodes = new Map();
     this.hubs = new Map();
     this.slots = new Map();
     this.nextSlots = new Map();
-    this.enabledLaunchpads = new Set();
+
     this.knownLaunchpads = [];
+    this.enabledLaunchpads = new Set();
+    this.userDisabledLaunchpads = new Set();
+
     this.tokens = [];
     this.selectedMint = null;
     this.lastSelectedMint = null;
     this.selectionOrigin = null;
     this.hoverMint = null;
+
     this.viewport = { x: 0, y: 0, k: 1 };
     this.fitted = false;
     this.drag = null;
+
     this.exitGhosts = [];
+    this.pendingSettleAt = new Map();
+    this.settleUntil = new Map();
+
     this.frame = null;
     this.worldBounds = null;
-    this.settleUntil = new Map();
+
+    // Scales are established from the first real population and stay stable for
+    // the browser session so one unrelated delta cannot resize the whole universe.
+    this.marketRange = null;
+    this.liquidityRange = null;
   }
 
   init() {
@@ -250,7 +255,8 @@ export class TokenUniverseView {
     legend.innerHTML = [
       "<span>Bubble radius = robust log market cap</span>",
       "<span>Liquidity = outer halo</span>",
-      "<span>Membership line appears on hover / selection</span>",
+      "<span>MC change = directed transition</span>",
+      "<span>Retirement = red exit</span>",
       "<span>Scroll = zoom · drag = pan</span>",
     ].join("");
 
@@ -269,24 +275,27 @@ export class TokenUniverseView {
 
   render({ tokens, selectedMint, events = [] }) {
     const previousNodes = this.nodes;
-    const previousHubs = this.hubs;
     const active = tokens.filter(token => token.tracking_enabled);
-    const launchpads = [...new Set(active.map(normalizedLaunchpad))].sort((a, b) => a.localeCompare(b));
-
-    if (!this.knownLaunchpads.length) {
-      for (const launchpad of launchpads) this.enabledLaunchpads.add(launchpad);
-    } else {
-      for (const launchpad of launchpads) {
-        if (!this.knownLaunchpads.includes(launchpad)) this.enabledLaunchpads.add(launchpad);
-      }
-    }
+    const launchpads = [...new Set(active.map(normalizedLaunchpad))].sort((a, b) =>
+      a.localeCompare(b)
+    );
 
     this.knownLaunchpads = launchpads;
+    this.enabledLaunchpads = new Set(
+      launchpads.filter(launchpad => !this.userDisabledLaunchpads.has(launchpad)),
+    );
     this.tokens = active;
     this.selectedMint = selectedMint;
 
-    const selectedToken = selectedMint ? active.find(token => token.mint === selectedMint) : null;
-    if (selectedToken) this.enabledLaunchpads.add(normalizedLaunchpad(selectedToken));
+    if (!this.marketRange && active.length) {
+      this.marketRange = robustLogRange(
+        active,
+        "market_cap",
+        MARKET_LOW_QUANTILE,
+        MARKET_HIGH_QUANTILE,
+      );
+      this.liquidityRange = robustLogRange(active, "liquidity", 0.05, LIQUIDITY_HIGH_QUANTILE);
+    }
 
     const now = performance.now();
     for (const event of events) {
@@ -298,11 +307,15 @@ export class TokenUniverseView {
         retiredAt: now,
         retireUntil: now + RETIRE_MS,
       });
-      this.#activateCluster(previous.launchpad, RETIRE_MS);
+      const settleAt = now + RETIRE_MS;
+      this.pendingSettleAt.set(
+        previous.launchpad,
+        Math.max(this.pendingSettleAt.get(previous.launchpad) || 0, settleAt),
+      );
     }
 
     this.#syncLaunchpadControls();
-    this.#buildLayout(events, previousNodes, previousHubs);
+    this.#buildLayout(events, previousNodes);
 
     const selectionChanged = selectedMint && selectedMint !== this.lastSelectedMint;
     if (selectionChanged && this.selectionOrigin !== "view") this.#focusSelected();
@@ -348,16 +361,21 @@ export class TokenUniverseView {
     if (!this.launchpadControls) return;
     this.launchpadControls.replaceChildren();
 
+    const allEnabled = this.knownLaunchpads.every(
+      launchpad => !this.userDisabledLaunchpads.has(launchpad),
+    );
     const all = document.createElement("button");
     all.type = "button";
     all.textContent = "All";
-    all.className = this.knownLaunchpads.every(item => this.enabledLaunchpads.has(item)) ? "active" : "";
+    all.className = allEnabled ? "active" : "";
+    all.setAttribute("aria-pressed", String(allEnabled));
     all.addEventListener("click", () => {
-      const allEnabled = this.knownLaunchpads.every(item => this.enabledLaunchpads.has(item));
-      this.enabledLaunchpads = new Set(allEnabled ? [] : this.knownLaunchpads);
-      this.#syncLaunchpadControls();
-      this.#updateWorldBounds();
-      this.fitAll();
+      if (allEnabled) {
+        for (const launchpad of this.knownLaunchpads) this.userDisabledLaunchpads.add(launchpad);
+      } else {
+        for (const launchpad of this.knownLaunchpads) this.userDisabledLaunchpads.delete(launchpad);
+      }
+      this.#applyLaunchpadVisibility();
     });
     this.launchpadControls.append(all);
 
@@ -365,18 +383,29 @@ export class TokenUniverseView {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = launchpad;
-      const active = this.enabledLaunchpads.has(launchpad);
+      const active = !this.userDisabledLaunchpads.has(launchpad);
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
       button.addEventListener("click", () => {
-        if (this.enabledLaunchpads.has(launchpad)) this.enabledLaunchpads.delete(launchpad);
-        else this.enabledLaunchpads.add(launchpad);
-        this.#syncLaunchpadControls();
-        this.#updateWorldBounds();
-        this.fitAll();
+        if (this.userDisabledLaunchpads.has(launchpad)) {
+          this.userDisabledLaunchpads.delete(launchpad);
+        } else {
+          this.userDisabledLaunchpads.add(launchpad);
+        }
+        this.#applyLaunchpadVisibility();
       });
       this.launchpadControls.append(button);
     }
+  }
+
+  #applyLaunchpadVisibility() {
+    this.enabledLaunchpads = new Set(
+      this.knownLaunchpads.filter(launchpad => !this.userDisabledLaunchpads.has(launchpad)),
+    );
+    this.hoverMint = null;
+    this.#syncLaunchpadControls();
+    this.#updateWorldBounds();
+    this.fitAll();
   }
 
   #ensureSlots(groups) {
@@ -395,29 +424,58 @@ export class TokenUniverseView {
     }
   }
 
-  #buildLayout(events, previousNodes, previousHubs) {
+  #ensureHubLayout(clusterSpecs) {
+    if (!this.hubs.size) {
+      const packed = packClusters(clusterSpecs);
+      this.hubs = new Map(packed.map(cluster => [cluster.launchpad, cluster]));
+      return;
+    }
+
+    const specByLaunchpad = new Map(clusterSpecs.map(spec => [spec.launchpad, spec]));
+    for (const launchpad of [...this.hubs.keys()]) {
+      if (!specByLaunchpad.has(launchpad)) this.hubs.delete(launchpad);
+    }
+
+    const existing = [...this.hubs.values()];
+    for (const spec of clusterSpecs) {
+      const hub = this.hubs.get(spec.launchpad);
+      if (hub) {
+        // Centers never move during normal SSE updates. Radius may only grow during
+        // the session, preventing a retirement or small economic update from
+        // repacking the whole universe.
+        hub.radius = Math.max(hub.radius, spec.radius);
+        hub.count = spec.count;
+        continue;
+      }
+      const placed = placeCluster(spec, existing);
+      this.hubs.set(spec.launchpad, placed);
+      existing.push(placed);
+    }
+  }
+
+  #buildLayout(events, previousNodes) {
     const groups = new Map();
     for (const launchpad of this.knownLaunchpads) groups.set(launchpad, []);
     for (const token of this.tokens) groups.get(normalizedLaunchpad(token))?.push(token);
     this.#ensureSlots(groups);
 
-    const marketRadius = buildMarketRadiusScale(this.tokens);
-    const liquidityScale = buildLiquidityScale(this.tokens);
     const holderScale = buildHolderScale(this.tokens);
-    const eventByMint = new Map(events.filter(event => event?.token?.mint).map(event => [event.token.mint, event]));
+    const eventByMint = new Map(
+      events.filter(event => event?.token?.mint).map(event => [event.token.mint, event]),
+    );
     const now = performance.now();
 
     const preparedByLaunchpad = new Map();
     for (const [launchpad, group] of groups) {
       const prepared = group.map(token => {
-        const radius = marketRadius(token.market_cap);
+        const radius = radiusFromMarket(token.market_cap, this.marketRange);
         return {
           mint: token.mint,
           token,
           launchpad,
           targetRadius: radius ?? NODE_RADIUS_MIN,
           missingMarketCap: radius == null,
-          liquidityScore: liquidityScale(token.liquidity),
+          liquidityScore: normalizedLog(token.liquidity, this.liquidityRange),
           holderScore: holderScale(token.holders),
         };
       });
@@ -429,13 +487,12 @@ export class TokenUniverseView {
       count: nodes.length,
       radius: clusterRadiusForNodes(nodes),
     }));
-    const packed = packClusters(clusterSpecs);
-    this.hubs = new Map(packed.map(cluster => [cluster.launchpad, cluster]));
+    this.#ensureHubLayout(clusterSpecs);
 
     const nextNodes = new Map();
     for (const [launchpad, prepared] of preparedByLaunchpad) {
       const hub = this.hubs.get(launchpad);
-      const previousHub = previousHubs.get(launchpad);
+      if (!hub) continue;
       const slots = this.slots.get(launchpad);
       const total = prepared.length;
 
@@ -444,23 +501,34 @@ export class TokenUniverseView {
         const slot = slots?.get(item.mint) || 0;
         const anchor = anchorForNode(item, hub, slot, total);
         const event = eventByMint.get(item.mint);
-        const isAdded = event?.type === "token_added";
-        const radiusChanged = previous
-          ? Math.abs(item.targetRadius - (previous.targetRadius ?? previous.radius ?? item.targetRadius)) > 1.25
-          : true;
+        const isAdded = event?.type === "token_added" || !previous;
+        const rawMarketChange = previous
+          ? marketChange(previous.token?.market_cap, item.token.market_cap)
+          : null;
+        const visibleMarketChange = event?.type === "token_updated"
+          && rawMarketChange != null
+          && Math.abs(rawMarketChange) >= MARKET_CHANGE_VISIBLE;
+        const strongMarketChange = visibleMarketChange
+          && Math.abs(rawMarketChange) >= MARKET_CHANGE_STRONG;
 
-        let x = anchor.x;
-        let y = anchor.y;
-        if (previous && previousHub) {
-          x = hub.x + (previous.x - previousHub.x);
-          y = hub.y + (previous.y - previousHub.y);
-        } else if (isAdded) {
+        let x = previous?.x ?? anchor.x;
+        let y = previous?.y ?? anchor.y;
+        if (isAdded && !previous) {
           const phase = (hashString(item.mint) % 360) * Math.PI / 180;
           x = hub.x + Math.cos(phase) * (HUB_RADIUS + 12);
           y = hub.y + Math.sin(phase) * (HUB_RADIUS + 12);
         }
 
+        const fromRadius = isAdded
+          ? Math.max(1, item.targetRadius * 0.3)
+          : previous?.radius ?? item.targetRadius;
         const transitionMs = isAdded ? ADD_MS : UPDATE_MS;
+        const transitionType = isAdded
+          ? "token_added"
+          : visibleMarketChange
+            ? "market_cap_updated"
+            : null;
+
         nextNodes.set(item.mint, {
           ...item,
           x,
@@ -469,16 +537,18 @@ export class TokenUniverseView {
           vy: previous?.vy || 0,
           anchorX: anchor.x,
           anchorY: anchor.y,
-          radius: isAdded ? Math.max(1, item.targetRadius * 0.3) : previous?.radius ?? item.targetRadius,
-          fromRadius: isAdded ? Math.max(1, item.targetRadius * 0.3) : previous?.radius ?? item.targetRadius,
-          transitionStart: event && (isAdded || radiusChanged) ? now : 0,
-          transitionUntil: event && (isAdded || radiusChanged) ? now + transitionMs : 0,
+          radius: transitionType ? fromRadius : item.targetRadius,
+          fromRadius,
+          transitionStart: transitionType ? now : 0,
+          transitionUntil: transitionType ? now + transitionMs : 0,
           transitionMs,
-          transitionType: isAdded ? "token_added" : radiusChanged && event ? "token_updated" : null,
+          transitionType,
+          marketChange: visibleMarketChange ? rawMarketChange : null,
+          marketChangeStrong: Boolean(strongMarketChange),
         });
 
-        if (!previous || isAdded) this.#activateCluster(launchpad, SETTLE_MS + 250);
-        else if (radiusChanged && event) this.#activateCluster(launchpad, SETTLE_MS);
+        if (isAdded) this.#activateCluster(launchpad, SETTLE_MS + 250);
+        else if (visibleMarketChange) this.#activateCluster(launchpad, SETTLE_MS);
       }
     }
 
@@ -488,8 +558,11 @@ export class TokenUniverseView {
     }
 
     this.#updateWorldBounds();
-    const visibleCount = [...this.nodes.values()].filter(node => this.enabledLaunchpads.has(node.launchpad)).length;
-    this.status.textContent = `${visibleCount.toLocaleString()} visible · ${this.enabledLaunchpads.size}/${this.knownLaunchpads.length} launchpads`;
+    const visibleCount = [...this.nodes.values()].filter(
+      node => this.enabledLaunchpads.has(node.launchpad),
+    ).length;
+    this.status.textContent =
+      `${visibleCount.toLocaleString()} visible · ${this.enabledLaunchpads.size}/${this.knownLaunchpads.length} launchpads`;
     this.#scheduleFrame();
   }
 
@@ -498,8 +571,18 @@ export class TokenUniverseView {
     this.settleUntil.set(launchpad, Math.max(this.settleUntil.get(launchpad) || 0, until));
   }
 
+  #activatePendingSettles(timestamp) {
+    for (const [launchpad, at] of [...this.pendingSettleAt]) {
+      if (at > timestamp) continue;
+      this.pendingSettleAt.delete(launchpad);
+      this.#activateCluster(launchpad, SETTLE_MS);
+    }
+  }
+
   #updateWorldBounds() {
-    const visible = [...this.hubs.values()].filter(hub => this.enabledLaunchpads.has(hub.launchpad));
+    const visible = [...this.hubs.values()].filter(hub =>
+      this.enabledLaunchpads.has(hub.launchpad)
+    );
     if (!visible.length) {
       this.worldBounds = { minX: -100, maxX: 100, minY: -100, maxY: 100 };
       return;
@@ -532,7 +615,10 @@ export class TokenUniverseView {
       const px = event.clientX - rect.left;
       const py = event.clientY - rect.top;
       const oldK = this.viewport.k;
-      const nextK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldK * Math.exp(-event.deltaY * 0.0014)));
+      const nextK = Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, oldK * Math.exp(-event.deltaY * 0.0014)),
+      );
       const worldX = (px - this.viewport.x) / oldK;
       const worldY = (py - this.viewport.y) / oldK;
       this.viewport.k = nextK;
@@ -606,7 +692,9 @@ export class TokenUniverseView {
     const rect = this.canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
-    const visible = [...this.nodes.values()].filter(node => this.enabledLaunchpads.has(node.launchpad));
+    const visible = [...this.nodes.values()].filter(node =>
+      this.enabledLaunchpads.has(node.launchpad)
+    );
     for (let index = visible.length - 1; index >= 0; index -= 1) {
       const node = visible[index];
       const sx = node.x * this.viewport.k + this.viewport.x;
@@ -639,6 +727,8 @@ export class TokenUniverseView {
   }
 
   #stepPhysics(timestamp) {
+    this.#activatePendingSettles(timestamp);
+
     const activeLaunchpads = new Set(
       [...this.settleUntil]
         .filter(([, until]) => until > timestamp)
@@ -729,7 +819,9 @@ export class TokenUniverseView {
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, width, height);
 
-    const visibleNodes = [...this.nodes.values()].filter(node => this.enabledLaunchpads.has(node.launchpad));
+    const visibleNodes = [...this.nodes.values()].filter(node =>
+      this.enabledLaunchpads.has(node.launchpad)
+    );
     let animating = physicsActive;
 
     context.save();
@@ -762,7 +854,7 @@ export class TokenUniverseView {
     for (const node of visibleNodes) {
       const hasTransition = node.transitionUntil > timestamp;
       const progress = hasTransition
-        ? easeOutCubic((timestamp - node.transitionStart) / node.transitionMs)
+        ? easeInOutCubic((timestamp - node.transitionStart) / node.transitionMs)
         : 1;
       if (hasTransition) animating = true;
       const radius = hasTransition
@@ -778,7 +870,8 @@ export class TokenUniverseView {
         const haloRadius = radius + 2.5 + node.liquidityScore * 5.5;
         context.beginPath();
         context.arc(node.x, node.y, haloRadius, 0, Math.PI * 2);
-        context.strokeStyle = `rgba(20,241,217,${(0.12 + node.liquidityScore * 0.52) * appearance})`;
+        context.strokeStyle =
+          `rgba(20,241,217,${(0.12 + node.liquidityScore * 0.52) * appearance})`;
         context.lineWidth = (0.7 + node.liquidityScore * 2.2) / this.viewport.k;
         context.stroke();
       }
@@ -793,7 +886,9 @@ export class TokenUniverseView {
           : "rgba(15,20,32,.96)";
       context.fill();
 
-      if (node.missingMarketCap) context.setLineDash([3 / this.viewport.k, 3 / this.viewport.k]);
+      if (node.missingMarketCap) {
+        context.setLineDash([3 / this.viewport.k, 3 / this.viewport.k]);
+      }
       context.strokeStyle = selected
         ? "#14f1d9"
         : hovered
@@ -804,13 +899,8 @@ export class TokenUniverseView {
       context.setLineDash([]);
       context.globalAlpha = 1;
 
-      if (node.transitionType === "token_updated" && hasTransition) {
-        const quiet = 1 - progress;
-        context.beginPath();
-        context.arc(node.x, node.y, radius + 3 + quiet * 4, 0, Math.PI * 2);
-        context.strokeStyle = `rgba(183,124,255,${quiet * 0.10})`;
-        context.lineWidth = 1 / this.viewport.k;
-        context.stroke();
+      if (node.transitionType === "market_cap_updated" && hasTransition) {
+        this.#drawMarketChangeSignal(context, node, radius, progress);
       }
 
       this.#drawNodeLabel(context, node, radius, selected || hovered);
@@ -820,40 +910,98 @@ export class TokenUniverseView {
     for (const ghost of this.exitGhosts) {
       if (!this.enabledLaunchpads.has(ghost.launchpad)) continue;
       animating = true;
-      const progress = Math.max(0, Math.min(1, (timestamp - ghost.retiredAt) / RETIRE_MS));
-      const eased = easeOutCubic(progress);
-      const radius = Math.max(1, ghost.radius * (1 - eased * 0.82));
-      const alpha = 1 - progress;
-
-      const hub = this.hubs.get(ghost.launchpad);
-      if (hub) {
-        context.beginPath();
-        context.moveTo(hub.x, hub.y);
-        context.lineTo(ghost.x, ghost.y);
-        context.strokeStyle = `rgba(255,92,119,${0.30 * alpha})`;
-        context.lineWidth = 1.2 / this.viewport.k;
-        context.stroke();
-      }
-
-      context.beginPath();
-      context.arc(ghost.x, ghost.y, radius + 4 * alpha, 0, Math.PI * 2);
-      context.fillStyle = `rgba(255,92,119,${0.16 * alpha})`;
-      context.fill();
-      context.strokeStyle = `rgba(255,92,119,${0.92 * alpha})`;
-      context.lineWidth = 2.2 / this.viewport.k;
-      context.stroke();
-
-      if (progress < 0.62 && ghost.token) {
-        context.fillStyle = `rgba(255,190,201,${0.9 * alpha})`;
-        context.font = `700 ${Math.max(8, 10 / this.viewport.k)}px Inter, system-ui, sans-serif`;
-        context.textAlign = "center";
-        context.textBaseline = "middle";
-        context.fillText(shortLabel(ghost.token).slice(0, 10), ghost.x, ghost.y);
-      }
+      this.#drawRetirement(context, ghost, timestamp);
     }
 
     context.restore();
-    return animating;
+    return animating || this.pendingSettleAt.size > 0;
+  }
+
+  #drawMarketChangeSignal(context, node, radius, progress) {
+    const direction = Math.sign(node.marketChange || 0);
+    if (!direction) return;
+
+    const strong = node.marketChangeStrong;
+    const baseAlpha = strong ? 0.72 : 0.38;
+    const fade = Math.sin(Math.PI * progress);
+    const color = direction > 0 ? "61,220,151" : "255,92,119";
+    const offset = direction > 0
+      ? 4 + progress * (strong ? 18 : 10)
+      : 4 + (1 - progress) * (strong ? 14 : 8);
+
+    context.beginPath();
+    context.arc(node.x, node.y, Math.max(2, radius + offset), 0, Math.PI * 2);
+    context.strokeStyle = `rgba(${color},${baseAlpha * fade})`;
+    context.lineWidth = (strong ? 2.4 : 1.4) / this.viewport.k;
+    context.stroke();
+
+    if (strong && this.viewport.k >= 0.72) {
+      const pct = Math.abs(node.marketChange * 100);
+      const label = `${direction > 0 ? "▲" : "▼"} ${pct >= 100 ? pct.toFixed(0) : pct.toFixed(1)}% MC`;
+      context.fillStyle = `rgba(${color},${0.88 * fade})`;
+      context.font = `700 ${Math.max(8, 10 / this.viewport.k)}px Inter, system-ui, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "bottom";
+      context.fillText(label, node.x, node.y - radius - 9 / this.viewport.k);
+    }
+  }
+
+  #drawRetirement(context, ghost, timestamp) {
+    const elapsed = Math.max(0, timestamp - ghost.retiredAt);
+    const holdProgress = Math.min(1, elapsed / RETIRE_HOLD_MS);
+    const collapseProgress = elapsed <= RETIRE_HOLD_MS
+      ? 0
+      : Math.min(1, (elapsed - RETIRE_HOLD_MS) / (RETIRE_MS - RETIRE_HOLD_MS));
+    const eased = easeInOutCubic(collapseProgress);
+    const radius = Math.max(1, ghost.radius * (1 - eased * 0.92));
+    const alpha = collapseProgress === 0 ? 1 : 1 - collapseProgress;
+    const pulse = 0.5 + 0.5 * Math.sin(holdProgress * Math.PI);
+
+    const hub = this.hubs.get(ghost.launchpad);
+    if (hub) {
+      context.beginPath();
+      context.moveTo(hub.x, hub.y);
+      context.lineTo(ghost.x, ghost.y);
+      context.strokeStyle = `rgba(255,92,119,${0.34 * alpha})`;
+      context.lineWidth = 1.3 / this.viewport.k;
+      context.stroke();
+    }
+
+    context.beginPath();
+    context.arc(
+      ghost.x,
+      ghost.y,
+      radius + 5 + (collapseProgress === 0 ? pulse * 5 : collapseProgress * 8),
+      0,
+      Math.PI * 2,
+    );
+    context.strokeStyle = `rgba(255,92,119,${(collapseProgress === 0 ? 0.96 : 0.8) * alpha})`;
+    context.lineWidth = 2.4 / this.viewport.k;
+    context.stroke();
+
+    context.beginPath();
+    context.arc(ghost.x, ghost.y, radius, 0, Math.PI * 2);
+    context.fillStyle = `rgba(255,92,119,${0.17 * alpha})`;
+    context.fill();
+    context.strokeStyle = `rgba(255,140,160,${0.95 * alpha})`;
+    context.lineWidth = 1.8 / this.viewport.k;
+    context.stroke();
+
+    if (this.viewport.k >= 0.62 && collapseProgress < 0.82) {
+      context.fillStyle = `rgba(255,200,210,${0.95 * alpha})`;
+      context.font = `800 ${Math.max(8, 9.5 / this.viewport.k)}px Inter, system-ui, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "bottom";
+      context.fillText("RETIRING", ghost.x, ghost.y - radius - 8 / this.viewport.k);
+    }
+
+    if (collapseProgress < 0.55 && ghost.token) {
+      context.fillStyle = `rgba(255,220,226,${0.9 * alpha})`;
+      context.font = `700 ${Math.max(8, 10 / this.viewport.k)}px Inter, system-ui, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(shortLabel(ghost.token).slice(0, 10), ghost.x, ghost.y);
+    }
   }
 
   #drawClusterFields(context) {
@@ -899,12 +1047,17 @@ export class TokenUniverseView {
     if (!force && screenRadius < 11) return;
 
     const label = shortLabel(node.token);
-    const fontSize = Math.max(8, Math.min(13, Math.max(screenRadius, 14) * 0.52)) / this.viewport.k;
+    const fontSize =
+      Math.max(8, Math.min(13, Math.max(screenRadius, 14) * 0.52)) / this.viewport.k;
     context.fillStyle = "#f3f5f8";
     context.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(label.slice(0, 10), node.x, node.y - (screenRadius >= 24 || force ? 5 / this.viewport.k : 0));
+    context.fillText(
+      label.slice(0, 10),
+      node.x,
+      node.y - (screenRadius >= 24 || force ? 5 / this.viewport.k : 0),
+    );
 
     if (!force && screenRadius < 24) return;
     context.fillStyle = "#929bad";
@@ -914,7 +1067,11 @@ export class TokenUniverseView {
     if ((force && this.viewport.k >= 1.05) || screenRadius >= 38) {
       context.fillStyle = "#626c7e";
       context.font = `${Math.max(7, 8 / this.viewport.k)}px Inter, system-ui, sans-serif`;
-      context.fillText(`${count(node.token.holders)} holders`, node.x, node.y + 19 / this.viewport.k);
+      context.fillText(
+        `${count(node.token.holders)} holders`,
+        node.x,
+        node.y + 19 / this.viewport.k,
+      );
     }
   }
 }
