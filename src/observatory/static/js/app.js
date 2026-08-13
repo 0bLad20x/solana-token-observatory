@@ -126,7 +126,7 @@ function setPrimaryMode(mode) {
     toolbarNote.textContent = "Volatile runtime telemetry · particles are work pulses, not tokens";
   } else if (pulseVisible) {
     toolbarLabel.textContent = "MARKET PULSE · LIVE";
-    toolbarNote.textContent = "Rolling 5m market activity · 30s in-memory samples";
+    toolbarNote.textContent = "Rolling 5m market activity · 1s in-memory samples";
   } else {
     toolbarLabel.textContent = "TOKEN UNIVERSE · LIVE";
     toolbarNote.textContent = "Live population · search reaches every active token";
