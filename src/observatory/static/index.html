@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <title>Jupiter Token Observatory</title>
   <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/analyst-focus.css">
   <link rel="stylesheet" href="/assets/telemetry.css">
 </head>
 <body>
@@ -122,13 +123,27 @@
             </div>
           </section>
 
-          <section class="analyst-card">
-            <div class="panel-heading">
+          <section class="analyst-card" id="analyst-card">
+            <div class="panel-heading analyst-heading">
               <div>
                 <p class="toolbar-label">ANALYST</p>
                 <h2 id="analyst-title">Current token data</h2>
               </div>
-              <span id="analyst-chip" class="evidence-chip current">CURRENT DATA</span>
+              <div class="analyst-heading-actions">
+                <span id="analyst-chip" class="evidence-chip current">CURRENT DATA</span>
+                <button
+                  id="analyst-focus-toggle"
+                  class="analyst-focus-toggle"
+                  type="button"
+                  aria-pressed="false"
+                >Focus</button>
+              </div>
+            </div>
+
+            <div class="analyst-context-bar">
+              <span>ANALYSIS CONTEXT</span>
+              <strong id="analyst-context">Ask about active tokens</strong>
+              <code id="analyst-context-mint" class="hidden"></code>
             </div>
 
             <div class="analyst-modes" aria-label="Analyst scope">
@@ -141,11 +156,11 @@
             </div>
 
             <form id="analyst-form" class="analyst-form">
-              <label id="analyst-context" for="analyst-question">Ask about active tokens</label>
+              <label for="analyst-question">Question</label>
               <textarea
                 id="analyst-question"
                 name="question"
-                rows="3"
+                rows="4"
                 maxlength="1000"
                 placeholder="Which five tokens have the highest market cap?"
                 required
@@ -155,8 +170,22 @@
 
             <p id="analyst-status" class="analyst-status" aria-live="polite"></p>
             <div id="analyst-result" class="analyst-result hidden">
-              <p id="analyst-answer"></p>
-              <div id="analyst-sources" class="analyst-sources"></div>
+              <div class="analyst-result-heading">
+                <div>
+                  <span class="toolbar-label">RESEARCH RESULT</span>
+                  <p id="analyst-result-question" class="analyst-result-question"></p>
+                </div>
+                <button id="analyst-answer-copy" type="button">Copy answer</button>
+              </div>
+
+              <article id="analyst-answer" class="analyst-answer"></article>
+
+              <section class="analyst-evidence" aria-label="Analyst evidence and sources">
+                <div class="analyst-evidence-heading">
+                  <span class="toolbar-label" id="analyst-evidence-heading">EVIDENCE</span>
+                </div>
+                <div id="analyst-sources" class="analyst-sources"></div>
+              </section>
             </div>
           </section>
 
