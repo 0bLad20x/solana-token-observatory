@@ -2,22 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const appSource = readFileSync(
-  new URL("../src/observatory/static/js/app.js", import.meta.url),
-  "utf8",
-);
-const telemetrySource = readFileSync(
-  new URL("../src/observatory/static/js/telemetry-ui.js", import.meta.url),
-  "utf8",
-);
-const flowSource = readFileSync(
-  new URL("../src/observatory/static/js/views/operational-flow-view.js", import.meta.url),
-  "utf8",
-);
-const indexSource = readFileSync(
-  new URL("../src/observatory/static/index.html", import.meta.url),
-  "utf8",
-);
+const appSource = readFileSync(new URL("../src/observatory/static/js/app.js", import.meta.url), "utf8");
+const telemetrySource = readFileSync(new URL("../src/observatory/static/js/telemetry-ui.js", import.meta.url), "utf8");
+const flowSource = readFileSync(new URL("../src/observatory/static/js/views/operational-flow-view.js", import.meta.url), "utf8");
+const indexSource = readFileSync(new URL("../src/observatory/static/index.html", import.meta.url), "utf8");
 
 test("WP4 adds Operational Flow as a primary view without replacing Token Universe", () => {
   assert.match(indexSource, /id="view-token-universe"/);
@@ -32,7 +20,6 @@ test("WP4 presentation cannot gate the functional Observatory streams", () => {
   const universeConnect = appSource.indexOf("connectUniverseStream({");
   const telemetryConnect = appSource.indexOf("connectTelemetryStream({");
   const flowInit = appSource.indexOf("ensureOperationalFlow().catch");
-
   assert.ok(universeConnect >= 0);
   assert.ok(telemetryConnect >= 0);
   assert.ok(flowInit >= 0);
@@ -79,9 +66,9 @@ test("Discovery burst magnitude is data-driven instead of a single decorative pa
 });
 
 test("Write owns a large condensation region and flushes visibly toward Lifecycle", () => {
-  assert.match(flowSource, /regionWidth = 252/);
-  assert.match(flowSource, /regionHeight = 270/);
-  assert.match(flowSource, /\["POLLS", "VERSIONS", "SNAPSHOTS"\]/);
+  assert.match(flowSource, /regionWidth=252|regionWidth = 252/);
+  assert.match(flowSource, /regionHeight=270|regionHeight = 270/);
+  assert.match(flowSource, /\["POLLS","VERSIONS","SNAPSHOTS"\]|\["POLLS", "VERSIONS", "SNAPSHOTS"\]/);
   assert.match(flowSource, /search_flush/);
   assert.match(flowSource, /toLifecycle/);
   assert.match(flowSource, /#drawFieldPulse/);
