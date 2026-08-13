@@ -1,25 +1,35 @@
-# Documentation assets
+# Presentation Assets
 
-The project README expects exactly three presentation assets in this directory:
+Das Haupt-README verwendet genau drei Medien unter stabilen Pfaden:
 
-| File | Intended content |
+| Datei | Inhalt |
 |---|---|
-| `observatory-universe.png` | Token Universe / bubble-map screenshot |
-| `system-dataflow.gif` | Short animated Operational Flow / data-processing capture |
-| `analyst-search.png` | Analyst workspace with a representative bounded analysis result |
+| `observatory-universe.png` | gefülltes Token Universe / Bubble-Map |
+| `system-dataflow.gif` | kurze animierte Aufnahme des Operational Flow |
+| `analyst-search.png` | Analyst-Workspace mit repräsentativer Frage, Antwort und Evidence |
 
-## Capture guidance
+Die aktuell im Repository liegenden Medien-Dateien sind Platzhalter. Sie können lokal **unter denselben Dateinamen überschrieben** werden; die Markdown-Verweise müssen danach nicht angepasst werden.
+
+## Capture-Empfehlungen
 
 ### `observatory-universe.png`
 
-Use a populated, readable Universe state with meaningful cluster variation. Crop unnecessary browser chrome where possible. A width of roughly 1600px or more is preferred.
+- gefüllten, gut lesbaren Universe-Zustand verwenden;
+- unterschiedliche Bubble-Größen und Cluster sichtbar lassen;
+- unnötige Browser-Chrome nach Möglichkeit wegschneiden;
+- vorzugsweise mindestens etwa 1600 px Breite.
 
 ### `system-dataflow.gif`
 
-Use a short loop that visibly communicates movement through the operational flow. Roughly 6-12 seconds is enough; favor legibility over frame rate or file size.
+- Operational Flow während realer Aktivität aufnehmen;
+- Discovery, Search, Write und Lifecycle-Bewegung erkennbar machen;
+- ungefähr 6–12 Sekunden reichen;
+- Lesbarkeit vor hoher Framerate oder maximaler Auflösung priorisieren.
 
 ### `analyst-search.png`
 
-Show a real selected-token or current-data question with enough of the response/evidence structure visible to communicate the Analyst workflow. Avoid exposing credentials or other secrets.
+- reale Current-Data- oder selected-token Analyse zeigen;
+- Frage, Antwort und Evidence-Struktur sichtbar lassen;
+- keine API Keys, Zugangsdaten oder andere Secrets aufnehmen.
 
-These files are presentation assets only. They are not architecture or data-contract authorities.
+Diese Dateien sind reine Presentation Assets. Sie sind keine Architektur-, Daten- oder Lifecycle-Authority.
