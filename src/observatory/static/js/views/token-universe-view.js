@@ -8,15 +8,17 @@ const NODE_RADIUS_MIN = 4;
 const NODE_RADIUS_MAX = 54;
 const HUB_RADIUS = 28;
 const NODE_GAP = 3;
+const NODE_GAP_RADIUS_FACTOR = 0.06;
 const CLUSTER_MIN_RADIUS = 88;
-const CLUSTER_PADDING = 42;
+const CLUSTER_PADDING = 30;
+const CLUSTER_PACKING_DENSITY = 0.64;
 const CLUSTER_GAP = 72;
 const ADD_MS = 720;
 const UPDATE_MS = 1250;
 const RETIRE_HOLD_MS = 700;
 const RETIRE_MS = 2400;
-const SETTLE_MS = 950;
-const COLLISION_CELL = NODE_RADIUS_MAX * 2 + NODE_GAP * 2;
+const AGE_TICK_MS = 60_000;
+const COLLISION_CELL = NODE_RADIUS_MAX * 2 + NODE_GAP * 2 + 8;
 const MARKET_LOW_QUANTILE = 0.05;
 const MARKET_HIGH_QUANTILE = 0.995;
 const LIQUIDITY_HIGH_QUANTILE = 0.98;
@@ -27,8 +29,18 @@ const CORE_AGE_DAYS = 30;
 const AGE_SCALE_DAYS = 0.25;
 const CORE_AGE_SECONDS = CORE_AGE_DAYS * DAY_SECONDS;
 const AGE_SCALE_SECONDS = AGE_SCALE_DAYS * DAY_SECONDS;
-const CORE_RADIAL_FRACTION = 0.26;
-const AGE_RADIAL_SPREAD_FRACTION = 0.24;
+const AGE_SPRING = 0.008;
+const COLLISION_SPRING = 0.32;
+const BOUNDARY_SPRING = 0.22;
+const VELOCITY_DAMPING = 0.82;
+const HUB_RADIUS_RESPONSE = 0.08;
+const MAX_ACCELERATION = 2.4;
+const MAX_SPEED = 4;
+const PHYSICS_STABLE_SPEED = 0.025;
+const PHYSICS_STABLE_ACCELERATION = 0.012;
+const PHYSICS_STABLE_FRAMES = 18;
+const FRAME_MS = 1000 / 60;
+const MAX_FRAME_STEP = 2;
 
 function finitePositive(value) {
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -90,6 +102,45 @@ function freshnessFromAge(ageSeconds) {
   return Math.max(0, Math.min(1, 1 - normalized));
 }
 
+function currentAgeSeconds(node, timestamp) {
+  if (!Number.isFinite(node.ageBaseSeconds) || node.ageBaseSeconds < 0) return null;
+  const elapsed = Math.max(0, timestamp - node.ageBaseAt) / 1000;
+  return node.ageBaseSeconds + elapsed;
+}
+
+function preferredRadialDistance(node, hub, timestamp) {
+  const freshness = freshnessFromAge(currentAgeSeconds(node, timestamp));
+  if (freshness == null) return null;
+  const inner = HUB_RADIUS + node.radius + 12;
+  const outer = Math.max(inner + 1, hub.radius - node.radius - 9);
+  return inner + freshness * (outer - inner);
+}
+
+function massFromRadius(radius) {
+  const normalized = Math.max(0, Math.min(1, radius / NODE_RADIUS_MAX));
+  return 1 + 2.8 * (normalized ** 1.35);
+}
+
+function collisionGap(left, right) {
+  return NODE_GAP + NODE_GAP_RADIUS_FACTOR * Math.min(left.radius, right.radius);
+}
+
+function initialPositionForNode(node, hub, timestamp) {
+  const radius = node.targetRadius;
+  const inner = HUB_RADIUS + radius + 12;
+  const outer = Math.max(inner + 1, hub.radius - radius - 9);
+  const span = Math.max(1, outer - inner);
+  const preferred = preferredRadialDistance({ ...node, radius }, hub, timestamp);
+  const fallback = inner + Math.sqrt(unitHash(`${node.mint}:radial`)) * span;
+  const outwardSeed = unitHash(`${node.mint}:radial-seed`) * Math.min(56, span * 0.20);
+  const radial = Math.max(inner, Math.min(outer, (preferred ?? fallback) + outwardSeed));
+  const angle = unitHash(`${node.mint}:angle`) * Math.PI * 2;
+  return {
+    x: hub.x + Math.cos(angle) * radial,
+    y: hub.y + Math.sin(angle) * radial,
+  };
+}
+
 function buildHolderScale(tokens) {
   const values = tokens
     .map(token => finitePositive(token.holders))
@@ -131,7 +182,7 @@ function clusterRadiusForNodes(nodes) {
     const radius = node.targetRadius + NODE_GAP + 2;
     return sum + Math.PI * radius * radius;
   }, Math.PI * (HUB_RADIUS + 18) ** 2);
-  const packed = Math.sqrt(occupied / (Math.PI * 0.58));
+  const packed = Math.sqrt(occupied / (Math.PI * CLUSTER_PACKING_DENSITY));
   return Math.max(CLUSTER_MIN_RADIUS, packed + CLUSTER_PADDING);
 }
 
@@ -140,7 +191,7 @@ function circlesOverlap(left, right, gap = CLUSTER_GAP) {
 }
 
 function placeCluster(spec, existing) {
-  if (!existing.length) return { ...spec, x: 0, y: 0 };
+  if (!existing.length) return { ...spec, x: 0, y: 0, targetRadius: spec.radius };
   const phase = (hashString(spec.launchpad) % 360) * Math.PI / 180;
   for (let attempt = 1; attempt < 6000; attempt += 1) {
     const angle = phase + attempt * GOLDEN_ANGLE;
@@ -149,6 +200,7 @@ function placeCluster(spec, existing) {
       ...spec,
       x: Math.cos(angle) * distance,
       y: Math.sin(angle) * distance,
+      targetRadius: spec.radius,
     };
     if (existing.every(item => !circlesOverlap(candidate, item))) return candidate;
   }
@@ -156,6 +208,7 @@ function placeCluster(spec, existing) {
     ...spec,
     x: (existing.length + 1) * (spec.radius + CLUSTER_GAP),
     y: 0,
+    targetRadius: spec.radius,
   };
 }
 
@@ -166,41 +219,6 @@ function packClusters(specs) {
   const placed = [];
   for (const spec of ordered) placed.push(placeCluster(spec, placed));
   return placed;
-}
-
-function anchorForNode(node, hub, slot) {
-  const inner = HUB_RADIUS + node.targetRadius + 12;
-  const outer = Math.max(inner + 1, hub.radius - node.targetRadius - 9);
-  const span = Math.max(1, outer - inner);
-  const phase = (hashString(node.launchpad) % 360) * Math.PI / 180;
-  const angleJitter = (unitHash(`${node.mint}:angle`) - 0.5) * 0.52;
-  const angle = phase + slot * GOLDEN_ANGLE + angleJitter;
-  const radialNoise = unitHash(`${node.mint}:radial`);
-
-  let radial;
-  if (node.ageFreshness == null) {
-    // Unknown age must not be silently interpreted as either fresh or established.
-    radial = inner + Math.sqrt(radialNoise) * span;
-  } else if (node.ageFreshness === 0) {
-    // 30d+ tokens share one established core area. Their exact age no longer
-    // increases radial separation: 60d and 600d both belong to the same core.
-    const coreSpan = span * CORE_RADIAL_FRACTION;
-    radial = inner + Math.sqrt(radialNoise) * coreSpan;
-  } else {
-    // Age defines a preferred radial neighborhood, not a fixed orbit. The
-    // deterministic spread prevents equal-age tokens from forming a thin ring.
-    const spread = Math.min(span, Math.max(12, span * AGE_RADIAL_SPREAD_FRACTION));
-    const halfSpread = spread / 2;
-    const centerMin = inner + halfSpread;
-    const centerMax = Math.max(centerMin, outer - halfSpread);
-    const preferred = centerMin + node.ageFreshness * (centerMax - centerMin);
-    radial = preferred + (radialNoise - 0.5) * spread;
-  }
-
-  return {
-    x: hub.x + Math.cos(angle) * radial,
-    y: hub.y + Math.sin(angle) * radial,
-  };
 }
 
 export class TokenUniverseView {
@@ -216,8 +234,6 @@ export class TokenUniverseView {
 
     this.nodes = new Map();
     this.hubs = new Map();
-    this.slots = new Map();
-    this.nextSlots = new Map();
 
     this.knownLaunchpads = [];
     this.enabledLaunchpads = new Set();
@@ -235,13 +251,14 @@ export class TokenUniverseView {
 
     this.exitGhosts = [];
     this.pendingSettleAt = new Map();
-    this.settleUntil = new Map();
+    this.activeLaunchpads = new Set();
+    this.stableFrames = new Map();
+    this.lastPhysicsAt = 0;
+    this.ageTimer = null;
 
     this.frame = null;
     this.worldBounds = null;
 
-    // Scales are established from the first real population and stay stable for
-    // the browser session so one unrelated delta cannot resize the whole universe.
     this.marketRange = null;
     this.liquidityRange = null;
   }
@@ -267,7 +284,7 @@ export class TokenUniverseView {
     semantics.className = "token-universe-semantics";
     semantics.innerHTML = [
       "<span><strong>Size</strong> market cap</span>",
-      "<span><strong>Distance</strong> age · fresh outside</span>",
+      "<span><strong>Gravity</strong> age · fresh outside</span>",
       "<span><strong>Liquidity</strong> on focus</span>",
       "<span><strong>Spoke</strong> holders on focus</span>",
     ].join("");
@@ -293,7 +310,7 @@ export class TokenUniverseView {
     legend.className = "token-universe-legend";
     legend.innerHTML = [
       "<span>Bubble radius = robust log market cap</span>",
-      "<span>Distance = log age · 30d+ established core</span>",
+      "<span>Age = soft radial gravity · 30d+ core attraction</span>",
       "<span>Liquidity = focus halo</span>",
       "<span>MC change = directed transition</span>",
       "<span>Retirement = red exit</span>",
@@ -311,6 +328,10 @@ export class TokenUniverseView {
     });
     this.resizeObserver.observe(this.root);
     this.#resizeCanvas();
+
+    this.ageTimer = window.setInterval(() => {
+      for (const launchpad of this.knownLaunchpads) this.#activateCluster(launchpad);
+    }, AGE_TICK_MS);
   }
 
   render({ tokens, selectedMint, events = [] }) {
@@ -338,6 +359,7 @@ export class TokenUniverseView {
     }
 
     const now = performance.now();
+    const retiringLaunchpads = new Set();
     for (const event of events) {
       if (event?.type !== "token_retired" || !event?.token?.mint) continue;
       const previous = previousNodes.get(event.token.mint);
@@ -347,6 +369,7 @@ export class TokenUniverseView {
         retiredAt: now,
         retireUntil: now + RETIRE_MS,
       });
+      retiringLaunchpads.add(previous.launchpad);
       const settleAt = now + RETIRE_MS;
       this.pendingSettleAt.set(
         previous.launchpad,
@@ -355,7 +378,7 @@ export class TokenUniverseView {
     }
 
     this.#syncLaunchpadControls();
-    this.#buildLayout(events, previousNodes);
+    this.#buildLayout(events, previousNodes, retiringLaunchpads);
 
     const selectionChanged = selectedMint && selectedMint !== this.lastSelectedMint;
     if (selectionChanged && this.selectionOrigin !== "view") this.#focusSelected();
@@ -368,6 +391,7 @@ export class TokenUniverseView {
 
   destroy() {
     if (this.frame) cancelAnimationFrame(this.frame);
+    if (this.ageTimer) window.clearInterval(this.ageTimer);
     this.resizeObserver?.disconnect();
     this.root?.remove();
     this.nodes.clear();
@@ -448,23 +472,7 @@ export class TokenUniverseView {
     this.fitAll();
   }
 
-  #ensureSlots(groups) {
-    for (const [launchpad, group] of groups) {
-      if (!this.slots.has(launchpad)) this.slots.set(launchpad, new Map());
-      const slots = this.slots.get(launchpad);
-      let next = this.nextSlots.get(launchpad) || 0;
-      const unassigned = group
-        .filter(token => !slots.has(token.mint))
-        .sort((left, right) => left.mint.localeCompare(right.mint));
-      for (const token of unassigned) {
-        slots.set(token.mint, next);
-        next += 1;
-      }
-      this.nextSlots.set(launchpad, next);
-    }
-  }
-
-  #ensureHubLayout(clusterSpecs) {
+  #ensureHubLayout(clusterSpecs, deferredLaunchpads) {
     if (!this.hubs.size) {
       const packed = packClusters(clusterSpecs);
       this.hubs = new Map(packed.map(cluster => [cluster.launchpad, cluster]));
@@ -473,31 +481,34 @@ export class TokenUniverseView {
 
     const specByLaunchpad = new Map(clusterSpecs.map(spec => [spec.launchpad, spec]));
     for (const launchpad of [...this.hubs.keys()]) {
-      if (!specByLaunchpad.has(launchpad)) this.hubs.delete(launchpad);
+      if (!specByLaunchpad.has(launchpad)) {
+        this.hubs.delete(launchpad);
+        this.activeLaunchpads.delete(launchpad);
+        this.stableFrames.delete(launchpad);
+      }
     }
 
     const existing = [...this.hubs.values()];
     for (const spec of clusterSpecs) {
       const hub = this.hubs.get(spec.launchpad);
       if (hub) {
-        // Centers never move during normal SSE updates. Radius may only grow during
-        // the session, preventing a retirement or small economic update from
-        // repacking the whole universe.
-        hub.radius = Math.max(hub.radius, spec.radius);
+        const changed = Math.abs((hub.targetRadius ?? hub.radius) - spec.radius) > 0.5;
+        hub.targetRadius = spec.radius;
         hub.count = spec.count;
+        if (changed && !deferredLaunchpads.has(spec.launchpad)) this.#activateCluster(spec.launchpad);
         continue;
       }
       const placed = placeCluster(spec, existing);
       this.hubs.set(spec.launchpad, placed);
       existing.push(placed);
+      this.#activateCluster(spec.launchpad);
     }
   }
 
-  #buildLayout(events, previousNodes) {
+  #buildLayout(events, previousNodes, retiringLaunchpads = new Set()) {
     const groups = new Map();
     for (const launchpad of this.knownLaunchpads) groups.set(launchpad, []);
     for (const token of this.tokens) groups.get(normalizedLaunchpad(token))?.push(token);
-    this.#ensureSlots(groups);
 
     const holderScale = buildHolderScale(this.tokens);
     const eventByMint = new Map(
@@ -515,7 +526,6 @@ export class TokenUniverseView {
           launchpad,
           targetRadius: radius ?? NODE_RADIUS_MIN,
           missingMarketCap: radius == null,
-          ageFreshness: freshnessFromAge(token.age_seconds),
           liquidityScore: normalizedLog(token.liquidity, this.liquidityRange),
           holderScore: holderScale(token.holders),
         };
@@ -528,18 +538,15 @@ export class TokenUniverseView {
       count: nodes.length,
       radius: clusterRadiusForNodes(nodes),
     }));
-    this.#ensureHubLayout(clusterSpecs);
+    this.#ensureHubLayout(clusterSpecs, retiringLaunchpads);
 
     const nextNodes = new Map();
     for (const [launchpad, prepared] of preparedByLaunchpad) {
       const hub = this.hubs.get(launchpad);
       if (!hub) continue;
-      const slots = this.slots.get(launchpad);
 
       for (const item of prepared) {
         const previous = previousNodes.get(item.mint);
-        const slot = slots?.get(item.mint) || 0;
-        const anchor = anchorForNode(item, hub, slot);
         const event = eventByMint.get(item.mint);
         const isAdded = event?.type === "token_added" || !previous;
         const rawMarketChange = previous
@@ -550,11 +557,13 @@ export class TokenUniverseView {
           && Math.abs(rawMarketChange) >= MARKET_CHANGE_VISIBLE;
         const strongMarketChange = visibleMarketChange
           && Math.abs(rawMarketChange) >= MARKET_CHANGE_STRONG;
-
-        // New tokens appear directly in their age-appropriate neighborhood. They
-        // no longer travel from the hub through the established core to the edge.
-        const x = previous?.x ?? anchor.x;
-        const y = previous?.y ?? anchor.y;
+        const observedAge = Number.isFinite(item.token.age_seconds) && item.token.age_seconds >= 0
+          ? item.token.age_seconds
+          : null;
+        const ageSourceChanged = !previous
+          || previous.token?.age_seconds !== item.token.age_seconds;
+        const ageBaseSeconds = ageSourceChanged ? observedAge : previous.ageBaseSeconds;
+        const ageBaseAt = ageSourceChanged ? now : previous.ageBaseAt;
 
         const fromRadius = isAdded
           ? Math.max(1, item.targetRadius * 0.3)
@@ -566,32 +575,41 @@ export class TokenUniverseView {
             ? "market_cap_updated"
             : null;
 
-        nextNodes.set(item.mint, {
+        const node = {
           ...item,
-          x,
-          y,
+          x: previous?.x ?? hub.x,
+          y: previous?.y ?? hub.y,
           vx: previous?.vx || 0,
           vy: previous?.vy || 0,
-          anchorX: anchor.x,
-          anchorY: anchor.y,
           radius: transitionType ? fromRadius : item.targetRadius,
           fromRadius,
+          ageBaseSeconds,
+          ageBaseAt,
           transitionStart: transitionType ? now : 0,
           transitionUntil: transitionType ? now + transitionMs : 0,
           transitionMs,
           transitionType,
           marketChange: visibleMarketChange ? rawMarketChange : null,
           marketChangeStrong: Boolean(strongMarketChange),
-        });
+        };
 
-        if (isAdded) this.#activateCluster(launchpad, SETTLE_MS + 250);
-        else if (visibleMarketChange) this.#activateCluster(launchpad, SETTLE_MS);
+        if (!previous) {
+          const initial = initialPositionForNode(node, hub, now);
+          node.x = initial.x;
+          node.y = initial.y;
+        }
+
+        nextNodes.set(item.mint, node);
+
+        const physicalRadiusChanged = previous
+          && Math.abs((previous.targetRadius ?? previous.radius) - item.targetRadius) > 0.05;
+        if (isAdded || physicalRadiusChanged) this.#activateCluster(launchpad);
       }
     }
 
     this.nodes = nextNodes;
     if (!previousNodes.size) {
-      for (const launchpad of this.knownLaunchpads) this.#activateCluster(launchpad, SETTLE_MS + 500);
+      for (const launchpad of this.knownLaunchpads) this.#activateCluster(launchpad);
     }
 
     this.#updateWorldBounds();
@@ -603,16 +621,18 @@ export class TokenUniverseView {
     this.#scheduleFrame();
   }
 
-  #activateCluster(launchpad, duration) {
-    const until = performance.now() + duration;
-    this.settleUntil.set(launchpad, Math.max(this.settleUntil.get(launchpad) || 0, until));
+  #activateCluster(launchpad) {
+    if (!launchpad || !this.hubs.has(launchpad)) return;
+    this.activeLaunchpads.add(launchpad);
+    this.stableFrames.set(launchpad, 0);
+    this.#scheduleFrame();
   }
 
   #activatePendingSettles(timestamp) {
     for (const [launchpad, at] of [...this.pendingSettleAt]) {
       if (at > timestamp) continue;
       this.pendingSettleAt.delete(launchpad);
-      this.#activateCluster(launchpad, SETTLE_MS);
+      this.#activateCluster(launchpad);
     }
   }
 
@@ -765,84 +785,156 @@ export class TokenUniverseView {
 
   #stepPhysics(timestamp) {
     this.#activatePendingSettles(timestamp);
+    if (!this.activeLaunchpads.size) {
+      this.lastPhysicsAt = timestamp;
+      return false;
+    }
 
-    const activeLaunchpads = new Set(
-      [...this.settleUntil]
-        .filter(([, until]) => until > timestamp)
-        .map(([launchpad]) => launchpad),
-    );
-    if (!activeLaunchpads.size) return false;
+    const previousTimestamp = this.lastPhysicsAt || timestamp - FRAME_MS;
+    const step = Math.max(0.25, Math.min(MAX_FRAME_STEP, (timestamp - previousTimestamp) / FRAME_MS));
+    this.lastPhysicsAt = timestamp;
+    const damping = VELOCITY_DAMPING ** step;
+    let boundsChanged = false;
 
-    for (const launchpad of activeLaunchpads) {
+    for (const launchpad of [...this.activeLaunchpads]) {
       const hub = this.hubs.get(launchpad);
-      if (!hub) continue;
+      if (!hub) {
+        this.activeLaunchpads.delete(launchpad);
+        this.stableFrames.delete(launchpad);
+        continue;
+      }
+
       const nodes = [...this.nodes.values()].filter(node => node.launchpad === launchpad);
-      for (let iteration = 0; iteration < 2; iteration += 1) {
-        for (const node of nodes) {
-          node.vx = (node.vx + (node.anchorX - node.x) * 0.024) * 0.76;
-          node.vy = (node.vy + (node.anchorY - node.y) * 0.024) * 0.76;
-          node.x += node.vx;
-          node.y += node.vy;
+      if (!nodes.length) {
+        this.activeLaunchpads.delete(launchpad);
+        this.stableFrames.delete(launchpad);
+        continue;
+      }
 
-          const hubDx = node.x - hub.x;
-          const hubDy = node.y - hub.y;
-          const hubDistance = Math.hypot(hubDx, hubDy) || 1;
-          const hubMinimum = HUB_RADIUS + node.radius + 12;
-          if (hubDistance < hubMinimum) {
-            const push = hubMinimum - hubDistance;
-            node.x += hubDx / hubDistance * push;
-            node.y += hubDy / hubDistance * push;
-          }
+      const targetHubRadius = hub.targetRadius ?? hub.radius;
+      const hubDelta = targetHubRadius - hub.radius;
+      if (Math.abs(hubDelta) > 0.02) {
+        hub.radius += hubDelta * Math.min(1, HUB_RADIUS_RESPONSE * step);
+        boundsChanged = true;
+      }
 
-          const maximum = Math.max(hubMinimum + 1, hub.radius - node.radius - 9);
-          if (hubDistance > maximum) {
-            const pull = hubDistance - maximum;
-            node.x -= hubDx / hubDistance * pull;
-            node.y -= hubDy / hubDistance * pull;
-          }
+      for (const node of nodes) {
+        node.fx = 0;
+        node.fy = 0;
+
+        let dx = node.x - hub.x;
+        let dy = node.y - hub.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance < 0.001) {
+          const angle = unitHash(`${node.mint}:center`) * Math.PI * 2;
+          dx = Math.cos(angle);
+          dy = Math.sin(angle);
+          distance = 1;
+        }
+        const nx = dx / distance;
+        const ny = dy / distance;
+
+        const preferred = preferredRadialDistance(node, hub, timestamp);
+        if (preferred != null) {
+          const force = (preferred - distance) * AGE_SPRING;
+          node.fx += nx * force;
+          node.fy += ny * force;
         }
 
-        const grid = new Map();
-        for (const node of nodes) {
-          const gx = Math.floor(node.x / COLLISION_CELL);
-          const gy = Math.floor(node.y / COLLISION_CELL);
-          for (let ox = -1; ox <= 1; ox += 1) {
-            for (let oy = -1; oy <= 1; oy += 1) {
-              const neighbors = grid.get(`${gx + ox}:${gy + oy}`);
-              if (!neighbors) continue;
-              for (const other of neighbors) {
-                let dx = node.x - other.x;
-                let dy = node.y - other.y;
-                let distance = Math.hypot(dx, dy);
-                const minimum = node.radius + other.radius + NODE_GAP;
-                if (distance >= minimum) continue;
-                if (distance < 0.001) {
-                  const angle = (hashString(node.mint + other.mint) % 360) * Math.PI / 180;
-                  dx = Math.cos(angle);
-                  dy = Math.sin(angle);
-                  distance = 1;
-                }
-                const overlap = (minimum - distance) * 0.52;
-                const nx = dx / distance;
-                const ny = dy / distance;
-                node.x += nx * overlap;
-                node.y += ny * overlap;
-                other.x -= nx * overlap;
-                other.y -= ny * overlap;
+        const inner = HUB_RADIUS + node.radius + 12;
+        const outer = Math.max(inner + 1, hub.radius - node.radius - 9);
+        if (distance < inner) {
+          const force = (inner - distance) * BOUNDARY_SPRING;
+          node.fx += nx * force;
+          node.fy += ny * force;
+        } else if (distance > outer) {
+          const force = (distance - outer) * BOUNDARY_SPRING;
+          node.fx -= nx * force;
+          node.fy -= ny * force;
+        }
+      }
+
+      const grid = new Map();
+      for (const node of nodes) {
+        const gx = Math.floor(node.x / COLLISION_CELL);
+        const gy = Math.floor(node.y / COLLISION_CELL);
+        for (let ox = -1; ox <= 1; ox += 1) {
+          for (let oy = -1; oy <= 1; oy += 1) {
+            const neighbors = grid.get(`${gx + ox}:${gy + oy}`);
+            if (!neighbors) continue;
+            for (const other of neighbors) {
+              let dx = node.x - other.x;
+              let dy = node.y - other.y;
+              let distance = Math.hypot(dx, dy);
+              const minimum = node.radius + other.radius + collisionGap(node, other);
+              if (distance >= minimum) continue;
+              if (distance < 0.001) {
+                const angle = unitHash(`${node.mint}:${other.mint}`) * Math.PI * 2;
+                dx = Math.cos(angle);
+                dy = Math.sin(angle);
+                distance = 1;
               }
+              const overlap = minimum - distance;
+              const force = Math.min(8, overlap * COLLISION_SPRING);
+              const nx = dx / distance;
+              const ny = dy / distance;
+              node.fx += nx * force;
+              node.fy += ny * force;
+              other.fx -= nx * force;
+              other.fy -= ny * force;
             }
           }
-          const key = `${gx}:${gy}`;
-          if (!grid.has(key)) grid.set(key, []);
-          grid.get(key).push(node);
         }
+        const key = `${gx}:${gy}`;
+        if (!grid.has(key)) grid.set(key, []);
+        grid.get(key).push(node);
+      }
+
+      let maxSpeed = 0;
+      let maxAcceleration = 0;
+      const transitionActive = nodes.some(node => node.transitionUntil > timestamp);
+      for (const node of nodes) {
+        const mass = massFromRadius(node.radius);
+        let ax = node.fx / mass;
+        let ay = node.fy / mass;
+        const acceleration = Math.hypot(ax, ay);
+        if (acceleration > MAX_ACCELERATION) {
+          const scale = MAX_ACCELERATION / acceleration;
+          ax *= scale;
+          ay *= scale;
+        }
+
+        node.vx = (node.vx + ax * step) * damping;
+        node.vy = (node.vy + ay * step) * damping;
+        const speed = Math.hypot(node.vx, node.vy);
+        if (speed > MAX_SPEED) {
+          const scale = MAX_SPEED / speed;
+          node.vx *= scale;
+          node.vy *= scale;
+        }
+        node.x += node.vx * step;
+        node.y += node.vy * step;
+
+        maxSpeed = Math.max(maxSpeed, Math.hypot(node.vx, node.vy));
+        maxAcceleration = Math.max(maxAcceleration, Math.min(acceleration, MAX_ACCELERATION));
+        node.fx = 0;
+        node.fy = 0;
+      }
+
+      const stable = !transitionActive
+        && Math.abs(targetHubRadius - hub.radius) < 0.05
+        && maxSpeed < PHYSICS_STABLE_SPEED
+        && maxAcceleration < PHYSICS_STABLE_ACCELERATION;
+      const stableCount = stable ? (this.stableFrames.get(launchpad) || 0) + 1 : 0;
+      this.stableFrames.set(launchpad, stableCount);
+      if (stableCount >= PHYSICS_STABLE_FRAMES) {
+        this.activeLaunchpads.delete(launchpad);
+        this.stableFrames.delete(launchpad);
       }
     }
 
-    for (const [launchpad, until] of [...this.settleUntil]) {
-      if (until <= timestamp) this.settleUntil.delete(launchpad);
-    }
-    return true;
+    if (boundsChanged) this.#updateWorldBounds();
+    return this.activeLaunchpads.size > 0;
   }
 
   #draw(timestamp = performance.now()) {
