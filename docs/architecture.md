@@ -170,7 +170,8 @@ static/js/
 ├── activity.js            derived live signals
 ├── token-ui.js            Search + Inspector DOM
 ├── activity-ui.js         Activity DOM
-├── analyst-ui.js          Analyst interaction
+├── analyst-ui.js          Analyst interaction + focus presentation
+├── markdown.js            safe Analyst Markdown-subset rendering
 ├── telemetry-ui.js        volatile operational telemetry projection
 └── views/
     └── simple-token-view.js
@@ -209,6 +210,20 @@ operational telemetry proof
 - bestehende Token-Fakten bleiben erhalten.
 - Panelbreite, Collapse-State und andere Layoutwerte sind Presentation State, keine Domain Truth.
 - aktuelle Token-Kacheln und Telemetry-Karten bleiben Visual-Proofs; Bubble Map und Operational Flow werden in eigenen Slices definiert.
+
+### Analyst Focus WP2
+
+Visual WP2 ergänzt ebenfalls ausschließlich Presentation und wurde lokal im realen Browser akzeptiert.
+
+- derselbe Analyst bleibt idle im Right Context und wird im Focus-State als großer Research-Workspace über der Main Stage dargestellt;
+- es gibt keinen zweiten Analyst-State, keine zweite Route und keine Conversation-Persistenz;
+- Submit öffnet Focus automatisch; Close/Escape stellt denselben UI-Zustand wieder im Right Context dar;
+- User-Frage, LLM-Antwort und Evidence/Sources besitzen getrennte visuelle Bereiche;
+- lange Antworten scrollen innerhalb des Research-Bereichs;
+- Antwort ist kopierbar;
+- ein kleiner `markdown.js`-Renderer stellt nur einen sicheren Markdown-Subset über explizite DOM-Nodes dar und injiziert kein Modell-HTML;
+- Current Data, Web, Temporal und RugCheck behalten ihre bestehenden Backend-/Evidence-Verträge;
+- Mermaid oder andere Diagramm-Renderer sind kein Bestandteil dieses Presentation-Slices.
 
 ## 8. Observatory Synchronisationsvertrag
 
@@ -369,100 +384,31 @@ selected exact Mint
       ↓
 deterministic <=24h summary
       ↓
-ONE STRONG-model request
+STRONG model
       ↓
 interpretation
 ```
 
-Der produktive Temporal-Pfad sendet keine Raw-History und keine 1m/5m/15m-Time-Buckets an das LLM. `tools/inspect_token_history.py` bleibt ein read-only Research-/Diagnosewerkzeug und ist nicht der produktive Analyst-Vertrag.
+Der produktive Temporal-Pfad sendet keine Raw-History und keine Zeit-Buckets an das Modell. Die Zusammenfassung ist read-only und bounded.
 
 ### RugCheck
 
 ```text
 selected exact Mint
       ↓
-direct RugCheck Token Report fetch
+direct RugCheck report
       ↓
-deterministic rugcheck_analysis_v4 projection
+deterministic compact metadata projection
       ↓
-ONE STRONG-model request
+STRONG model
       ↓
-grounded safety-evidence interpretation
+safety-evidence interpretation
 ```
 
-Der Fetch selbst benötigt keinen LLM Tool Call. Der vollständige Provider-Report bleibt am direkten Evidence-Endpunkt verfügbar. Die LLM-Projektion reduziert große repetitive Holder-/Market-Strukturen auf definierte Safety-Metadaten und sendet keine Wallet-Adressen.
+RugCheck bleibt externe Evidence. Die Projektion und Interpretation treffen keine operative Lifecycle-Entscheidung.
 
-RugCheck bleibt externe Provider-Evidence. Es gibt keine Persistence, keinen internen Safety Score und keine Lifecycle-Mutation.
+## 12. Visualisierung — nächste Grenze
 
-## 12. Truth Layers
+WP1 und WP2 haben Shell und Analyst-Presentation akzeptiert. Der nächste Visual-Slice ist die Token-Universe-Bubble-Map. Sie darf Domain-Fakten auf Position, Größe, Verbindung und Motion abbilden, aber diese Presentation-Werte bleiben derived und dürfen nicht in den Functional Core zurückgeschrieben werden.
 
-Das Observatory unterscheidet vier Ebenen:
-
-1. **System Truth:** persistierte oder direkt gelesene operative Fakten.
-2. **Deterministic Analysis:** reproduzierbare Derived Values wie Rankings, Activity oder Temporal Summary.
-3. **External Evidence:** Web Search und RugCheck.
-4. **LLM Interpretation:** probabilistische Interpretation ohne operative Authority.
-
-Keine Ebene darf stillschweigend in eine stärkere Truth-Klasse hochgestuft werden.
-
-Live Operational Telemetry ist flüchtige Beobachtung realer Runtime-Ereignisse und keine zusätzliche persistente Truth-Schicht.
-
-## 13. Generierte Artefakte
-
-Lokale oder eingecheckte Research-Artefakte sind Evidence, aber keine zweite Source of Truth für Architektur oder Methodik.
-
-Dauerhafte Regeln und Verträge gehören in Code oder die benannte Dokumentations-Authority. Große historische Analysis-Artefakte werden separat bewertet; dieser Architekturvertrag erklärt sie nicht automatisch zu dauerhaft benötigten Repository-Bestandteilen.
-
-## 14. Aktuelle Architekturgrenze
-
-Die operative und funktionale Foundation steht:
-
-```text
-Discovery
-   ↓
-Monitoring
-   ↓
-24h Raw Observations
-   ↓
-Lifecycle v0.3
-   ↓
-Survivor Population
-   ↓
-Read-only Functional Observatory
-   ├── Live Operational Telemetry
-   ├── Current Data
-   ├── Web Evidence
-   ├── Temporal Summary
-   └── RugCheck Evidence
-```
-
-Visual WP1 ergänzt jetzt die akzeptierte One-Screen-Presentation-Shell. Der Functional Core bleibt eingefroren. Der nächste Visual-Slice ist Analyst Focus; Token Universe und Operational Flow folgen separat und müssen ihre Data-to-Visual-Semantik explizit definieren.
-
-Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
-
-## 15. Authority-Modell
-
-| Frage | Authority |
-|---|---|
-| Was ist das Projekt und wie wird es benutzt? | `README.md` |
-| Wie fließen Daten und wer besitzt welche Verantwortung? | `docs/architecture.md` |
-| Wie funktioniert der operative Lifecycle fachlich exakt? | `docs/LIFECYCLE_CONTRACT.md` |
-| Welche funktionalen Produkt-/Truth-Grenzen gelten für das Observatory? | `docs/FRONTEND_OBSERVATORY.md` |
-| Wo steht das Projekt und welche Entscheidung ist als Nächstes offen? | `docs/MILESTONES.md` |
-| Welche Regeln gelten für Repository-Änderungen? | `AGENTS.md` |
-
-## 16. Architekturprinzipien
-
-1. **Eine Verantwortung, ein Owner.** Keine parallelen Implementierungen derselben Mutation oder Domain-Wahrheit.
-2. **Poll und Snapshot sind verschiedene Ereignisse.**
-3. **Source-Versionen gehen nicht durch Writer-Coalescing verloren.**
-4. **Raw-Auflösung ist temporär.** `mint_snapshots` ist auf 24 Stunden begrenzt.
-5. **Missing bleibt missing.** Unbekannte Werte werden nicht zu Null oder künstlich fortgeschrieben.
-6. **Lifecycle-Semantik ist versioniert.** Retention ist Storage-Maintenance und keine Lifecycle-Regel.
-7. **Downstream ist read-only gegenüber operativem State.**
-8. **Presentation ist keine Functional-Core-Truth.**
-9. **Operational Telemetry ist flüchtige Beobachtung, keine operative Authority.**
-10. **External Evidence ist keine Jupiter- oder Lifecycle-Truth.**
-11. **LLM-Interpretation besitzt keine operative Authority.**
-12. **Generierte Daten sind Evidence, nicht Architektur.**
-13. **Roadmap ist keine Implementation.**
+Der Operational Flow folgt danach als separater Telemetry-Visual-Slice. Eine per-Mint Discovery-Provenance darf dabei nicht erfunden werden.
