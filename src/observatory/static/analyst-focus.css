@@ -133,6 +133,13 @@
 }
 
 body.analyst-focus-active { overflow: hidden; }
+body.analyst-focus-active::before {
+  content: "";
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  background: rgba(3, 6, 12, .76);
+}
 
 .analyst-card.analyst-focused {
   position: fixed;
@@ -152,7 +159,6 @@ body.analyst-focus-active { overflow: hidden; }
     radial-gradient(circle at 85% 0%, rgba(153, 69, 255, .09), transparent 30rem),
     rgba(12, 16, 27, .985);
   box-shadow:
-    0 0 0 9999px rgba(3, 6, 12, .76),
     0 28px 80px rgba(0, 0, 0, .62),
     0 0 42px rgba(153, 69, 255, .08);
 }
