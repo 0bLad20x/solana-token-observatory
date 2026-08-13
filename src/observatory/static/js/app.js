@@ -9,9 +9,13 @@ import { TokenUniverseView } from "./views/token-universe-view.js";
 
 const state = new ObservatoryState();
 const activity = new ActivityTracker();
-const telemetryUI = new TelemetryUI();
 const streamStatus = document.querySelector("#stream-status");
 const stageElement = document.querySelector("#universe-stage");
+const flowStageElement = document.querySelector("#operational-flow-stage");
+const viewUniverseButton = document.querySelector("#view-token-universe");
+const viewFlowButton = document.querySelector("#view-operational-flow");
+const toolbarLabel = document.querySelector("#primary-view-label");
+const toolbarNote = document.querySelector("#primary-view-note");
 const workspace = document.querySelector("#workspace");
 const sidePanel = document.querySelector("#side-panel");
 const sidePanelToggle = document.querySelector("#side-panel-toggle");
@@ -19,10 +23,12 @@ const sidePanelResizer = document.querySelector("#side-panel-resizer");
 const SIDE_PANEL_MIN = 360;
 const SIDE_PANEL_MAX = 640;
 
+const telemetryUI = new TelemetryUI(flowStageElement);
 let currentView = null;
 let tokenUI = null;
 let activityUI = null;
 let analystUI = null;
+let primaryMode = "universe";
 
 function setStreamStatus(mode, label) {
   streamStatus.className = `stream-status ${mode}`;
@@ -72,6 +78,27 @@ function setupSidePanel() {
     window.addEventListener("pointerup", stop);
     window.addEventListener("pointercancel", stop);
   });
+}
+
+function setPrimaryMode(mode) {
+  primaryMode = mode === "flow" ? "flow" : "universe";
+  const flowVisible = primaryMode === "flow";
+  stageElement.classList.toggle("hidden", flowVisible);
+  viewUniverseButton.classList.toggle("active", !flowVisible);
+  viewFlowButton.classList.toggle("active", flowVisible);
+  viewUniverseButton.setAttribute("aria-pressed", String(!flowVisible));
+  viewFlowButton.setAttribute("aria-pressed", String(flowVisible));
+  toolbarLabel.textContent = flowVisible ? "OPERATIONAL FLOW · LIVE" : "TOKEN UNIVERSE · LIVE";
+  toolbarNote.textContent = flowVisible
+    ? "Volatile runtime telemetry · particles are work pulses, not tokens"
+    : "Live population · search reaches every active token";
+  telemetryUI.setVisible(flowVisible);
+  if (!flowVisible) renderView();
+}
+
+function setupPrimaryViewSwitch() {
+  viewUniverseButton.addEventListener("click", () => setPrimaryMode("universe"));
+  viewFlowButton.addEventListener("click", () => setPrimaryMode("flow"));
 }
 
 function renderView(events = []) {
@@ -131,9 +158,12 @@ function applyDelta(events, generatedAt) {
 
 async function bootstrap() {
   setupSidePanel();
+  setupPrimaryViewSwitch();
 
   currentView = new TokenUniverseView(stageElement, { onSelect: selectToken });
   await currentView.init();
+  await telemetryUI.init();
+  setPrimaryMode("universe");
 
   tokenUI = new TokenUI({ state, onSelect: selectToken });
   activityUI = new ActivityUI({ state, onSelect: selectToken });
