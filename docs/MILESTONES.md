@@ -87,9 +87,9 @@ STRONG = mistral-large-latest
 
 RugCheck ist damit kein offener Readiness-Punkt mehr. Der ältere Issue #18 ist durch Issue #22 / PR #23 erfüllt.
 
-## Visual Phase — jetzt offen
+## Visual Phase — aktiv
 
-Für den Start der Visual-Phase gibt es keinen offenen Core-, Backend- oder Datenvertrags-Blocker. Der aktuelle Produktmodus ist ein One-Screen `Read + Inspect + Ask` Workspace:
+Für die Visual-Phase gibt es keinen offenen Core-, Backend- oder Datenvertrags-Blocker. Der Produktmodus ist ein One-Screen `Read + Inspect + Ask` Workspace:
 
 ```text
 ansehen -> suchen -> selektieren -> fragen -> analysieren
@@ -99,21 +99,28 @@ Search und Analyst sind die wesentlichen aktiven Interaktionen. Bubble Map und O
 
 Der Reihenfolge-/Entscheidungsanker ist Issue #36.
 
-### Visual WP1 — Shell / Typography / Inspector (#33)
+### Visual WP1 — Shell / Typography / Inspector (#33 / PR #37) — abgeschlossen
 
-Zuerst wird die visuelle Grundfläche stabilisiert:
+Der erste Visual-Slice wurde lokal im realen Browser akzeptiert. Bewiesen ist jetzt eine belastbare One-Screen-Shell, ohne Domain-, Population-, Selection-, SSE-, Analyst- oder Evidence-Semantik zu verändern.
 
-- größere und klar hierarchisierte Typografie;
-- Main Stage als dominante Visualisierungsfläche;
-- Search klarer sichtbar;
-- Right Context breiter sowie resize-/collapse-fähig;
-- vollständige Mint-Adresse sichtbar und kopierbar;
-- bestehende Selected-Token-Fakten bleiben erhalten;
-- keine Bubble- oder Flow-Semantik in diesem Slice.
+Akzeptierter Stand:
 
-### Visual WP2 — Analyst Focus Workspace (#34)
+- bestehende dunkle Solana-/Crypto-Farbwelt und System-Font-Stack bleiben erhalten;
+- Typografie und visuelle Hierarchie von Topbar, Search, Inspector, Analyst, Live Deltas und Telemetry sind angehoben;
+- Main Stage bleibt die dominante Visualisierungsfläche;
+- Right Context startet breiter und ist auf Desktop zwischen 360px und 640px resizebar;
+- Right Context kann ein-/ausgeblendet werden, ohne Selection oder Analyst-State zu verlieren;
+- Search bleibt vollständiger aktiver Population-Zugriff;
+- Inspector zeigt die bestehenden Token-Fakten in größerer, klarerer Hierarchie;
+- vollständige Mint-Adresse ist sichtbar und kopierbar;
+- ein redundanter `ACTIVE`-Badge wird bei normalen aktiven Selected Tokens nicht mehr benötigt; `RETIRED` bleibt für erhaltenen Retired-Context sichtbar;
+- der aktuelle Token-Kachel-Proof und die Telemetry-Karten bleiben bewusst Platzhalter für WP3/WP4.
 
-Danach wird der Analyst als wichtigste aktive Interaktion aufgewertet:
+WP1 legt weder Bubble-Größen-/Cluster-Semantik noch Operational-Flow-Geometrie fest.
+
+### Visual WP2 — Analyst Focus Workspace (#34) — nächster Slice
+
+Als nächstes wird der Analyst als wichtigste aktive Interaktion aufgewertet:
 
 - klarer Focus-State innerhalb derselben Seite;
 - deutlich größere Lesefläche für Antworten;
@@ -121,9 +128,11 @@ Danach wird der Analyst als wichtigste aktive Interaktion aufgewertet:
 - lange Antworten zerstören nicht mehr die Sidebar-Geometrie;
 - keine neue Analyst-/Evidence-Semantik.
 
+Die konkrete Focus-Mechanik wird im Browser-Prototyp entschieden. WP1 liefert dafür bereits die resize-/collapse-fähige Right-Context-Geometrie.
+
 ### Visual WP3 — Launchpad Token Universe Bubble Map (#9)
 
-Issue #9 ist nicht mehr deferred. Die konkrete V1-Frage ist jetzt definiert:
+Die konkrete V1-Frage ist definiert:
 
 > Wie verteilt sich die aktive Token-Population auf Launchpads, und welche Tokens sind relativ groß, liquide und holder-stark?
 
@@ -160,16 +169,16 @@ Aus der Design-Diskussion sind drei Muster als Inspiration festgehalten:
 
 Die verwendeten Stock-/Referenzbilder sind keine Produktassets und kein 1:1-Ziel. Entscheidend sind die zugrunde liegenden Muster und ihre überprüfbare Data-to-Visual-Semantik.
 
-## Offene Designentscheidungen — keine Vorab-Blocker
+## Offene Designentscheidungen — keine Core-Blocker
 
 Folgende Fragen werden bewusst erst im zuständigen Browser-Prototyp entschieden:
 
-- Main-Stage-Wechselmechanik zwischen Universe und Flow -> #33;
 - Analyst Focus als Expand/Overlay/anderer minimaler Focus-State -> #34;
+- konkrete Main-Stage-Umschaltung zwischen Token Universe und Operational Flow -> bei Integration der ersten echten Main-Stage-View;
 - Bubble-Größenfunktion, Missing- und Outlier-Scale -> #9;
 - genaue Flow-Geometrie zwischen Layer- und Fan-in/Fan-out-Muster -> #35.
 
-Keine dieser Fragen rechtfertigt eine weitere Core-/Backend-Phase vor Beginn der Visual-Arbeit.
+Keine dieser Fragen rechtfertigt eine weitere Core-/Backend-Phase.
 
 ## Mögliche spätere Evidence-Erweiterungen
 
@@ -205,12 +214,13 @@ Große Dateien unter `analysis/` sind historische Research-Evidence und werden *
 
 ## Stop Condition dieses Checkpoints
 
-Der Repository-Zustand ist für die Visual-Phase bereit, weil:
+WP1 ist abgeschlossen, weil:
 
-- Functional Core und First-Principles Simplification auf `main` abgeschlossen sind;
-- Lifecycle v0.3 und Live Telemetry semantisch zusammenpassen;
-- `ACTIVE` versus `TRACKING` dokumentiert und im UI klar benannt ist;
-- Lifecycle-Telemetrie R1–R7 vollständig zeigt;
-- Search/Selection/Analyst als stabile Interaktionsgrenzen bewiesen sind;
-- die vier Visual Work Packages eine klare Reihenfolge und eigene Acceptance-Gates besitzen;
-- offene Designentscheidungen nicht mehr mit fehlenden Core-Daten verwechselt werden.
+- die neue Shell im realen Browser lokal akzeptiert wurde;
+- Typografie, Search, Inspector und Right Context sichtbar verbessert sind;
+- Resize/Collapse funktionieren;
+- vollständige Mint-Adresse sichtbar und kopierbar ist;
+- Search, Selection, Analyst, Live Deltas und Telemetry funktional unverändert bleiben;
+- keine neue Domain-, Mutation-, Evidence- oder Presentation-Authority in den Functional Core eingeführt wurde.
+
+Der nächste offene Visual-Slice ist WP2 / Issue #34.
