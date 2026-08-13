@@ -11,39 +11,36 @@ Benutzerfrage + Scope
       app.py
         |
         +--> Current Data --> data.py --> tools.py --> analyst.py
-        +--> Web ----------> exact Mint -------> analyst.py
-        +--> Temporal -----> Summary ----------> analyst.py
-        +--> RugCheck -----> Evidence -> Projection -> rugcheck_analysis.py
+        +--> Web ----------> ausgewählte Mint --> analyst.py
+        +--> Temporal -----> Summary -----------> analyst.py
+        +--> RugCheck -----> Evidence -> Projection -> Analysis
                                                    |
                                                    v
                                                 mistral.py
-                                                   |
-                                                   v
-                                                Mistral API
 ```
 
 ## Kernidee
 
-Der Analyst ist kein allgemeiner Chatbot mit freiem Datenzugriff. `app.py` entscheidet zuerst, welcher Evidence-Pfad für die Frage benutzt wird. Erst danach wird das passende Modell gewählt und ein Scope-spezifischer Prompt gebaut.
+Der Analyst ist kein allgemeiner Chatbot mit freiem Datenzugriff. `app.py` entscheidet zuerst, welcher Evidence-Pfad für eine Frage benutzt wird. Erst danach wird das passende Modell gewählt und ein Scope-spezifischer Prompt gebaut.
 
-Bei `web`, `temporal` und `rugcheck` bleibt die ausgewählte Mint die technische Primäridentität. Name und Symbol dienen nur als lesbare Hinweise.
+Bei Web, Temporal und RugCheck bleibt die ausgewählte Mint die technische Primäridentität. Name und Symbol sind nur lesbare Hinweise.
 
 ## Empfohlene Reihenfolge
 
-1. [`app.py`](app.md)
-2. [`analyst.py`](analyst.md)
-3. [`tools.py`](tools.md)
-4. [`data.py`](data.md)
-5. [`model_policy.py`](model_policy.md)
-6. [`mistral.py`](mistral.md)
-7. [`evidence/rugcheck.py`](evidence_rugcheck.md)
-8. [`rugcheck_projection.py`](rugcheck_projection.md)
-9. [`rugcheck_analysis.py`](rugcheck_analysis.md)
-10. [`telemetry.py`](telemetry.md)
-11. [`delta.py`](delta.md)
-12. [`__init__.py`](package_init.md)
-13. [`evidence/__init__.py`](evidence_init.md)
+1. [`app.py`](01-app-routing.md)
+2. [`analyst.py`](02-analyst.md)
+3. [`tools.py`](03-tools.md)
+4. [`data.py`](04-data.md)
+5. [`model_policy.py`](05-model-policy.md)
+6. [`mistral.py`](06-mistral.md)
+7. [`evidence/rugcheck.py`](07-evidence-rugcheck.md)
+8. [`rugcheck_projection.py`](08-rugcheck-projection.md)
+9. [`rugcheck_analysis.py`](09-rugcheck-analysis.md)
+10. [`telemetry.py`](10-telemetry.md)
+11. [`delta.py`](11-delta.md)
+
+Die beiden `__init__.py`-Dateien sind reine Package-Marker ohne eigene operative Logik und brauchen deshalb kein separates Präsentationsmemo.
 
 ## Präsentationssatz
 
-> **Das Observatory trennt UI, Evidence und LLM-Interpretation: Der Scope bestimmt zuerst die erlaubte Datenquelle, bei Token-spezifischen Analysen bleibt die exakte Mint erhalten, und erst danach darf das passende Modell interpretieren.**
+> **Das Observatory trennt UI, Evidence und LLM-Interpretation: Der Scope bestimmt zuerst die Datenquelle, bei Token-spezifischen Analysen bleibt die Mint erhalten, und erst danach interpretiert das passende Modell die vorbereitete Evidence.**
