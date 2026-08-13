@@ -1,4 +1,5 @@
 import { integerFormat, tokenIdentity } from "./format.js";
+import { renderMarkdown } from "./markdown.js";
 
 const SCOPE_CONFIG = {
   current_data: {
@@ -201,7 +202,7 @@ export class AnalystUI {
   #render(payload, question) {
     this.lastAnswer = payload.answer || "";
     this.resultQuestion.textContent = question;
-    this.#renderAnswer(this.lastAnswer);
+    renderMarkdown(this.answer, this.lastAnswer);
     this.sources.replaceChildren();
 
     if (payload.scope === "current_data") {
@@ -238,62 +239,6 @@ export class AnalystUI {
     }
 
     this.result.classList.remove("hidden");
-  }
-
-  #renderAnswer(text) {
-    this.answer.replaceChildren();
-    let list = null;
-    let listType = "";
-
-    for (const rawLine of String(text || "").split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line) {
-        list = null;
-        listType = "";
-        continue;
-      }
-
-      const heading = line.match(/^(#{1,3})\s+(.+)$/);
-      if (heading) {
-        const element = document.createElement(heading[1].length === 1 ? "h3" : "h4");
-        element.textContent = heading[2];
-        this.answer.append(element);
-        list = null;
-        listType = "";
-        continue;
-      }
-
-      const unordered = line.match(/^[-*]\s+(.+)$/);
-      const ordered = line.match(/^\d+[.)]\s+(.+)$/);
-      if (unordered || ordered) {
-        const nextType = unordered ? "ul" : "ol";
-        if (!list || listType !== nextType) {
-          list = document.createElement(nextType);
-          listType = nextType;
-          this.answer.append(list);
-        }
-        const item = document.createElement("li");
-        item.textContent = (unordered || ordered)[1];
-        list.append(item);
-        continue;
-      }
-
-      const strongLine = line.match(/^\*\*(.+)\*\*$/);
-      if (strongLine) {
-        const element = document.createElement("h4");
-        element.textContent = strongLine[1];
-        this.answer.append(element);
-        list = null;
-        listType = "";
-        continue;
-      }
-
-      const paragraph = document.createElement("p");
-      paragraph.textContent = line;
-      this.answer.append(paragraph);
-      list = null;
-      listType = "";
-    }
   }
 
   #renderCapabilities(capabilities) {
