@@ -52,7 +52,6 @@ function setupSidePanel() {
   sidePanelToggle.addEventListener("click", () => {
     setSidePanelCollapsed(!workspace.classList.contains("panel-collapsed"));
   });
-
   sidePanelResizer.addEventListener("keydown", event => {
     if (workspace.classList.contains("panel-collapsed")) return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -60,22 +59,17 @@ function setupSidePanel() {
     const width = sidePanel.getBoundingClientRect().width;
     setSidePanelWidth(width + (event.key === "ArrowLeft" ? 24 : -24));
   });
-
   sidePanelResizer.addEventListener("pointerdown", event => {
     if (workspace.classList.contains("panel-collapsed")) return;
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = sidePanel.getBoundingClientRect().width;
-
-    const move = pointerEvent => {
-      setSidePanelWidth(startWidth + startX - pointerEvent.clientX);
-    };
+    const move = pointerEvent => setSidePanelWidth(startWidth + startX - pointerEvent.clientX);
     const stop = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
     };
-
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
     window.addEventListener("pointercancel", stop);
@@ -100,12 +94,9 @@ function ensureOperationalFlow() {
 function setPrimaryMode(mode) {
   const nextMode = mode === "flow" ? "flow" : "universe";
   if (nextMode === "flow" && !flowReady) {
-    ensureOperationalFlow()
-      .then(() => setPrimaryMode("flow"))
-      .catch(() => {});
+    ensureOperationalFlow().then(() => setPrimaryMode("flow")).catch(() => {});
     return;
   }
-
   primaryMode = nextMode;
   const flowVisible = primaryMode === "flow";
   stageElement.classList.toggle("hidden", flowVisible);
@@ -127,11 +118,7 @@ function setupPrimaryViewSwitch() {
 }
 
 function renderView(events = []) {
-  currentView.render({
-    tokens: state.values(),
-    selectedMint: state.selectedMint,
-    events,
-  });
+  currentView.render({ tokens: state.values(), selectedMint: state.selectedMint, events });
 }
 
 function selectToken(mint) {
@@ -157,7 +144,6 @@ function applySnapshot(snapshot) {
   const selectedBefore = state.selectedMint;
   const tokens = Array.isArray(snapshot?.tokens) ? snapshot.tokens : [];
   const timestamp = Date.parse(snapshot?.generated_at);
-
   activity.reset();
   state.load(tokens);
   syncFlowPopulation();
@@ -165,10 +151,8 @@ function applySnapshot(snapshot) {
   tokenUI.enableSearch();
   tokenUI.renderSelected();
   tokenUI.refreshSearch();
-
   if (state.selectedMint !== selectedBefore) analystUI.selectionChanged();
   else analystUI.populationChanged();
-
   renderDerivedState(Number.isFinite(timestamp) ? timestamp : Date.now());
 }
 
@@ -178,7 +162,6 @@ function applyDelta(events, generatedAt) {
     state.applyEvent(event);
     activity.applyEvent(event, timestamp);
   }
-
   syncFlowPopulation();
   renderView(events);
   tokenUI.renderSelected();
@@ -190,30 +173,25 @@ function applyDelta(events, generatedAt) {
 async function bootstrap() {
   setupSidePanel();
   setupPrimaryViewSwitch();
-
   currentView = new TokenUniverseView(stageElement, { onSelect: selectToken });
   await currentView.init();
-
   tokenUI = new TokenUI({ state, onSelect: selectToken });
   activityUI = new ActivityUI({ state, onSelect: selectToken });
   analystUI = new AnalystUI({ state, requestAnalyst, onSelect: selectToken });
   analystUI.sync(false);
   setPrimaryMode("universe");
-
   connectUniverseStream({
     onOpen: () => setStreamStatus("live", "Live"),
     onError: () => setStreamStatus("error", "Reconnecting"),
     onSnapshot: applySnapshot,
     onDelta: delta => applyDelta(delta.events || [], delta.generated_at),
   });
-
   connectTelemetryStream({
     onOpen: () => telemetryUI.setConnection("Live"),
     onError: () => telemetryUI.setConnection("Reconnecting"),
     onSnapshot: snapshot => telemetryUI.load(snapshot),
     onEvent: event => telemetryUI.apply(event),
   });
-
   ensureOperationalFlow().catch(() => {});
 }
 
