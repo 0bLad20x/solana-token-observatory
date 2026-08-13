@@ -127,7 +127,7 @@ python src/frontend.py
 
 Standardmäßig unter `http://127.0.0.1:8000`.
 
-Der Browser besitzt eine gemeinsame aktive Population und genau einen `selected Mint`. Search, Inspector, Activity, aktuelle View und selected-token Analyst-Funktionen konsumieren diese gemeinsame Selection. Die konkrete View ist ein austauschbarer Proof und keine Design-Authority.
+Der Browser besitzt eine gemeinsame aktive Population und genau einen `selected Mint`. Search, Inspector, Activity, aktuelle View und selected-token Analyst-Funktionen konsumieren diese gemeinsame Selection.
 
 Die Live-Synchronisation besitzt eine explizite Grenze:
 
@@ -139,7 +139,21 @@ full universe_snapshot
 subsequent universe_delta events
 ```
 
-Der initiale Stream-Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas. `GET /api/token/{mint}` bleibt ein Selected-Detail-Read und schreibt nicht als zweiter Pfad in die Population.
+Der initiale Stream-Snapshot ist zugleich die Server-Baseline für nachfolgende Deltas. `GET /api/token/{mint}` bleibt eine read-only Detail-Capability und schreibt nicht als zweiter Pfad in die Population.
+
+### Visual Shell
+
+Visual WP1 etabliert die akzeptierte One-Screen-Shell:
+
+- Main Stage bleibt die dominante Visualisierungsfläche;
+- Right Context ist breiter, auf Desktop resizebar und ein-/ausblendbar;
+- Collapse/Resize verändern weder Selection noch Analyst-State;
+- Search bleibt vollständiger aktiver Population-Zugriff;
+- Inspector zeigt die vollständige Mint-Adresse und bietet Copy;
+- bestehende Token-Fakten bleiben erhalten;
+- aktuelle Token-Kacheln und Telemetry-Karten sind weiterhin Visual-Proofs für spätere Bubble-/Flow-Slices.
+
+Die dunkle Solana-/Crypto-Farbwelt und der bestehende System-Font-Stack bleiben zunächst erhalten. Der nächste Visual-Slice ist der Analyst Focus Workspace.
 
 ## Live Operational Telemetry
 
@@ -223,9 +237,15 @@ Der vollständige RugCheck Token Report bleibt als Provider-Evidence verfügbar.
 
 ## Funktionale Observatory-Grenze
 
-Der Functional Core ist nach Issue #20 / PR #21 und dem finalen Synchronisations-Slice PR #24 abgeschlossen. Der Live-Telemetrie-Slice ergänzt Observability, aber keine neue Domain- oder Mutation-Authority.
+Der Functional Core ist abgeschlossen. Live Telemetry ergänzt Observability, und Visual WP1 ergänzt ausschließlich Presentation; beide führen keine neue Domain- oder Mutation-Authority ein.
 
-Der nächste Visual-Slice kann auf dem jetzt real bewiesenen Operational Flow aufbauen: Discovery → Search → WriteQueue → Lifecycle → Tracking Survivors. Token-bezogenes Visual-/Spatial-Research bleibt davon getrennt.
+Die weiteren Visual-Slices sind bewusst getrennt:
+
+```text
+WP2 Analyst Focus
+WP3 Token Universe Bubble Map
+WP4 Operational Flow
+```
 
 Der aktuelle Projektcheckpoint steht in [`docs/MILESTONES.md`](docs/MILESTONES.md).
 
