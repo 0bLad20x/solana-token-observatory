@@ -10,6 +10,14 @@ const viewSource = readFileSync(
   new URL("../src/observatory/static/js/views/token-universe-view.js", import.meta.url),
   "utf8",
 );
+const cssSource = readFileSync(
+  new URL("../src/observatory/static/token-universe.css", import.meta.url),
+  "utf8",
+);
+const physicsCssSource = readFileSync(
+  new URL("../src/observatory/static/token-universe-physics.css", import.meta.url),
+  "utf8",
+);
 const indexSource = readFileSync(
   new URL("../src/observatory/static/index.html", import.meta.url),
   "utf8",
@@ -72,6 +80,27 @@ test("cluster capacity follows current bubble area and can grow or shrink", () =
   assert.match(viewSource, /hub\.targetRadius = spec\.radius/);
   assert.match(viewSource, /targetHubRadius - hub\.radius/);
   assert.doesNotMatch(viewSource, /hub\.radius = Math\.max\(hub\.radius, spec\.radius\)/);
+});
+
+test("physics tuning is bounded, live and presentation-only", () => {
+  assert.match(viewSource, /PHYSICS_DEFAULTS/);
+  assert.match(viewSource, /PHYSICS_CONTROLS/);
+  assert.match(viewSource, /key: "spacing"[\s\S]{0,120}min: 0\.55[\s\S]{0,120}max: 1\.60/);
+  assert.match(viewSource, /key: "density"[\s\S]{0,120}min: 0\.52[\s\S]{0,120}max: 0\.76/);
+  assert.match(viewSource, /key: "ageGravity"[\s\S]{0,120}min: 0\.35[\s\S]{0,120}max: 2\.00/);
+  assert.match(viewSource, /key: "glide"[\s\S]{0,120}min: 0\.74[\s\S]{0,120}max: 0\.90/);
+  assert.match(viewSource, /input\.type = "range"/);
+  assert.match(viewSource, /minus\.textContent = "−"/);
+  assert.match(viewSource, /plus\.textContent = "\+"/);
+  assert.match(viewSource, /this\.physics\.ageGravity/);
+  assert.match(viewSource, /this\.physics\.glide/);
+  assert.match(viewSource, /collisionGap\(node, other, this\.physics\.spacing\)/);
+  assert.match(viewSource, /this\.physics\.density/);
+  assert.match(viewSource, /#refreshClusterTargets/);
+  assert.match(viewSource, /Session-only · changes re-energize the live layout/);
+  assert.match(cssSource, /token-universe-physics\.css/);
+  assert.match(physicsCssSource, /token-universe-physics-panel/);
+  assert.doesNotMatch(viewSource, /localStorage|sessionStorage/);
 });
 
 test("market cap owns bubble radius while liquidity is contextual", () => {
