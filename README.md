@@ -151,11 +151,15 @@ Der Collector besitzt Discovery, Jupiter Observation, Persistence und 24h Snapsh
 
 ## Voraussetzungen
 
-- Python 3.14
-- PostgreSQL
-- Jupiter API Key(s)
-- PumpPortal API Key für die entsprechende Discovery-Quelle
-- Mistral API Key für Analyst-Funktionen
+- **Python 3.14**
+- **PostgreSQL** — [Download](https://www.postgresql.org/download/)
+- **Jupiter API Key(s)** — [Jupiter Developer Portal](https://developers.jup.ag/portal)
+  - benötigt für `JUPITER_SEARCH_API_KEYS`
+  - optional separater Key für `JUPITER_RECENT_API_KEY`
+- **PumpPortal API Key** — für die entsprechende Discovery-Quelle
+- **Mistral API Key** — [Mistral Console](https://console.mistral.ai/)
+  - in der Console unter **API Keys** erstellen
+  - benötigt für `MISTRAL_API_KEY`
 
 ## Installation
 
