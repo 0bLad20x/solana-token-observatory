@@ -29,12 +29,12 @@ test("Token Universe consumes canonical state and delta context without owning t
   assert.doesNotMatch(viewSource, /fetch\(|EventSource|WebSocket/);
 });
 
-test("WP3 uses bounded local settling while preserving stable launchpad centers", () => {
+test("WP3 keeps stable launchpad centers with a bounded custom physics solver", () => {
   assert.match(viewSource, /packClusters/);
   assert.match(viewSource, /#ensureHubLayout/);
-  assert.match(viewSource, /Centers never move during normal SSE updates/);
   assert.match(viewSource, /#stepPhysics/);
-  assert.match(viewSource, /SETTLE_MS/);
+  assert.match(viewSource, /activeLaunchpads/);
+  assert.match(viewSource, /PHYSICS_STABLE_FRAMES/);
   assert.doesNotMatch(viewSource, /forceSimulation|forceManyBody|forceCollide|d3\./);
 });
 
@@ -44,16 +44,34 @@ test("user launchpad visibility is authoritative across later renders", () => {
   assert.doesNotMatch(viewSource, /selectedToken[\s\S]{0,180}enabledLaunchpads\.add/);
 });
 
-test("radial topology uses logarithmic age with a bounded established core", () => {
+test("age is a logarithmic soft radial force rather than a fixed position", () => {
   assert.match(viewSource, /CORE_AGE_DAYS = 30/);
   assert.match(viewSource, /AGE_SCALE_DAYS = 0\.25/);
   assert.match(viewSource, /freshnessFromAge/);
-  assert.match(viewSource, /Math\.log1p\(ageSeconds \/ AGE_SCALE_SECONDS\)/);
-  assert.match(viewSource, /ageFreshness: freshnessFromAge\(token\.age_seconds\)/);
-  assert.match(viewSource, /CORE_RADIAL_FRACTION/);
-  assert.match(viewSource, /AGE_RADIAL_SPREAD_FRACTION/);
-  assert.match(viewSource, /Distance = log age · 30d\+ established core/);
-  assert.doesNotMatch(viewSource, /Math\.sqrt\(\(slot \+ 0\.65\) \/ Math\.max\(1, total \+ 0\.5\)\)/);
+  assert.match(viewSource, /currentAgeSeconds/);
+  assert.match(viewSource, /preferredRadialDistance/);
+  assert.match(viewSource, /AGE_SPRING/);
+  assert.match(viewSource, /\(preferred - distance\) \* AGE_SPRING/);
+  assert.match(viewSource, /Age = soft radial gravity · 30d\+ core attraction/);
+  assert.doesNotMatch(viewSource, /CORE_RADIAL_FRACTION|AGE_RADIAL_SPREAD_FRACTION|anchorX|anchorY/);
+});
+
+test("collision uses force, damping and size-dependent mass instead of position correction", () => {
+  assert.match(viewSource, /COLLISION_SPRING/);
+  assert.match(viewSource, /VELOCITY_DAMPING/);
+  assert.match(viewSource, /massFromRadius/);
+  assert.match(viewSource, /collisionGap/);
+  assert.match(viewSource, /node\.fx \+= nx \* force/);
+  assert.match(viewSource, /node\.vx = \(node\.vx \+ ax \* step\) \* damping/);
+  assert.doesNotMatch(viewSource, /node\.x \+= nx \* overlap|other\.x -= nx \* overlap/);
+});
+
+test("cluster capacity follows current bubble area and can grow or shrink", () => {
+  assert.match(viewSource, /CLUSTER_PACKING_DENSITY/);
+  assert.match(viewSource, /targetRadius: spec\.radius/);
+  assert.match(viewSource, /hub\.targetRadius = spec\.radius/);
+  assert.match(viewSource, /targetHubRadius - hub\.radius/);
+  assert.doesNotMatch(viewSource, /hub\.radius = Math\.max\(hub\.radius, spec\.radius\)/);
 });
 
 test("market cap owns bubble radius while liquidity is contextual", () => {
@@ -67,10 +85,10 @@ test("market cap owns bubble radius while liquidity is contextual", () => {
   assert.doesNotMatch(viewSource, /Economic mix|SCALE_MODES/);
 });
 
-test("new tokens start in their temporal neighborhood instead of crossing the core", () => {
-  assert.match(viewSource, /const x = previous\?\.x \?\? anchor\.x/);
-  assert.match(viewSource, /const y = previous\?\.y \?\? anchor\.y/);
-  assert.doesNotMatch(viewSource, /Math\.cos\(phase\) \* \(HUB_RADIUS \+ 12\)/);
+test("new tokens start near their age preference without owning an angular anchor", () => {
+  assert.match(viewSource, /initialPositionForNode/);
+  assert.match(viewSource, /unitHash\(`\$\{node\.mint\}:angle`\)/);
+  assert.doesNotMatch(viewSource, /this\.slots|nextSlots|slot \* GOLDEN_ANGLE/);
 });
 
 test("meaningful market-cap updates have directed visual semantics", () => {
@@ -89,10 +107,11 @@ test("membership spokes are contextual and holder-scaled", () => {
   assert.match(viewSource, /this\.selectedMint/);
 });
 
-test("retirement holds before collapse and cluster gap closure is deferred", () => {
+test("retirement holds before the remaining cluster is re-energized", () => {
   assert.match(viewSource, /RETIRE_HOLD_MS = 700/);
   assert.match(viewSource, /RETIRE_MS = 2400/);
   assert.match(viewSource, /pendingSettleAt/);
+  assert.match(viewSource, /#activatePendingSettles/);
   assert.match(viewSource, /#drawRetirement/);
   assert.match(viewSource, /RETIRING/);
   assert.match(viewSource, /token_retired/);
