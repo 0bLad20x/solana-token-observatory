@@ -1176,30 +1176,49 @@ export class TokenUniverseView {
     if (!force && screenRadius < 11) return;
 
     const label = shortLabel(node.token);
-    const fontSize =
-      Math.max(8, Math.min(13, Math.max(screenRadius, 14) * 0.52)) / this.viewport.k;
+    const showMarketCap = force || screenRadius >= 24;
+    const nameFontScreen = Math.max(
+      8,
+      Math.min(13, Math.max(screenRadius, 14) * 0.44),
+    );
+    const marketFontScreen = Math.max(7, Math.min(11, nameFontScreen * 0.82));
+    const lineGapScreen = 2.5;
+    const nameOffsetScreen = showMarketCap
+      ? (marketFontScreen + lineGapScreen) / 2
+      : 0;
+
     context.fillStyle = "#f3f5f8";
-    context.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
+    context.font = `700 ${nameFontScreen / this.viewport.k}px Inter, system-ui, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillText(
       label.slice(0, 10),
       node.x,
-      node.y - (screenRadius >= 24 || force ? 5 / this.viewport.k : 0),
+      node.y - nameOffsetScreen / this.viewport.k,
     );
 
-    if (!force && screenRadius < 24) return;
+    if (!showMarketCap) return;
+
+    const marketOffsetScreen = (nameFontScreen + lineGapScreen) / 2;
     context.fillStyle = "#929bad";
-    context.font = `${Math.max(7, 8.7 / this.viewport.k)}px Inter, system-ui, sans-serif`;
-    context.fillText(`MC ${money(node.token.market_cap)}`, node.x, node.y + 8 / this.viewport.k);
+    context.font = `500 ${marketFontScreen / this.viewport.k}px Inter, system-ui, sans-serif`;
+    context.fillText(
+      `MC ${money(node.token.market_cap)}`,
+      node.x,
+      node.y + marketOffsetScreen / this.viewport.k,
+    );
 
     if (force && this.viewport.k >= 1.05) {
+      const holderFontScreen = Math.max(7, Math.min(9, marketFontScreen * 0.82));
+      const holderOffsetScreen = marketOffsetScreen
+        + (marketFontScreen + holderFontScreen) / 2
+        + lineGapScreen;
       context.fillStyle = "#626c7e";
-      context.font = `${Math.max(7, 8 / this.viewport.k)}px Inter, system-ui, sans-serif`;
+      context.font = `500 ${holderFontScreen / this.viewport.k}px Inter, system-ui, sans-serif`;
       context.fillText(
         `${count(node.token.holders)} holders`,
         node.x,
-        node.y + 19 / this.viewport.k,
+        node.y + holderOffsetScreen / this.viewport.k,
       );
     }
   }
