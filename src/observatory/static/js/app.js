@@ -5,7 +5,7 @@ import { AnalystUI } from "./analyst-ui.js";
 import { ObservatoryState } from "./state.js";
 import { TelemetryUI } from "./telemetry-ui.js";
 import { TokenUI } from "./token-ui.js";
-import { SimpleTokenView } from "./views/simple-token-view.js";
+import { TokenUniverseView } from "./views/token-universe-view.js";
 
 const state = new ObservatoryState();
 const activity = new ActivityTracker();
@@ -132,7 +132,7 @@ function applyDelta(events, generatedAt) {
 async function bootstrap() {
   setupSidePanel();
 
-  currentView = new SimpleTokenView(stageElement, { onSelect: selectToken });
+  currentView = new TokenUniverseView(stageElement, { onSelect: selectToken });
   await currentView.init();
 
   tokenUI = new TokenUI({ state, onSelect: selectToken });
