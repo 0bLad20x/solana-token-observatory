@@ -42,6 +42,48 @@ const PHYSICS_STABLE_FRAMES = 18;
 const FRAME_MS = 1000 / 60;
 const MAX_FRAME_STEP = 2;
 
+const PHYSICS_DEFAULTS = Object.freeze({
+  spacing: 1,
+  density: CLUSTER_PACKING_DENSITY,
+  ageGravity: 1,
+  glide: VELOCITY_DAMPING,
+});
+
+const PHYSICS_CONTROLS = Object.freeze([
+  {
+    key: "spacing",
+    label: "Spacing",
+    min: 0.55,
+    max: 1.60,
+    step: 0.05,
+    format: value => `${value.toFixed(2)}×`,
+  },
+  {
+    key: "density",
+    label: "Density",
+    min: 0.52,
+    max: 0.76,
+    step: 0.01,
+    format: value => value.toFixed(2),
+  },
+  {
+    key: "ageGravity",
+    label: "Age gravity",
+    min: 0.35,
+    max: 2.00,
+    step: 0.05,
+    format: value => `${value.toFixed(2)}×`,
+  },
+  {
+    key: "glide",
+    label: "Glide",
+    min: 0.74,
+    max: 0.90,
+    step: 0.01,
+    format: value => value.toFixed(2),
+  },
+]);
+
 function finitePositive(value) {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
@@ -121,8 +163,8 @@ function massFromRadius(radius) {
   return 1 + 2.8 * (normalized ** 1.35);
 }
 
-function collisionGap(left, right) {
-  return NODE_GAP + NODE_GAP_RADIUS_FACTOR * Math.min(left.radius, right.radius);
+function collisionGap(left, right, spacing = PHYSICS_DEFAULTS.spacing) {
+  return spacing * (NODE_GAP + NODE_GAP_RADIUS_FACTOR * Math.min(left.radius, right.radius));
 }
 
 function initialPositionForNode(node, hub, timestamp) {
@@ -176,13 +218,17 @@ function shortLabel(token) {
   return token.symbol || token.name || token.mint.slice(0, 6);
 }
 
-function clusterRadiusForNodes(nodes) {
+function clusterRadiusForNodes(
+  nodes,
+  density = PHYSICS_DEFAULTS.density,
+  spacing = PHYSICS_DEFAULTS.spacing,
+) {
   if (!nodes.length) return CLUSTER_MIN_RADIUS;
   const occupied = nodes.reduce((sum, node) => {
-    const radius = node.targetRadius + NODE_GAP + 2;
+    const radius = node.targetRadius + NODE_GAP * spacing + 2;
     return sum + Math.PI * radius * radius;
   }, Math.PI * (HUB_RADIUS + 18) ** 2);
-  const packed = Math.sqrt(occupied / (Math.PI * CLUSTER_PACKING_DENSITY));
+  const packed = Math.sqrt(occupied / (Math.PI * density));
   return Math.max(CLUSTER_MIN_RADIUS, packed + CLUSTER_PADDING);
 }
 
@@ -229,6 +275,9 @@ export class TokenUniverseView {
     this.canvas = null;
     this.context = null;
     this.launchpadControls = null;
+    this.physicsToggle = null;
+    this.physicsPanel = null;
+    this.physicsControlRefs = new Map();
     this.status = null;
     this.resizeObserver = null;
 
@@ -261,6 +310,7 @@ export class TokenUniverseView {
 
     this.marketRange = null;
     this.liquidityRange = null;
+    this.physics = { ...PHYSICS_DEFAULTS };
   }
 
   init() {
@@ -289,6 +339,18 @@ export class TokenUniverseView {
       "<span><strong>Spoke</strong> holders on focus</span>",
     ].join("");
 
+    this.physicsToggle = document.createElement("button");
+    this.physicsToggle.type = "button";
+    this.physicsToggle.className = "token-universe-physics-toggle";
+    this.physicsToggle.textContent = "Physics";
+    this.physicsToggle.setAttribute("aria-expanded", "false");
+    this.physicsToggle.addEventListener("click", () => {
+      const open = this.physicsPanel?.hidden !== false;
+      if (this.physicsPanel) this.physicsPanel.hidden = !open;
+      this.physicsToggle?.classList.toggle("active", open);
+      this.physicsToggle?.setAttribute("aria-expanded", String(open));
+    });
+
     const reset = document.createElement("button");
     reset.type = "button";
     reset.className = "token-universe-reset";
@@ -298,13 +360,16 @@ export class TokenUniverseView {
     this.status = document.createElement("span");
     this.status.className = "token-universe-status";
 
-    controls.append(launchpadGroup, semantics, reset, this.status);
+    controls.append(launchpadGroup, semantics, this.physicsToggle, reset, this.status);
 
     this.canvas = document.createElement("canvas");
     this.canvas.className = "token-universe-canvas";
     this.canvas.setAttribute("aria-label", "Launchpad-centered active token universe");
     this.canvas.tabIndex = 0;
     this.context = this.canvas.getContext("2d");
+
+    this.physicsPanel = this.#buildPhysicsPanel();
+    this.physicsPanel.hidden = true;
 
     const legend = document.createElement("div");
     legend.className = "token-universe-legend";
@@ -317,7 +382,7 @@ export class TokenUniverseView {
       "<span>Scroll = zoom · drag = pan</span>",
     ].join("");
 
-    this.root.append(this.canvas, controls, legend);
+    this.root.append(this.canvas, controls, this.physicsPanel, legend);
     this.stageElement.replaceChildren(this.root);
     this.#bindCanvas();
 
@@ -332,6 +397,114 @@ export class TokenUniverseView {
     this.ageTimer = window.setInterval(() => {
       for (const launchpad of this.knownLaunchpads) this.#activateCluster(launchpad);
     }, AGE_TICK_MS);
+  }
+
+  #buildPhysicsPanel() {
+    const panel = document.createElement("div");
+    panel.className = "token-universe-physics-panel";
+
+    const heading = document.createElement("div");
+    heading.className = "token-universe-physics-heading";
+    const title = document.createElement("span");
+    title.textContent = "Physics";
+    const restore = document.createElement("button");
+    restore.type = "button";
+    restore.className = "token-universe-physics-reset";
+    restore.textContent = "Reset";
+    restore.addEventListener("click", () => this.#resetPhysicsSettings());
+    heading.append(title, restore);
+    panel.append(heading);
+
+    for (const spec of PHYSICS_CONTROLS) {
+      const row = document.createElement("div");
+      row.className = "token-universe-physics-row";
+
+      const label = document.createElement("label");
+      label.className = "token-universe-physics-label";
+      label.textContent = spec.label;
+
+      const minus = document.createElement("button");
+      minus.type = "button";
+      minus.className = "token-universe-physics-step";
+      minus.textContent = "−";
+      minus.setAttribute("aria-label", `Decrease ${spec.label}`);
+
+      const input = document.createElement("input");
+      input.type = "range";
+      input.className = "token-universe-physics-range";
+      input.min = String(spec.min);
+      input.max = String(spec.max);
+      input.step = String(spec.step);
+      input.value = String(this.physics[spec.key]);
+      input.setAttribute("aria-label", spec.label);
+
+      const plus = document.createElement("button");
+      plus.type = "button";
+      plus.className = "token-universe-physics-step";
+      plus.textContent = "+";
+      plus.setAttribute("aria-label", `Increase ${spec.label}`);
+
+      const value = document.createElement("output");
+      value.className = "token-universe-physics-value";
+      value.textContent = spec.format(this.physics[spec.key]);
+
+      const apply = next => this.#setPhysicsSetting(spec.key, next);
+      input.addEventListener("input", () => apply(Number(input.value)));
+      minus.addEventListener("click", () => apply(this.physics[spec.key] - spec.step));
+      plus.addEventListener("click", () => apply(this.physics[spec.key] + spec.step));
+
+      this.physicsControlRefs.set(spec.key, { input, value, spec });
+      row.append(label, minus, input, plus, value);
+      panel.append(row);
+    }
+
+    const note = document.createElement("div");
+    note.className = "token-universe-physics-note";
+    note.textContent = "Session-only · changes re-energize the live layout";
+    panel.append(note);
+    return panel;
+  }
+
+  #setPhysicsSetting(key, rawValue) {
+    const ref = this.physicsControlRefs.get(key);
+    if (!ref || !Number.isFinite(rawValue)) return;
+    const { spec } = ref;
+    const stepped = Math.round(rawValue / spec.step) * spec.step;
+    const next = Math.max(spec.min, Math.min(spec.max, stepped));
+    this.physics[key] = Number(next.toFixed(6));
+    ref.input.value = String(this.physics[key]);
+    ref.value.textContent = spec.format(this.physics[key]);
+
+    if (key === "spacing" || key === "density") this.#refreshClusterTargets();
+    else this.#energizeUniverse();
+  }
+
+  #resetPhysicsSettings() {
+    for (const spec of PHYSICS_CONTROLS) {
+      this.physics[spec.key] = PHYSICS_DEFAULTS[spec.key];
+      const ref = this.physicsControlRefs.get(spec.key);
+      if (!ref) continue;
+      ref.input.value = String(this.physics[spec.key]);
+      ref.value.textContent = spec.format(this.physics[spec.key]);
+    }
+    this.#refreshClusterTargets();
+  }
+
+  #refreshClusterTargets() {
+    for (const hub of this.hubs.values()) {
+      const nodes = [...this.nodes.values()].filter(node => node.launchpad === hub.launchpad);
+      hub.targetRadius = clusterRadiusForNodes(
+        nodes,
+        this.physics.density,
+        this.physics.spacing,
+      );
+    }
+    this.#energizeUniverse();
+  }
+
+  #energizeUniverse() {
+    for (const launchpad of this.knownLaunchpads) this.#activateCluster(launchpad);
+    this.#scheduleFrame();
   }
 
   render({ tokens, selectedMint, events = [] }) {
@@ -396,6 +569,7 @@ export class TokenUniverseView {
     this.root?.remove();
     this.nodes.clear();
     this.hubs.clear();
+    this.physicsControlRefs.clear();
     this.root = null;
   }
 
@@ -536,7 +710,11 @@ export class TokenUniverseView {
     const clusterSpecs = [...preparedByLaunchpad].map(([launchpad, nodes]) => ({
       launchpad,
       count: nodes.length,
-      radius: clusterRadiusForNodes(nodes),
+      radius: clusterRadiusForNodes(
+        nodes,
+        this.physics.density,
+        this.physics.spacing,
+      ),
     }));
     this.#ensureHubLayout(clusterSpecs, retiringLaunchpads);
 
@@ -793,7 +971,7 @@ export class TokenUniverseView {
     const previousTimestamp = this.lastPhysicsAt || timestamp - FRAME_MS;
     const step = Math.max(0.25, Math.min(MAX_FRAME_STEP, (timestamp - previousTimestamp) / FRAME_MS));
     this.lastPhysicsAt = timestamp;
-    const damping = VELOCITY_DAMPING ** step;
+    const damping = this.physics.glide ** step;
     let boundsChanged = false;
 
     for (const launchpad of [...this.activeLaunchpads]) {
@@ -836,7 +1014,7 @@ export class TokenUniverseView {
 
         const preferred = preferredRadialDistance(node, hub, timestamp);
         if (preferred != null) {
-          const force = (preferred - distance) * AGE_SPRING;
+          const force = (preferred - distance) * AGE_SPRING * this.physics.ageGravity;
           node.fx += nx * force;
           node.fy += ny * force;
         }
@@ -866,7 +1044,8 @@ export class TokenUniverseView {
               let dx = node.x - other.x;
               let dy = node.y - other.y;
               let distance = Math.hypot(dx, dy);
-              const minimum = node.radius + other.radius + collisionGap(node, other);
+              const minimum = node.radius + other.radius
+                + collisionGap(node, other, this.physics.spacing);
               if (distance >= minimum) continue;
               if (distance < 0.001) {
                 const angle = unitHash(`${node.mint}:${other.mint}`) * Math.PI * 2;
