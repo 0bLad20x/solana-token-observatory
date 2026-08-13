@@ -22,6 +22,13 @@ const MARKET_HIGH_QUANTILE = 0.995;
 const LIQUIDITY_HIGH_QUANTILE = 0.98;
 const MARKET_CHANGE_VISIBLE = 0.03;
 const MARKET_CHANGE_STRONG = 0.10;
+const DAY_SECONDS = 24 * 60 * 60;
+const CORE_AGE_DAYS = 30;
+const AGE_SCALE_DAYS = 0.25;
+const CORE_AGE_SECONDS = CORE_AGE_DAYS * DAY_SECONDS;
+const AGE_SCALE_SECONDS = AGE_SCALE_DAYS * DAY_SECONDS;
+const CORE_RADIAL_FRACTION = 0.26;
+const AGE_RADIAL_SPREAD_FRACTION = 0.24;
 
 function finitePositive(value) {
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -34,6 +41,10 @@ function hashString(value) {
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
+}
+
+function unitHash(value) {
+  return hashString(value) / 0xffffffff;
 }
 
 function percentile(sorted, fraction) {
@@ -69,6 +80,14 @@ function radiusFromMarket(value, range) {
   const score = normalizedLog(value, range);
   if (score == null) return null;
   return NODE_RADIUS_MIN + (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * (score ** 1.45);
+}
+
+function freshnessFromAge(ageSeconds) {
+  if (!Number.isFinite(ageSeconds) || ageSeconds < 0) return null;
+  if (ageSeconds >= CORE_AGE_SECONDS) return 0;
+  const normalized = Math.log1p(ageSeconds / AGE_SCALE_SECONDS)
+    / Math.log1p(CORE_AGE_SECONDS / AGE_SCALE_SECONDS);
+  return Math.max(0, Math.min(1, 1 - normalized));
 }
 
 function buildHolderScale(tokens) {
@@ -149,16 +168,35 @@ function packClusters(specs) {
   return placed;
 }
 
-function anchorForNode(node, hub, slot, total) {
-  const usable = Math.max(20, hub.radius - HUB_RADIUS - node.targetRadius - 18);
-  const normalized = Math.sqrt((slot + 0.65) / Math.max(1, total + 0.5));
+function anchorForNode(node, hub, slot) {
+  const inner = HUB_RADIUS + node.targetRadius + 12;
+  const outer = Math.max(inner + 1, hub.radius - node.targetRadius - 9);
+  const span = Math.max(1, outer - inner);
   const phase = (hashString(node.launchpad) % 360) * Math.PI / 180;
-  const mintJitter = ((hashString(node.mint) % 1000) / 1000 - 0.5) * 0.38;
-  const angle = phase + slot * GOLDEN_ANGLE + mintJitter;
-  const radial = Math.min(
-    usable,
-    HUB_RADIUS + 24 + normalized * Math.max(0, usable - HUB_RADIUS - 24),
-  );
+  const angleJitter = (unitHash(`${node.mint}:angle`) - 0.5) * 0.52;
+  const angle = phase + slot * GOLDEN_ANGLE + angleJitter;
+  const radialNoise = unitHash(`${node.mint}:radial`);
+
+  let radial;
+  if (node.ageFreshness == null) {
+    // Unknown age must not be silently interpreted as either fresh or established.
+    radial = inner + Math.sqrt(radialNoise) * span;
+  } else if (node.ageFreshness === 0) {
+    // 30d+ tokens share one established core area. Their exact age no longer
+    // increases radial separation: 60d and 600d both belong to the same core.
+    const coreSpan = span * CORE_RADIAL_FRACTION;
+    radial = inner + Math.sqrt(radialNoise) * coreSpan;
+  } else {
+    // Age defines a preferred radial neighborhood, not a fixed orbit. The
+    // deterministic spread prevents equal-age tokens from forming a thin ring.
+    const spread = Math.min(span, Math.max(12, span * AGE_RADIAL_SPREAD_FRACTION));
+    const halfSpread = spread / 2;
+    const centerMin = inner + halfSpread;
+    const centerMax = Math.max(centerMin, outer - halfSpread);
+    const preferred = centerMin + node.ageFreshness * (centerMax - centerMin);
+    radial = preferred + (radialNoise - 0.5) * spread;
+  }
+
   return {
     x: hub.x + Math.cos(angle) * radial,
     y: hub.y + Math.sin(angle) * radial,
@@ -229,7 +267,8 @@ export class TokenUniverseView {
     semantics.className = "token-universe-semantics";
     semantics.innerHTML = [
       "<span><strong>Size</strong> market cap</span>",
-      "<span><strong>Halo</strong> liquidity</span>",
+      "<span><strong>Distance</strong> age · fresh outside</span>",
+      "<span><strong>Liquidity</strong> on focus</span>",
       "<span><strong>Spoke</strong> holders on focus</span>",
     ].join("");
 
@@ -254,7 +293,8 @@ export class TokenUniverseView {
     legend.className = "token-universe-legend";
     legend.innerHTML = [
       "<span>Bubble radius = robust log market cap</span>",
-      "<span>Liquidity = outer halo</span>",
+      "<span>Distance = log age · 30d+ established core</span>",
+      "<span>Liquidity = focus halo</span>",
       "<span>MC change = directed transition</span>",
       "<span>Retirement = red exit</span>",
       "<span>Scroll = zoom · drag = pan</span>",
@@ -475,6 +515,7 @@ export class TokenUniverseView {
           launchpad,
           targetRadius: radius ?? NODE_RADIUS_MIN,
           missingMarketCap: radius == null,
+          ageFreshness: freshnessFromAge(token.age_seconds),
           liquidityScore: normalizedLog(token.liquidity, this.liquidityRange),
           holderScore: holderScale(token.holders),
         };
@@ -494,12 +535,11 @@ export class TokenUniverseView {
       const hub = this.hubs.get(launchpad);
       if (!hub) continue;
       const slots = this.slots.get(launchpad);
-      const total = prepared.length;
 
       for (const item of prepared) {
         const previous = previousNodes.get(item.mint);
         const slot = slots?.get(item.mint) || 0;
-        const anchor = anchorForNode(item, hub, slot, total);
+        const anchor = anchorForNode(item, hub, slot);
         const event = eventByMint.get(item.mint);
         const isAdded = event?.type === "token_added" || !previous;
         const rawMarketChange = previous
@@ -511,13 +551,10 @@ export class TokenUniverseView {
         const strongMarketChange = visibleMarketChange
           && Math.abs(rawMarketChange) >= MARKET_CHANGE_STRONG;
 
-        let x = previous?.x ?? anchor.x;
-        let y = previous?.y ?? anchor.y;
-        if (isAdded && !previous) {
-          const phase = (hashString(item.mint) % 360) * Math.PI / 180;
-          x = hub.x + Math.cos(phase) * (HUB_RADIUS + 12);
-          y = hub.y + Math.sin(phase) * (HUB_RADIUS + 12);
-        }
+        // New tokens appear directly in their age-appropriate neighborhood. They
+        // no longer travel from the hub through the established core to the edge.
+        const x = previous?.x ?? anchor.x;
+        const y = previous?.y ?? anchor.y;
 
         const fromRadius = isAdded
           ? Math.max(1, item.targetRadius * 0.3)
@@ -866,7 +903,7 @@ export class TokenUniverseView {
       const hovered = node.mint === this.hoverMint;
       const appearance = node.transitionType === "token_added" && hasTransition ? progress : 1;
 
-      if (node.liquidityScore != null) {
+      if ((selected || hovered) && node.liquidityScore != null) {
         const haloRadius = radius + 2.5 + node.liquidityScore * 5.5;
         context.beginPath();
         context.arc(node.x, node.y, haloRadius, 0, Math.PI * 2);
@@ -1064,7 +1101,7 @@ export class TokenUniverseView {
     context.font = `${Math.max(7, 8.7 / this.viewport.k)}px Inter, system-ui, sans-serif`;
     context.fillText(`MC ${money(node.token.market_cap)}`, node.x, node.y + 8 / this.viewport.k);
 
-    if ((force && this.viewport.k >= 1.05) || screenRadius >= 38) {
+    if (force && this.viewport.k >= 1.05) {
       context.fillStyle = "#626c7e";
       context.font = `${Math.max(7, 8 / this.viewport.k)}px Inter, system-ui, sans-serif`;
       context.fillText(

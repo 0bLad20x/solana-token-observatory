@@ -44,13 +44,33 @@ test("user launchpad visibility is authoritative across later renders", () => {
   assert.doesNotMatch(viewSource, /selectedToken[\s\S]{0,180}enabledLaunchpads\.add/);
 });
 
-test("market cap owns bubble radius while liquidity remains a separate halo", () => {
+test("radial topology uses logarithmic age with a bounded established core", () => {
+  assert.match(viewSource, /CORE_AGE_DAYS = 30/);
+  assert.match(viewSource, /AGE_SCALE_DAYS = 0\.25/);
+  assert.match(viewSource, /freshnessFromAge/);
+  assert.match(viewSource, /Math\.log1p\(ageSeconds \/ AGE_SCALE_SECONDS\)/);
+  assert.match(viewSource, /ageFreshness: freshnessFromAge\(token\.age_seconds\)/);
+  assert.match(viewSource, /CORE_RADIAL_FRACTION/);
+  assert.match(viewSource, /AGE_RADIAL_SPREAD_FRACTION/);
+  assert.match(viewSource, /Distance = log age · 30d\+ established core/);
+  assert.doesNotMatch(viewSource, /Math\.sqrt\(\(slot \+ 0\.65\) \/ Math\.max\(1, total \+ 0\.5\)\)/);
+});
+
+test("market cap owns bubble radius while liquidity is contextual", () => {
   assert.match(viewSource, /radiusFromMarket/);
   assert.match(viewSource, /this\.marketRange/);
   assert.match(viewSource, /this\.liquidityRange/);
   assert.match(viewSource, /Bubble radius = robust log market cap/);
-  assert.match(viewSource, /Liquidity = outer halo/);
+  assert.match(viewSource, /Liquidity = focus halo/);
+  assert.match(viewSource, /\(selected \|\| hovered\) && node\.liquidityScore != null/);
+  assert.doesNotMatch(viewSource, /Liquidity = outer halo/);
   assert.doesNotMatch(viewSource, /Economic mix|SCALE_MODES/);
+});
+
+test("new tokens start in their temporal neighborhood instead of crossing the core", () => {
+  assert.match(viewSource, /const x = previous\?\.x \?\? anchor\.x/);
+  assert.match(viewSource, /const y = previous\?\.y \?\? anchor\.y/);
+  assert.doesNotMatch(viewSource, /Math\.cos\(phase\) \* \(HUB_RADIUS \+ 12\)/);
 });
 
 test("meaningful market-cap updates have directed visual semantics", () => {
