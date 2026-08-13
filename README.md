@@ -1,4 +1,4 @@
-# Jupiter Token Observatory
+# Solana Token Observatory
 
 **Ein Echtzeit-Beobachtungssystem für neu entstehende Solana-Tokens – von Discovery und hochfrequenter Jupiter-Beobachtung über explizite Lifecycle-Regeln bis zu einem read-only Observatory mit Live-Telemetry und LLM-gestützter Analyse.**
 
