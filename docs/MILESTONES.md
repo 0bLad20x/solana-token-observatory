@@ -118,19 +118,28 @@ Akzeptierter Stand:
 
 WP1 legt weder Bubble-Größen-/Cluster-Semantik noch Operational-Flow-Geometrie fest.
 
-### Visual WP2 — Analyst Focus Workspace (#34) — nächster Slice
+### Visual WP2 — Analyst Focus Workspace (#34 / PR #38) — abgeschlossen
 
-Als nächstes wird der Analyst als wichtigste aktive Interaktion aufgewertet:
+Der Analyst wurde lokal im realen Browser als primärer Research-Workspace akzeptiert, ohne Backend- oder Evidence-Semantik zu verändern.
 
-- klarer Focus-State innerhalb derselben Seite;
-- deutlich größere Lesefläche für Antworten;
-- LLM-Text, Tool-/Evidence-Metadaten und Quellen visuell getrennt;
-- lange Antworten zerstören nicht mehr die Sidebar-Geometrie;
-- keine neue Analyst-/Evidence-Semantik.
+Akzeptierter Stand:
 
-Die konkrete Focus-Mechanik wird im Browser-Prototyp entschieden. WP1 liefert dafür bereits die resize-/collapse-fähige Right-Context-Geometrie.
+- Analyst bleibt idle im Right Context;
+- `Focus` öffnet denselben Analyst als großen Research-Workspace über der Main Stage;
+- Submit öffnet Focus automatisch;
+- Close/Escape bringt denselben Zustand zurück, ohne Selection, Frage oder Antwort zu verlieren;
+- Current Data, Web, Temporal und RugCheck bleiben dieselben vier bewiesenen Scopes;
+- Selected-token Scopes zeigen Token-Identität und vollständigen Exact Mint;
+- User-Frage, LLM-Antwort und Evidence/Sources besitzen getrennte visuelle Hierarchie;
+- lange Antworten scrollen innerhalb des Research-Bereichs statt die Sidebar oder Seite zu verlängern;
+- Antwort ist kopierbar;
+- Markdown-artige Modellantworten werden über einen kleinen sicheren Subset-Renderer als Headings, Bold/Italic, Inline-Code, Listen, Trennlinien und Tabellen dargestellt;
+- der Renderer injiziert kein Modell-HTML über `innerHTML`;
+- Mermaid ist kein Bestandteil dieses Slices und bleibt nur bei einem späteren konkreten Diagramm-Use-Case relevant.
 
-### Visual WP3 — Launchpad Token Universe Bubble Map (#9)
+Der Scope-Wechsel darf das bisherige Ergebnis weiterhin löschen; WP2 führt bewusst keine Conversation-History oder Scope-History ein.
+
+### Visual WP3 — Launchpad Token Universe Bubble Map (#9) — nächster Slice
 
 Die konkrete V1-Frage ist definiert:
 
@@ -173,7 +182,6 @@ Die verwendeten Stock-/Referenzbilder sind keine Produktassets und kein 1:1-Ziel
 
 Folgende Fragen werden bewusst erst im zuständigen Browser-Prototyp entschieden:
 
-- Analyst Focus als Expand/Overlay/anderer minimaler Focus-State -> #34;
 - konkrete Main-Stage-Umschaltung zwischen Token Universe und Operational Flow -> bei Integration der ersten echten Main-Stage-View;
 - Bubble-Größenfunktion, Missing- und Outlier-Scale -> #9;
 - genaue Flow-Geometrie zwischen Layer- und Fan-in/Fan-out-Muster -> #35.
@@ -214,13 +222,14 @@ Große Dateien unter `analysis/` sind historische Research-Evidence und werden *
 
 ## Stop Condition dieses Checkpoints
 
-WP1 ist abgeschlossen, weil:
+WP2 ist abgeschlossen, weil:
 
-- die neue Shell im realen Browser lokal akzeptiert wurde;
-- Typografie, Search, Inspector und Right Context sichtbar verbessert sind;
-- Resize/Collapse funktionieren;
-- vollständige Mint-Adresse sichtbar und kopierbar ist;
-- Search, Selection, Analyst, Live Deltas und Telemetry funktional unverändert bleiben;
-- keine neue Domain-, Mutation-, Evidence- oder Presentation-Authority in den Functional Core eingeführt wurde.
+- Focus-Geometrie und Overlay-Größe im realen Browser akzeptiert wurden;
+- Close/Escape denselben Analyst-State in das Right Context zurückführt;
+- lange Temporal-Antworten lesbar im Focus-Workspace scrollen;
+- Markdown-Struktur einschließlich Headings, Inline-Formatierung, Listen, Trennlinien und Tabellen sichtbar korrekt gerendert wird;
+- Evidence/Sources vom LLM-Text getrennt bleiben;
+- Current Data, Web, Temporal und RugCheck funktional unverändert bleiben;
+- keine Conversation-History, neue Backend-Semantik oder neue Domain-/Mutation-Authority eingeführt wurde.
 
-Der nächste offene Visual-Slice ist WP2 / Issue #34.
+Der nächste offene Visual-Slice ist WP3 / Issue #9.

@@ -153,7 +153,23 @@ Visual WP1 etabliert die akzeptierte One-Screen-Shell:
 - bestehende Token-Fakten bleiben erhalten;
 - aktuelle Token-Kacheln und Telemetry-Karten sind weiterhin Visual-Proofs für spätere Bubble-/Flow-Slices.
 
-Die dunkle Solana-/Crypto-Farbwelt und der bestehende System-Font-Stack bleiben zunächst erhalten. Der nächste Visual-Slice ist der Analyst Focus Workspace.
+Die dunkle Solana-/Crypto-Farbwelt und der bestehende System-Font-Stack bleiben zunächst erhalten.
+
+### Analyst Focus Workspace
+
+Visual WP2 macht den Analyst zum primären Research-Workspace, ohne dessen Backend- oder Evidence-Semantik zu verändern:
+
+- derselbe Analyst lebt idle im Right Context und kann als großer Focus-Workspace über der Main Stage geöffnet werden;
+- Submit öffnet Focus automatisch; Close/Escape bringt denselben Zustand zurück;
+- Selection, Frage und Antwort bleiben beim Öffnen/Schließen erhalten;
+- Current Data, Web, Temporal und RugCheck bleiben dieselben vier Scopes;
+- User-Frage, LLM-Antwort und Evidence/Sources sind visuell getrennt;
+- lange Antworten scrollen innerhalb des Research-Bereichs;
+- Antworten können kopiert werden;
+- ein kleiner sicherer Markdown-Subset-Renderer stellt Headings, Bold/Italic, Inline-Code, Listen, Trennlinien und Tabellen dar, ohne Modell-HTML über `innerHTML` zu injizieren;
+- Mermaid/Diagramm-Rendering ist ausdrücklich kein Bestandteil von WP2.
+
+Der nächste Visual-Slice ist WP3: Token Universe Bubble Map.
 
 ## Live Operational Telemetry
 
@@ -237,12 +253,11 @@ Der vollständige RugCheck Token Report bleibt als Provider-Evidence verfügbar.
 
 ## Funktionale Observatory-Grenze
 
-Der Functional Core ist abgeschlossen. Live Telemetry ergänzt Observability, und Visual WP1 ergänzt ausschließlich Presentation; beide führen keine neue Domain- oder Mutation-Authority ein.
+Der Functional Core ist abgeschlossen. Live Telemetry ergänzt Observability; Visual WP1 und WP2 ergänzen ausschließlich Presentation und führen keine neue Domain- oder Mutation-Authority ein.
 
 Die weiteren Visual-Slices sind bewusst getrennt:
 
 ```text
-WP2 Analyst Focus
 WP3 Token Universe Bubble Map
 WP4 Operational Flow
 ```

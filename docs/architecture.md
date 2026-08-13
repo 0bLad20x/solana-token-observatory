@@ -170,7 +170,8 @@ static/js/
 ├── activity.js            derived live signals
 ├── token-ui.js            Search + Inspector DOM
 ├── activity-ui.js         Activity DOM
-├── analyst-ui.js          Analyst interaction
+├── analyst-ui.js          Analyst interaction + focus presentation
+├── markdown.js            safe Analyst Markdown-subset rendering
 ├── telemetry-ui.js        volatile operational telemetry projection
 └── views/
     └── simple-token-view.js
@@ -209,6 +210,20 @@ operational telemetry proof
 - bestehende Token-Fakten bleiben erhalten.
 - Panelbreite, Collapse-State und andere Layoutwerte sind Presentation State, keine Domain Truth.
 - aktuelle Token-Kacheln und Telemetry-Karten bleiben Visual-Proofs; Bubble Map und Operational Flow werden in eigenen Slices definiert.
+
+### Analyst Focus WP2
+
+Visual WP2 ergänzt ebenfalls ausschließlich Presentation und wurde lokal im realen Browser akzeptiert.
+
+- derselbe Analyst bleibt idle im Right Context und wird im Focus-State als großer Research-Workspace über der Main Stage dargestellt;
+- es gibt keinen zweiten Analyst-State, keine zweite Route und keine Conversation-Persistenz;
+- Submit öffnet Focus automatisch; Close/Escape stellt denselben UI-Zustand wieder im Right Context dar;
+- User-Frage, LLM-Antwort und Evidence/Sources besitzen getrennte visuelle Bereiche;
+- lange Antworten scrollen innerhalb des Research-Bereichs;
+- Antwort ist kopierbar;
+- `markdown.js` rendert einen kleinen sicheren Markdown-Subset über explizite DOM-Nodes und injiziert kein Modell-HTML;
+- Current Data, Web, Temporal und RugCheck behalten ihre bestehenden Backend-/Evidence-Verträge;
+- Mermaid oder andere Diagramm-Renderer sind kein Bestandteil dieses Presentation-Slices.
 
 ## 8. Observatory Synchronisationsvertrag
 
@@ -436,7 +451,7 @@ Read-only Functional Observatory
    └── RugCheck Evidence
 ```
 
-Visual WP1 ergänzt jetzt die akzeptierte One-Screen-Presentation-Shell. Der Functional Core bleibt eingefroren. Der nächste Visual-Slice ist Analyst Focus; Token Universe und Operational Flow folgen separat und müssen ihre Data-to-Visual-Semantik explizit definieren.
+Visual WP1 ergänzt die akzeptierte One-Screen-Presentation-Shell; Visual WP2 den akzeptierten Analyst-Focus-Workspace. Der Functional Core bleibt eingefroren. Der nächste Visual-Slice ist WP3 / Issue #9 Token Universe; Operational Flow folgt separat. Beide müssen ihre Data-to-Visual-Semantik explizit definieren.
 
 Der aktuelle Checkpoint steht in [`MILESTONES.md`](MILESTONES.md).
 
