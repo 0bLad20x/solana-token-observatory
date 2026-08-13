@@ -150,8 +150,6 @@ function renderDerivedState(now = Date.now()) {
 }
 
 function syncFlowPopulation() {
-  // Read the already-canonical browser population. This does not create a second
-  // state owner; it only keeps the visual Tracking reservoir aligned with ACTIVE.
   telemetryUI.setActiveCount(state.values().length);
 }
 
@@ -202,8 +200,6 @@ async function bootstrap() {
   analystUI.sync(false);
   setPrimaryMode("universe");
 
-  // Functional streams are established before the optional WP4 presentation.
-  // A visual rendering failure must never take the canonical population offline.
   connectUniverseStream({
     onOpen: () => setStreamStatus("live", "Live"),
     onError: () => setStreamStatus("error", "Reconnecting"),
@@ -218,7 +214,6 @@ async function bootstrap() {
     onEvent: event => telemetryUI.apply(event),
   });
 
-  // Presentation initialization is intentionally isolated from the functional core.
   ensureOperationalFlow().catch(() => {});
 }
 
