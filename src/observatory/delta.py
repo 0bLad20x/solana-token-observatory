@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 DELTA_NUMERIC_FIELDS = (

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import functools
 import time
 from pathlib import Path

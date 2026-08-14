@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import time
 import traceback
@@ -18,7 +16,8 @@ CACHE_REFRESH_SECONDS = 5.0
 FLUSH_INTERVAL_SECONDS = 2.0
 FLUSH_SIZE_THRESHOLD = 500
 QUEUE_MAX_SIZE = 10_000
-
+HARD_REQUEST_DEADLINE_SECONDS = 15.0
+LANE_RESTART_DELAY_SECONDS = 1.0
 
 class MintCache:
     def __init__(self, repository: MintRepository, priority: int) -> None:
@@ -193,91 +192,115 @@ async def key_lane(
     request_times: deque[float] = deque()
 
     await cursor.wait_ready()
+
     if startup_delay_seconds > 0:
         await asyncio.sleep(startup_delay_seconds)
 
-    async with httpx.AsyncClient(
-        base_url=settings.jupiter_base_url,
-        timeout=settings.request_timeout_seconds,
-    ) as client:
-        while True:
-            started = time.monotonic()
+    while True:
+        try:
+            async with httpx.AsyncClient(
+                base_url=settings.jupiter_base_url,
+                timeout=settings.request_timeout_seconds,
+            ) as client:
 
-            try:
-                batch = await cursor.next_batch()
+                while True:
+                    started = time.monotonic()
 
-                if batch:
-                    request_started = time.monotonic()
+                    try:
+                        batch = await cursor.next_batch()
 
-                    request_times.append(request_started)
-                    cutoff = request_started - 60.0
-                    while request_times and request_times[0] < cutoff:
-                        request_times.popleft()
+                        if batch:
+                            request_started = time.monotonic()
 
-                    response = await client.get(
-                        "/tokens/v2/search",
-                        params={"query": ",".join(batch)},
-                        headers={"x-api-key": api_key},
+                            request_times.append(request_started)
+                            cutoff = request_started - 60.0
+                            while request_times and request_times[0] < cutoff:
+                                request_times.popleft()
+
+                            async with asyncio.timeout(
+                                HARD_REQUEST_DEADLINE_SECONDS
+                            ):
+                                response = await client.get(
+                                    "/tokens/v2/search",
+                                    params={"query": ",".join(batch)},
+                                    headers={"x-api-key": api_key},
+                                )
+
+                            latency_ms = (
+                                time.monotonic() - request_started
+                            ) * 1000
+
+                            if response.status_code == 200:
+                                tokens = response.json()
+
+                                await writer.submit(
+                                    tokens,
+                                    datetime.now(timezone.utc),
+                                )
+
+                                print(
+                                    f"[{label}] "
+                                    f"requested={len(batch)} "
+                                    f"received={len(tokens)} "
+                                    f"rpm60={len(request_times)} "
+                                    f"latency={latency_ms:.0f}ms"
+                                )
+
+                                if telemetry is not None:
+                                    telemetry.emit(
+                                        "search_lane_tick",
+                                        lane=label,
+                                        status=response.status_code,
+                                        requested=len(batch),
+                                        received=len(tokens),
+                                        rpm60=len(request_times),
+                                        latency_ms=round(latency_ms),
+                                    )
+
+                            else:
+                                retry_after = response.headers.get(
+                                    "retry-after", "?"
+                                )
+
+                                print(
+                                    f"[{label}] FEHLER "
+                                    f"status={response.status_code} "
+                                    f"requested={len(batch)} "
+                                    f"retry_after={retry_after} "
+                                    f"body={response.text[:200]!r}"
+                                )
+
+                    except TimeoutError:
+                        elapsed = (
+                            time.monotonic() - request_started
+                        )
+
+                        print(
+                            f"[{label}] HARD_TIMEOUT "
+                            f"after={elapsed:.1f}s "
+                            f"restarting_client"
+                        )
+
+                        # Wichtig:
+                        # inneren Loop verlassen.
+                        # async with schließt damit den HTTP-Client.
+                        break
+
+                    except Exception:
+                        traceback.print_exc()
+
+                    await asyncio.sleep(
+                        max(
+                            0.0,
+                            settings.jupiter_seconds_per_key
+                            - (time.monotonic() - started),
+                        )
                     )
-                    latency_ms = (time.monotonic() - request_started) * 1000
 
-                    if response.status_code == 200:
-                        tokens = response.json()
-                        await writer.submit(
-                            tokens,
-                            datetime.now(timezone.utc),
-                        )
+        except Exception:
+            traceback.print_exc()
 
-                        print(
-                            f"[{label}] "
-                            f"requested={len(batch)} "
-                            f"received={len(tokens)} "
-                            f"rpm60={len(request_times)} "
-                            f"latency={latency_ms:.0f}ms"
-                        )
-                        if telemetry is not None:
-                            telemetry.emit(
-                                "search_lane_tick",
-                                lane=label,
-                                status=response.status_code,
-                                requested=len(batch),
-                                received=len(tokens),
-                                rpm60=len(request_times),
-                                latency_ms=round(latency_ms),
-                            )
-                    else:
-                        retry_after = response.headers.get("retry-after", "?")
-                        print(
-                            f"[{label}] FEHLER "
-                            f"status={response.status_code} "
-                            f"requested={len(batch)} "
-                            f"retry_after={retry_after} "
-                            f"body={response.text[:200]!r}"
-                        )
-                        if telemetry is not None:
-                            telemetry.emit(
-                                "search_lane_tick",
-                                lane=label,
-                                status=response.status_code,
-                                requested=len(batch),
-                                received=0,
-                                rpm60=len(request_times),
-                                latency_ms=round(latency_ms),
-                            )
-
-            except Exception:
-                traceback.print_exc()
-
-            # Per-key rate only. There is intentionally no global sleep,
-            # population-size floor, in-flight guard, or cycle delay.
-            await asyncio.sleep(
-                max(
-                    0.0,
-                    settings.jupiter_seconds_per_key
-                    - (time.monotonic() - started),
-                )
-            )
-
+        await asyncio.sleep(LANE_RESTART_DELAY_SECONDS)
 
 async def refresh_system(
     settings: Settings,

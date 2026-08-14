@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import logging
 import os
@@ -36,7 +34,7 @@ STATIC_DIR = Path(__file__).with_name("static")
 
 load_dotenv(PROJECT_ROOT / ".env")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-STREAM_INTERVAL_SECONDS = float(os.getenv("FRONTEND_STREAM_INTERVAL_SECONDS", "2"))
+STREAM_INTERVAL_SECONDS = float(os.getenv("FRONTEND_STREAM_INTERVAL_SECONDS", "1"))
 RECENT_DISABLED_MINUTES = int(os.getenv("FRONTEND_RECENT_DISABLED_MINUTES", "5"))
 TELEMETRY_HOST = os.getenv("TELEMETRY_HOST", "127.0.0.1").strip() or "127.0.0.1"
 TELEMETRY_PORT = int(os.getenv("TELEMETRY_PORT", "8765"))

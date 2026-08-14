@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 MISTRAL_CONVERSATIONS_URL = "https://api.mistral.ai/v1/conversations"
