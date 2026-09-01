@@ -1,27 +1,83 @@
 # Solana Token Observatory
 
-**Ein Echtzeit-Beobachtungssystem für neu entstehende Solana-Tokens – von Discovery und hochfrequenter Jupiter-Beobachtung über explizite Lifecycle-Regeln bis zu einem read-only Observatory mit Live-Telemetry und LLM-gestützter Analyse.**
+**An end-to-end real-time monitoring and AI-assisted analysis system for newly emerging Solana tokens.**
+
+It discovers tokens from multiple live sources, continuously observes their state, persists meaningful source changes, applies explicit lifecycle rules to reduce the monitored population, and exposes the resulting state through an interactive read-only observatory with bounded LLM-assisted analysis.
 
 <p align="center">
-  <img src="docs/assets/observatory-universe.png" alt="Jupiter Token Observatory – Token Universe" width="100%">
+  <img src="docs/assets/observatory-universe.png" alt="Solana Token Observatory – Token Universe" width="100%">
 </p>
 
-## Vision
+## Why this project exists
 
-Neue Solana-Tokens entstehen schneller, als sie sinnvoll dauerhaft überwacht werden können. `solana-token-observatory` baut deshalb keinen vollständigen historischen Index und keinen Trading-Stack. Das System beantwortet eine engere Frage:
+New Solana tokens appear faster than they can be monitored meaningfully forever. Keeping every discovered token active indefinitely wastes API capacity, stores large amounts of low-value data, and makes current-state analysis harder.
 
-> **Welche Tokens sind gerade relevant genug, um weiter beobachtet zu werden – und wie lässt sich dieser laufende Zustand nachvollziehbar untersuchen?**
+This project therefore focuses on a narrower operational question:
 
-Dafür verbindet das Projekt vier operative Verantwortungen mit einer strikt read-only Analyseebene:
+> **Which tokens are still relevant enough to keep observing, and how can their current state be investigated transparently?**
 
-- **Discovery** nimmt neue Mint-Adressen aus PumpPortal, Jupiter Recent und Meteora auf.
-- **Observation** sampelt aktive Mints hochfrequent über Jupiter Tokens V2 Search.
-- **Persistence** bewahrt tatsächlich beobachtete Source-Versionen statt redundanter Poll-Kopien.
-- **Lifecycle** reduziert die aktive Population über explizite, versionierte Regeln.
-- **Observatory** projiziert den laufenden Zustand als Token Universe und Operational Flow.
-- **Analyst** ergänzt bounded LLM-Workflows für aktuelle Daten, zeitliche Entwicklung und externe Evidence.
+The system combines continuous observation, deterministic lifecycle automation, a read-only operational interface, and bounded LLM-assisted investigation. It is an observation and analysis system, not a trading stack or a complete historical market index.
 
-## Systemüberblick
+## What it does
+
+- **Discovers** new mint addresses from PumpPortal, Jupiter Recent, and Meteora.
+- **Observes** active mints continuously through Jupiter Tokens V2 Search.
+- **Persists** meaningful source-state changes instead of redundant poll copies.
+- **Applies lifecycle rules** that reduce the active population through explicit, versioned criteria.
+- **Projects current state** into an interactive Token Universe and operational flow view.
+- **Exposes runtime telemetry** for Discovery, Search, WriteQueue, Lifecycle, and Tracking activity.
+- **Adds LLM-assisted investigation** for current data, temporal summaries, web evidence, and RugCheck evidence.
+
+## What I built
+
+I designed and implemented the system end-to-end, including:
+
+- multi-source token discovery;
+- continuous API observation;
+- PostgreSQL persistence and snapshot semantics;
+- deterministic lifecycle automation;
+- backend and read-only data access;
+- interactive frontend state and visualization;
+- runtime telemetry;
+- LLM tool calling and web-assisted research;
+- bounded temporal and RugCheck analysis;
+- backend and frontend tests;
+- architecture, lifecycle, and frontend contracts.
+
+## AI-assisted development
+
+AI coding tools were used during implementation, analysis, and iteration.
+
+Project-level responsibilities remained explicit, including:
+
+- defining requirements and system boundaries;
+- making architecture decisions;
+- decomposing implementation work;
+- defining acceptance criteria;
+- reviewing generated implementations;
+- testing and validation;
+- rejecting or revising unsuitable approaches;
+- maintaining architectural consistency across iterations.
+
+## Project status
+
+The current repository contains working paths for:
+
+- [x] Multi-source discovery
+- [x] Continuous Jupiter observation
+- [x] PostgreSQL persistence
+- [x] Version-aware snapshot retention
+- [x] Deterministic lifecycle processing
+- [x] Interactive observatory
+- [x] Runtime telemetry
+- [x] LLM-assisted current-data analysis
+- [x] External web research
+- [x] Temporal analysis
+- [x] RugCheck evidence analysis
+- [x] Backend tests
+- [x] Frontend contract tests
+
+## System overview
 
 ```mermaid
 flowchart LR
@@ -75,9 +131,9 @@ flowchart LR
     X[Web Search / RugCheck] --> A
 ```
 
-### Ein Poll ist kein Snapshot
+### A poll is not a snapshot
 
-Der Collector ist ein **Beobachtungssystem**, kein klassischer Datenbank-Synchronizer. Vor einem Request ist unbekannt, ob Jupiter inzwischen eine neue Source-Version besitzt. Deshalb sind wiederholte HTTP-Beobachtungen beabsichtigt.
+The collector is an **observation system**, not a conventional database synchronizer. Before a request, the system does not know whether Jupiter has published a new source version. Repeated HTTP observations are therefore intentional.
 
 ```text
 successful poll
@@ -87,59 +143,59 @@ successful poll
                                  last_changed_at advances
 ```
 
-Diese Trennung ist zentral: Netzwerkbeobachtung darf redundant sein; persistierte Source-Versionen sollen es nicht sein.
+This distinction is central to the design: network observation may be redundant, while persisted source versions should not be.
 
 ## Token Universe
 
-Das Token Universe ist die räumliche Projektion der aktuell aktiven Population. Es besitzt keine eigene Domain-Truth: Position, Größe, Farbe und Motion sind Presentation; Mint, Marktwerte, Timestamps und Tracking-State stammen aus der kanonischen read-only Projektion.
+The Token Universe is a spatial projection of the currently active population. It does not own domain truth: position, size, color, and motion are presentation concerns, while mint identity, market values, timestamps, and tracking state come from the canonical read-only projection.
 
-Der Browser hält genau **eine aktive Population** und genau **einen gemeinsamen `selectedMint`**. Search, Inspector, Universe und Analyst arbeiten auf diesem gemeinsamen Zustand.
+The browser maintains exactly one active population and one shared `selectedMint`. Search, Inspector, Universe, and Analyst operate on that shared state.
 
-## Live Dataflow
+## Live dataflow
 
 <p align="center">
   <img src="docs/assets/system-dataflow.gif" alt="Operational Flow – live data processing" width="100%">
 </p>
 
-Der Operational Flow macht die ausgeführte Arbeit sichtbar: Discovery, Admission, Search, WriteQueue, Lifecycle und Tracking werden aus flüchtiger Runtime-Telemetry dargestellt. Diese Telemetry ist bewusst best-effort, RAM-basiert und besitzt keine operative Authority.
+The Operational Flow visualizes executed work across Discovery, Admission, Search, WriteQueue, Lifecycle, and Tracking using ephemeral runtime telemetry. This telemetry is intentionally best-effort and RAM-based; it does not own operational truth.
 
 ## Analyst
 
 <p align="center">
-  <img src="docs/assets/analyst-search.png" alt="Jupiter Token Observatory – Analyst" width="100%">
+  <img src="docs/assets/analyst-search.png" alt="Solana Token Observatory – Analyst" width="100%">
 </p>
 
-Der Analyst ist ein bounded, read-only Consumer. Er besitzt vier getrennte Use Cases:
+The Analyst is a bounded, read-only consumer with four separate use cases:
 
-| Scope | Aufgabe |
+| Scope | Responsibility |
 |---|---|
-| `current_data` | aktuelle aktive Population über ein begrenztes Query-Tool untersuchen |
-| `web` | externe Web-Evidence, gebunden an die exakte Mint-Adresse |
-| `temporal` | deterministischen `<=24h` Temporal Summary interpretieren |
-| `rugcheck` | RugCheck-Evidence getrennt von Projektion und LLM-Interpretation analysieren |
+| `current_data` | inspect the current active population through a bounded query tool |
+| `web` | collect external web evidence bound to the exact mint address |
+| `temporal` | interpret a deterministic `<=24h` temporal summary |
+| `rugcheck` | analyze RugCheck evidence separately from projection and LLM interpretation |
 
-LLM-Antworten sind Interpretation, keine System Truth und niemals ein operativer Lifecycle-Trigger.
+LLM responses are interpretation, not system truth, and never act as an operational lifecycle trigger.
 
-## Datenmodell
+## Data model
 
-| Struktur | Verantwortung |
+| Structure | Responsibility |
 |---|---|
-| `mints` | Mint-Identität, Collector-Timestamps, Tracking- und Disable-State |
-| `mint_snapshots` | immutable, tatsächlich beobachtete Jupiter-Source-Versionen im 24h-Raw-Buffer |
-| `lifecycle_rule_state` | monotone Scan-Cursor für Lifecycle-Regeln, die historische Snapshot-Evidence abarbeiten |
+| `mints` | mint identity, collector timestamps, tracking state, and disable state |
+| `mint_snapshots` | immutable Jupiter source versions actually observed within the 24h raw buffer |
+| `lifecycle_rule_state` | monotonic scan cursors for lifecycle rules processing historical snapshot evidence |
 
-Wichtige Zeitbegriffe:
+Important time concepts:
 
-- `first_observed_at` — erste persistierte Jupiter-Source-Version;
-- `last_polled_at` — letzter erfolgreicher Jupiter-Search-Poll;
-- `last_changed_at` — lokale Beobachtungszeit der jüngsten neuen Source-Version;
-- `source_updated_at` — jüngster persistierter Jupiter-`updatedAt`-Wert.
+- `first_observed_at` — first persisted Jupiter source version;
+- `last_polled_at` — latest successful Jupiter Search poll;
+- `last_changed_at` — local observation time of the most recent new source version;
+- `source_updated_at` — latest persisted Jupiter `updatedAt` value.
 
-`missing` oder `unknown` wird niemals stillschweigend als numerische Null interpretiert.
+`missing` or `unknown` is never silently interpreted as numeric zero.
 
 ## Runtime
 
-Das System besteht bewusst aus drei separaten Laufzeitpfaden:
+The system intentionally has three separate runtime paths:
 
 ```text
 Collector        python src/main.py run
@@ -147,19 +203,19 @@ Lifecycle        python src/lifecycle_clean.py --apply
 Observatory      python src/frontend.py
 ```
 
-Der Collector besitzt Discovery, Jupiter Observation, Persistence und 24h Snapshot-Retention. Der Lifecycle ist der einzige fachliche Hard-Retire-Pfad. Das Observatory bleibt read-only.
+The Collector owns Discovery, Jupiter Observation, Persistence, and 24h snapshot retention. Lifecycle is the only domain-level hard-retire path. The Observatory remains read-only.
 
-## Voraussetzungen
+## Requirements
 
 - **Python 3.14**
 - **PostgreSQL** — [Download](https://www.postgresql.org/download/)
-- **Jupiter API Key(s)** — [Jupiter Developer Portal](https://developers.jup.ag/portal)
-  - benötigt für `JUPITER_SEARCH_API_KEYS`
-  - optional separater Key für `JUPITER_RECENT_API_KEY`
-- **PumpPortal API Key** — für die entsprechende Discovery-Quelle
-- **Mistral API Key** — [Mistral Console](https://console.mistral.ai/)
-  - in der Console unter **API Keys** erstellen
-  - benötigt für `MISTRAL_API_KEY`
+- **Jupiter API key(s)** — [Jupiter Developer Portal](https://developers.jup.ag/portal)
+  - required for `JUPITER_SEARCH_API_KEYS`
+  - optional separate key for `JUPITER_RECENT_API_KEY`
+- **PumpPortal API key** — required for the corresponding discovery source
+- **Mistral API key** — [Mistral Console](https://console.mistral.ai/)
+  - create it under **API Keys**
+  - required for `MISTRAL_API_KEY`
 
 ## Installation
 
@@ -171,45 +227,45 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Danach die lokalen Zugangsdaten in `.env` eintragen. `.env` wird nicht committed.
+Add local credentials to `.env`. The file is ignored by Git and must not be committed.
 
-## Inbetriebnahme
+## Run the system
 
-Schema initialisieren:
+Initialize the schema:
 
 ```powershell
 python src/main.py init-schema
 ```
 
-Collector starten:
+Start the Collector:
 
 ```powershell
 python src/main.py run
 ```
 
-Lifecycle zunächst einmalig als Dry-Run prüfen:
+Inspect Lifecycle once in dry-run mode:
 
 ```powershell
 python src/lifecycle_clean.py --once
 ```
 
-Lifecycle operativ starten:
+Start Lifecycle in operational mode:
 
 ```powershell
 python src/lifecycle_clean.py --apply
 ```
 
-Observatory starten:
+Start the Observatory:
 
 ```powershell
 python src/frontend.py
 ```
 
-Standardmäßig ist das Observatory unter `http://127.0.0.1:8000` erreichbar.
+By default, the Observatory is available at `http://127.0.0.1:8000`.
 
-## Validierung
+## Verification
 
-Python-Core und Contracts:
+Python core and contracts:
 
 ```powershell
 python -m compileall -q src tools
@@ -219,20 +275,20 @@ python src/main.py --help
 python src/lifecycle_clean.py --help
 ```
 
-Frontend-Verträge:
+Frontend contracts:
 
 ```powershell
 $tests = Get-ChildItem tests\*.mjs | ForEach-Object { $_.FullName }
 node --test $tests
 ```
 
-## Dokumentation
+## Documentation
 
-Die dauerhafte Dokumentation besitzt genau eine Authority pro Frage:
+Each durable document owns one class of technical questions:
 
-- [`docs/architecture.md`](docs/architecture.md) — technische Architektur, Datenfluss und Ownership;
-- [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) — exakte Rule-1–7-Lifecycle-Semantik;
-- [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md) — Observatory-, Synchronisations-, Telemetry- und Analyst-Vertrag;
-- [`AGENTS.md`](AGENTS.md) — verbindliche Regeln für Repository-Änderungen.
+- [`docs/architecture.md`](docs/architecture.md) — technical architecture, data flow, and ownership;
+- [`docs/LIFECYCLE_CONTRACT.md`](docs/LIFECYCLE_CONTRACT.md) — exact Rule 1–7 lifecycle semantics;
+- [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md) — Observatory, synchronization, telemetry, and Analyst contracts;
+- [`AGENTS.md`](AGENTS.md) — repository rules for changes and agent-assisted development.
 
-Die drei README-Medien liegen unter [`docs/assets/`](docs/assets/). Offene Arbeit wird in GitHub Issues geführt; die Änderungshistorie gehört in Git.
+README media assets live under [`docs/assets/`](docs/assets/). Open work is tracked in GitHub Issues; implementation history belongs in Git.
