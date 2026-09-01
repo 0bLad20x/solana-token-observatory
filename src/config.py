@@ -40,7 +40,8 @@ class Settings:
         load_dotenv(dotenv_path=Path.cwd() / ".env")
         search_keys = [
             key.strip()
-            for key in _required("JUPITER_SEARCH_API_KEYS").splitlines()
+            for line in _required("JUPITER_SEARCH_API_KEYS").splitlines()
+            for key in line.split(",")
             if key.strip()
         ]
         return cls(
