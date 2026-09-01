@@ -1,5 +1,7 @@
 # Solana Token Observatory
 
+[![Verification](https://github.com/0bLad20x/solana-token-observatory/actions/workflows/verify.yml/badge.svg)](https://github.com/0bLad20x/solana-token-observatory/actions/workflows/verify.yml)
+
 **An end-to-end real-time monitoring and AI-assisted analysis system for newly emerging Solana tokens.**
 
 It discovers tokens from multiple live sources, continuously observes their state, persists meaningful source changes, applies explicit lifecycle rules to reduce the monitored population, and exposes the resulting state through an interactive read-only observatory with bounded LLM-assisted analysis.
@@ -265,22 +267,41 @@ By default, the Observatory is available at `http://127.0.0.1:8000`.
 
 ## Verification
 
-Python core and contracts:
+The repository has an automated GitHub Actions verification workflow. Every pull request and every push to `main` executes deterministic software gates on a clean runner.
+
+### Automated Python verification
 
 ```powershell
 python -m compileall -q src tools
 python -m unittest discover -s tests -v
-python tools/verify_lifecycle_contract_v01.py
 python src/main.py --help
 python src/lifecycle_clean.py --help
 ```
 
-Frontend contracts:
+### Automated frontend contracts
 
 ```powershell
 $tests = Get-ChildItem tests\*.mjs | ForEach-Object { $_.FullName }
 node --test $tests
 ```
+
+On Unix-like systems, the same frontend suite can be run with:
+
+```bash
+node --test tests/*.mjs
+```
+
+The automated workflow verifies source compilation, Python tests, CLI entry points, and frontend contract tests.
+
+### Database-backed lifecycle equivalence check
+
+The lifecycle equivalence verifier is intentionally separate from CI because it reads a configured PostgreSQL database under a repeatable-read transaction. With a valid local `.env` and database state, run:
+
+```powershell
+python tools/verify_lifecycle_contract_v01.py
+```
+
+Live provider calls, real credentials, database-backed equivalence checks, and an operational PostgreSQL runtime are therefore not presented as deterministic CI evidence. They remain explicit runtime/integration concerns.
 
 ## Documentation
 
