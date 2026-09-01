@@ -114,15 +114,26 @@ class WriteQueue:
         last_flush = time.monotonic()
 
         while True:
-            timeout = max(
-                0.0,
-                FLUSH_INTERVAL_SECONDS - (time.monotonic() - last_flush),
-            )
-            try:
-                tokens, observed_at = await asyncio.wait_for(
-                    self._queue.get(),
-                    timeout=timeout,
+            tokens: list[dict] | None
+            observed_at: datetime | None
+
+            if not versions:
+                tokens, observed_at = await self._queue.get()
+            else:
+                timeout = max(
+                    0.0,
+                    FLUSH_INTERVAL_SECONDS - (time.monotonic() - last_flush),
                 )
+                try:
+                    tokens, observed_at = await asyncio.wait_for(
+                        self._queue.get(),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    tokens = None
+                    observed_at = None
+
+            if tokens is not None and observed_at is not None:
                 buffered_polls += len(tokens)
 
                 for token in tokens:
@@ -137,10 +148,10 @@ class WriteQueue:
                     elif observed_at > existing["_last_polled_at"]:
                         existing["_last_polled_at"] = observed_at
 
-            except asyncio.TimeoutError:
-                pass
-
-            by_time = time.monotonic() - last_flush >= FLUSH_INTERVAL_SECONDS
+            by_time = (
+                bool(versions)
+                and time.monotonic() - last_flush >= FLUSH_INTERVAL_SECONDS
+            )
             by_size = buffered_polls >= FLUSH_SIZE_THRESHOLD
 
             if versions and (by_time or by_size):
