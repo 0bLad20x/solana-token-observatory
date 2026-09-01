@@ -267,19 +267,18 @@ By default, the Observatory is available at `http://127.0.0.1:8000`.
 
 ## Verification
 
-The repository has an automated GitHub Actions verification workflow. Every pull request and every push to `main` executes the deterministic software gates below on a clean runner.
+The repository has an automated GitHub Actions verification workflow. Every pull request and every push to `main` executes deterministic software gates on a clean runner.
 
-### Python core and contracts
+### Automated Python verification
 
 ```powershell
 python -m compileall -q src tools
 python -m unittest discover -s tests -v
-python tools/verify_lifecycle_contract_v01.py
 python src/main.py --help
 python src/lifecycle_clean.py --help
 ```
 
-### Frontend contracts
+### Automated frontend contracts
 
 ```powershell
 $tests = Get-ChildItem tests\*.mjs | ForEach-Object { $_.FullName }
@@ -292,7 +291,17 @@ On Unix-like systems, the same frontend suite can be run with:
 node --test tests/*.mjs
 ```
 
-The automated workflow verifies source compilation, Python tests, the lifecycle contract, CLI entry points, and frontend contract tests. Live provider calls, real credentials, and an operational PostgreSQL instance are intentionally outside this deterministic CI boundary; they remain runtime/integration concerns rather than being presented as CI evidence.
+The automated workflow verifies source compilation, Python tests, CLI entry points, and frontend contract tests.
+
+### Database-backed lifecycle equivalence check
+
+The lifecycle equivalence verifier is intentionally separate from CI because it reads a configured PostgreSQL database under a repeatable-read transaction. With a valid local `.env` and database state, run:
+
+```powershell
+python tools/verify_lifecycle_contract_v01.py
+```
+
+Live provider calls, real credentials, database-backed equivalence checks, and an operational PostgreSQL runtime are therefore not presented as deterministic CI evidence. They remain explicit runtime/integration concerns.
 
 ## Documentation
 
