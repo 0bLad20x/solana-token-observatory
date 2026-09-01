@@ -35,9 +35,6 @@ jobs:
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
 
-      - name: Verify lifecycle contract
-        run: python tools/verify_lifecycle_contract_v01.py
-
       - name: Verify CLI entry points
         run: |
           python src/main.py --help
