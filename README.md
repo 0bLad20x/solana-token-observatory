@@ -1,83 +1,95 @@
 # Solana Token Observatory
 
-[![Verification](https://github.com/0bLad20x/solana-token-observatory/actions/workflows/verify.yml/badge.svg)](https://github.com/0bLad20x/solana-token-observatory/actions/workflows/verify.yml)
+[![CI](https://github.com/0bLad20x/solana-token-observatory/actions/workflows/verify.yml/badge.svg)](https://github.com/0bLad20x/solana-token-observatory/actions/workflows/verify.yml)
 
-**An end-to-end real-time monitoring and AI-assisted analysis system for newly emerging Solana tokens.**
+**Discover → observe → filter → investigate emerging Solana tokens in real time.**
 
-It discovers tokens from multiple live sources, continuously observes their state, persists meaningful source changes, applies explicit lifecycle rules to reduce the monitored population, and exposes the resulting state through an interactive read-only observatory with bounded LLM-assisted analysis.
+New Solana tokens appear faster than any monitor can follow forever. This project turns that stream into a smaller, explainable working set: it discovers mints from multiple live sources, records meaningful source-version changes, retires weak tracking targets with deterministic lifecycle rules, and exposes the survivors through an interactive Observatory with bounded AI-assisted research.
 
 <p align="center">
   <img src="docs/assets/observatory-universe.png" alt="Solana Token Observatory – Token Universe" width="100%">
 </p>
 
-## Why this project exists
+<p align="center"><em>Token Universe — an explorable projection of the currently active token population.</em></p>
 
-New Solana tokens appear faster than they can be monitored meaningfully forever. Keeping every discovered token active indefinitely wastes API capacity, stores large amounts of low-value data, and makes current-state analysis harder.
+> The project is an observation and research system. It does not execute trades, make investment decisions, or use LLM output as an operational lifecycle trigger.
 
-This project therefore focuses on a narrower operational question:
+## Why this exists
 
-> **Which tokens are still relevant enough to keep observing, and how can their current state be investigated transparently?**
+**Discovery is easy. Continuous observation is the hard part.**
 
-The system combines continuous observation, deterministic lifecycle automation, a read-only operational interface, and bounded LLM-assisted investigation. It is an observation and analysis system, not a trading stack or a complete historical market index.
+A new mint can appear in seconds, but many newly discovered tokens quickly become inactive, stagnant, or otherwise low-value to keep polling. If every discovered mint stays active forever, API capacity is spent on noise, storage fills with redundant observations, and useful current-state analysis becomes harder.
 
-## What it does
+The project therefore asks a narrower engineering question:
 
-- **Discovers** new mint addresses from PumpPortal, Jupiter Recent, and Meteora.
-- **Observes** active mints continuously through Jupiter Tokens V2 Search.
-- **Persists** meaningful source-state changes instead of redundant poll copies.
-- **Applies lifecycle rules** that reduce the active population through explicit, versioned criteria.
-- **Projects current state** into an interactive Token Universe and operational flow view.
-- **Exposes runtime telemetry** for Discovery, Search, WriteQueue, Lifecycle, and Tracking activity.
-- **Adds LLM-assisted investigation** for current data, temporal summaries, web evidence, and RugCheck evidence.
+> **Which tokens are still worth observing, and how can their current state be investigated without losing the evidence behind that decision?**
 
-## What I built
+That leads to a deliberately split design:
 
-I designed and implemented the system end-to-end, including:
+- continuous discovery finds new candidates;
+- observation records what external sources actually publish;
+- deterministic lifecycle rules decide what remains actively tracked;
+- the Observatory presents current state without owning domain truth;
+- LLM-assisted tools interpret evidence but do not control lifecycle decisions.
 
-- multi-source token discovery;
-- continuous API observation;
-- PostgreSQL persistence and snapshot semantics;
-- deterministic lifecycle automation;
-- backend and read-only data access;
-- interactive frontend state and visualization;
-- runtime telemetry;
-- LLM tool calling and web-assisted research;
-- bounded temporal and RugCheck analysis;
-- backend and frontend tests;
-- architecture, lifecycle, and frontend contracts.
+## What you can explore
 
-## AI-assisted development
+| Area | What it lets you inspect |
+|---|---|
+| **Token Universe** | the currently active population as an interactive spatial view |
+| **Operational Flow** | live Discovery, Search, WriteQueue, Lifecycle, and Tracking activity |
+| **Inspector / Search** | the selected token and its current projected state |
+| **Analyst** | bounded current-data queries, temporal summaries, exact-mint web research, and RugCheck evidence |
 
-AI coding tools were used during implementation, analysis, and iteration.
+The system is interesting less as a "token picker" than as a **high-churn observation pipeline**: entities arrive continuously, external state changes asynchronously, storage should preserve meaningful source versions rather than every poll, and the active population has to stay bounded enough to remain useful.
 
-Project-level responsibilities remained explicit, including:
+## From discovery to investigation
 
-- defining requirements and system boundaries;
-- making architecture decisions;
-- decomposing implementation work;
-- defining acceptance criteria;
-- reviewing generated implementations;
-- testing and validation;
-- rejecting or revising unsuitable approaches;
-- maintaining architectural consistency across iterations.
+```text
+PumpPortal / Jupiter Recent / Meteora
+                ↓
+          mint admission
+                ↓
+       continuous Jupiter Search
+                ↓
+    version-aware PostgreSQL storage
+                ↓
+      deterministic lifecycle rules
+                ↓
+       read-only Observatory
+                ↓
+ current / temporal / web / RugCheck analysis
+```
 
-## Project status
+A token can enter through discovery, gain observed source state, accumulate meaningful source-version evidence, remain active or be retired by explicit rules, and be investigated through the same read-only projection used by the UI.
 
-The current repository contains working paths for:
+## What makes the design interesting
 
-- [x] Multi-source discovery
-- [x] Continuous Jupiter observation
-- [x] PostgreSQL persistence
-- [x] Version-aware snapshot retention
-- [x] Deterministic lifecycle processing
-- [x] Interactive observatory
-- [x] Runtime telemetry
-- [x] LLM-assisted current-data analysis
-- [x] External web research
-- [x] Temporal analysis
-- [x] RugCheck evidence analysis
-- [x] Backend tests
-- [x] Frontend contract tests
+### A poll is not a snapshot
+
+The collector is an **observation system**, not a conventional database synchronizer. Before a request, the system does not know whether Jupiter has published a new source version. Repeated HTTP observations are therefore intentional; redundant persisted copies are not.
+
+```text
+successful poll
+    ├── same Jupiter updatedAt  -> last_polled_at advances
+    │                            no redundant snapshot
+    └── new Jupiter updatedAt   -> persist snapshot
+                                 last_changed_at advances
+```
+
+This keeps network observation semantics separate from persisted source-version history.
+
+### Lifecycle decisions stay deterministic
+
+Lifecycle rules operate on explicit data and rule semantics. LLM output is interpretation only. This prevents an analysis response from silently becoming system authority.
+
+### Presentation does not own truth
+
+The Token Universe, Inspector, search state, and Analyst all consume a read-only projection. Bubble position, motion, sizing, and other UI concerns are presentation; canonical identity, timestamps, tracking state, and market values come from the underlying projection.
+
+### Telemetry is intentionally ephemeral
+
+The Operational Flow uses best-effort RAM telemetry to show what the runtime is doing now. Telemetry helps explain execution, but it is not treated as durable operational truth.
 
 ## System overview
 
@@ -133,41 +145,31 @@ flowchart LR
     X[Web Search / RugCheck] --> A
 ```
 
-### A poll is not a snapshot
+## Inside the Observatory
 
-The collector is an **observation system**, not a conventional database synchronizer. Before a request, the system does not know whether Jupiter has published a new source version. Repeated HTTP observations are therefore intentional.
+### Token Universe
 
-```text
-successful poll
-    ├── same Jupiter updatedAt  -> last_polled_at advances
-    │                            no redundant snapshot
-    └── new Jupiter updatedAt   -> persist snapshot
-                                 last_changed_at advances
-```
+The Token Universe is a spatial projection of the active population. The browser maintains one shared `selectedMint`, so Search, Inspector, Universe, and Analyst remain synchronized around the same selected token.
 
-This distinction is central to the design: network observation may be redundant, while persisted source versions should not be.
+The hero image above shows this active working set rather than a historical market index.
 
-## Token Universe
-
-The Token Universe is a spatial projection of the currently active population. It does not own domain truth: position, size, color, and motion are presentation concerns, while mint identity, market values, timestamps, and tracking state come from the canonical read-only projection.
-
-The browser maintains exactly one active population and one shared `selectedMint`. Search, Inspector, Universe, and Analyst operate on that shared state.
-
-## Live dataflow
+### Operational Flow
 
 <p align="center">
   <img src="docs/assets/system-dataflow.gif" alt="Operational Flow – live data processing" width="100%">
 </p>
 
-The Operational Flow visualizes executed work across Discovery, Admission, Search, WriteQueue, Lifecycle, and Tracking using ephemeral runtime telemetry. This telemetry is intentionally best-effort and RAM-based; it does not own operational truth.
+<p align="center"><em>Runtime telemetry makes the data path visible while Discovery, Search, persistence, and Lifecycle work concurrently.</em></p>
 
-## Analyst
+The flow is intentionally explanatory rather than authoritative: its events are ephemeral, while durable system state remains in PostgreSQL.
+
+### Analyst
 
 <p align="center">
   <img src="docs/assets/analyst-search.png" alt="Solana Token Observatory – Analyst" width="100%">
 </p>
 
-The Analyst is a bounded, read-only consumer with four separate use cases:
+<p align="center"><em>The Analyst works against bounded evidence scopes instead of receiving unrestricted access to operational state.</em></p>
 
 | Scope | Responsibility |
 |---|---|
@@ -176,9 +178,7 @@ The Analyst is a bounded, read-only consumer with four separate use cases:
 | `temporal` | interpret a deterministic `<=24h` temporal summary |
 | `rugcheck` | analyze RugCheck evidence separately from projection and LLM interpretation |
 
-LLM responses are interpretation, not system truth, and never act as an operational lifecycle trigger.
-
-## Data model
+## Data model and time semantics
 
 | Structure | Responsibility |
 |---|---|
@@ -195,9 +195,62 @@ Important time concepts:
 
 `missing` or `unknown` is never silently interpreted as numeric zero.
 
+## What this architecture can enable
+
+The current project already establishes a reusable pattern:
+
+```text
+high-volume discovery
+→ version-aware observation
+→ deterministic population reduction
+→ read-only investigation
+```
+
+That foundation could support additional evidence sources, alerting, cohort comparisons, survivor-focused metadata, or other bounded research views without requiring the LLM layer to become operational authority.
+
+The same pattern is also broader than tokens: it applies to systems where entities arrive continuously, upstream state changes asynchronously, and only a changing subset deserves continued observation.
+
+These are **natural extensions of the current architecture, not implemented features**.
+
+## What I built
+
+I designed and implemented the system end-to-end, including:
+
+- multi-source token discovery;
+- continuous API observation;
+- PostgreSQL persistence and source-version snapshot semantics;
+- deterministic lifecycle automation;
+- backend and read-only data access;
+- interactive frontend state and visualization;
+- runtime telemetry;
+- LLM tool calling and web-assisted research;
+- bounded temporal and RugCheck analysis;
+- backend and frontend tests;
+- architecture, lifecycle, and frontend contracts.
+
+## Current scope
+
+The current repository contains working paths for:
+
+- [x] Multi-source discovery
+- [x] Continuous Jupiter observation
+- [x] PostgreSQL persistence
+- [x] Version-aware snapshot retention
+- [x] Deterministic lifecycle processing
+- [x] Interactive Observatory
+- [x] Runtime telemetry
+- [x] LLM-assisted current-data analysis
+- [x] External web research
+- [x] Temporal analysis
+- [x] RugCheck evidence analysis
+- [x] Backend tests
+- [x] Frontend contract tests
+
+It is intentionally **not** a trading engine, automated execution system, investment-advice product, or complete historical market index.
+
 ## Runtime
 
-The system intentionally has three separate runtime paths:
+The system has three separate runtime paths:
 
 ```text
 Collector        python src/main.py run
@@ -212,12 +265,12 @@ The Collector owns Discovery, Jupiter Observation, Persistence, and 24h snapshot
 - **Python 3.14**
 - **PostgreSQL** — [Download](https://www.postgresql.org/download/)
 - **Jupiter API key(s)** — [Jupiter Developer Portal](https://developers.jup.ag/portal)
-  - required for `JUPITER_SEARCH_API_KEYS`
-  - optional separate key for `JUPITER_RECENT_API_KEY`
-- **PumpPortal API key** — required for the corresponding discovery source
+  - `JUPITER_SEARCH_API_KEYS` for Search observation;
+  - `JUPITER_RECENT_API_KEY` for Jupiter Recent discovery;
+- **PumpPortal API key** — required for the corresponding discovery source;
 - **Mistral API key** — [Mistral Console](https://console.mistral.ai/)
-  - create it under **API Keys**
-  - required for `MISTRAL_API_KEY`
+  - required for Analyst LLM features;
+- **Node.js 24** — only needed to run the frontend contract tests locally.
 
 ## Installation
 
@@ -229,7 +282,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Add local credentials to `.env`. The file is ignored by Git and must not be committed.
+Add local credentials to `.env`. The file is ignored by Git and must not be committed. Multiple `JUPITER_SEARCH_API_KEYS` are represented as a comma-separated value, matching `.env.example`.
 
 ## Run the system
 
@@ -265,11 +318,11 @@ python src/frontend.py
 
 By default, the Observatory is available at `http://127.0.0.1:8000`.
 
-## Verification
+## Quality and verification
 
-The repository has an automated GitHub Actions verification workflow. Every pull request and every push to `main` executes deterministic software gates on a clean runner.
+The GitHub Actions **CI** workflow runs deterministic repository checks on every pull request to `main` and every push to `main`.
 
-### Automated Python verification
+### Python checks
 
 ```powershell
 python -m compileall -q src tools
@@ -278,30 +331,45 @@ python src/main.py --help
 python src/lifecycle_clean.py --help
 ```
 
-### Automated frontend contracts
+### Frontend contracts
 
 ```powershell
 $tests = Get-ChildItem tests\*.mjs | ForEach-Object { $_.FullName }
 node --test $tests
 ```
 
-On Unix-like systems, the same frontend suite can be run with:
+On Unix-like systems:
 
 ```bash
 node --test tests/*.mjs
 ```
 
-The automated workflow verifies source compilation, Python tests, CLI entry points, and frontend contract tests.
+Core CI proves that the repository installs on a clean runner, source compilation succeeds, the Python test suite passes, CLI entry points load, and frontend contracts pass.
 
-### Database-backed lifecycle equivalence check
+### Database-backed lifecycle equivalence
 
-The lifecycle equivalence verifier is intentionally separate from CI because it reads a configured PostgreSQL database under a repeatable-read transaction. With a valid local `.env` and database state, run:
+The lifecycle equivalence verifier is intentionally separate from core CI because it reads a configured PostgreSQL database under a repeatable-read transaction:
 
 ```powershell
 python tools/verify_lifecycle_contract_v01.py
 ```
 
-Live provider calls, real credentials, database-backed equivalence checks, and an operational PostgreSQL runtime are therefore not presented as deterministic CI evidence. They remain explicit runtime/integration concerns.
+Live provider availability, real credentials, database-backed equivalence, and an operational PostgreSQL runtime are therefore not presented as deterministic CI evidence.
+
+## AI-assisted development
+
+AI coding tools were used during implementation, analysis, and iteration.
+
+Project-level responsibilities remained explicit, including:
+
+- defining requirements and system boundaries;
+- making architecture decisions;
+- decomposing implementation work;
+- defining acceptance criteria;
+- reviewing generated implementations;
+- testing and validation;
+- rejecting or revising unsuitable approaches;
+- maintaining architectural consistency across iterations.
 
 ## Documentation
 
@@ -312,4 +380,4 @@ Each durable document owns one class of technical questions:
 - [`docs/FRONTEND_OBSERVATORY.md`](docs/FRONTEND_OBSERVATORY.md) — Observatory, synchronization, telemetry, and Analyst contracts;
 - [`AGENTS.md`](AGENTS.md) — repository rules for changes and agent-assisted development.
 
-README media assets live under [`docs/assets/`](docs/assets/). Open work is tracked in GitHub Issues; implementation history belongs in Git.
+README media assets and capture guidance live under [`docs/assets/`](docs/assets/). Open work is tracked in GitHub Issues; implementation history belongs in Git.
