@@ -28,7 +28,7 @@ OBSERVE
 parallel rate-limit-aware Jupiter Search lanes
         ↓
 REMEMBER CHANGE
-persist distinct upstream source versions
+persist new upstream source versions
         ↓
 SELF-CURATE
 deterministic lifecycle rules
@@ -50,20 +50,19 @@ The core problem is not finding another mint. It is maintaining a useful working
 
 | Measured runtime window | Observed |
 |---|---:|
-| Jupiter Search API keys | **TBD** |
+| Search lanes observed | **TBD** |
 | New mints discovered | **TBD** |
-| Search requests | **TBD** |
-| Mint observations | **TBD** |
-| Distinct source versions persisted | **TBD** |
-| Redundant observations not persisted | **TBD** |
+| Successful Search requests | **TBD** |
+| Mint positions requested | **TBD** |
+| Mint observations received | **TBD** |
+| New source snapshots persisted | **TBD** |
+| Observations without a new persisted snapshot | **TBD** |
 | Tokens retired by lifecycle | **TBD** |
 | Active population at end of window | **TBD** |
 
-### A poll is not a snapshot
+Jupiter Search runs more frequently than upstream token state changes. That is intentional: the collector has to ask the source to learn whether anything changed. When a response carries a Jupiter `updatedAt` that is already known, observation state advances but persistence does not create another historical snapshot.
 
-Repeated observation is necessary because the collector cannot know whether an upstream token state changed before asking for it. Persistence is change-aware: observing the same Jupiter `updatedAt` again advances observation state but does not create another historical snapshot.
-
-The measured relationship between mint observations and distinct persisted source versions will make that difference visible here once the runtime counters are available.
+The measured relationship between received observations and newly persisted source versions will show how much live query volume represents unchanged or already-known upstream state.
 
 ## Explore the population
 
@@ -143,7 +142,7 @@ Multiple Jupiter API keys operate as independent, phase-shifted observation lane
 
 ### Change-aware history
 
-The collector distinguishes **seeing a token again** from **seeing a new source version**. Only distinct Jupiter source versions become historical snapshots.
+The collector distinguishes **seeing a token again** from **seeing a new source version**. Only newer Jupiter source versions become historical snapshots.
 
 ### Deterministic temporal context
 
@@ -254,6 +253,37 @@ python src/frontend.py
 
 The Observatory is available by default at `http://127.0.0.1:8000`.
 
+### Measure a runtime window
+
+The normal Observatory telemetry stays on port `8765`. An optional local mirror on `8766` lets a separate recorder aggregate the same event stream without changing PostgreSQL or the operational runtime.
+
+Ensure these values exist in `.env` before starting Collector and Lifecycle:
+
+```text
+TELEMETRY_MIRROR_HOST=127.0.0.1
+TELEMETRY_MIRROR_PORT=8766
+```
+
+Collector and Lifecycle read this configuration when their processes start. After adding or changing the mirror settings, **restart both processes** before starting a measurement window.
+
+Start the recorder first:
+
+```powershell
+python src/measurement_recorder.py --hours 1 --output measurements/runtime-1h.json
+```
+
+Then run Collector and Lifecycle normally in separate terminals. The Observatory can run at the same time because it continues to receive the primary telemetry stream on port `8765`.
+
+For a 24-hour measurement:
+
+```powershell
+python src/measurement_recorder.py --hours 24 --output measurements/runtime-24h.json
+```
+
+The recorder writes periodic atomic checkpoints, so the current aggregate remains inspectable while the window is running. `measurements/` is ignored by Git.
+
+The output is explicitly a **best-effort local telemetry aggregate**, not domain truth. Local UDP loss can undercount events; durable token and lifecycle state remains in PostgreSQL.
+
 ## Verification
 
 Core deterministic verification:
@@ -263,6 +293,7 @@ python -m compileall -q src tools
 python -m unittest discover -s tests -v
 python src/main.py --help
 python src/lifecycle_clean.py --help
+python src/measurement_recorder.py --help
 ```
 
 Frontend contracts:
