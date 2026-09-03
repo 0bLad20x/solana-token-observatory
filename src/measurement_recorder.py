@@ -246,6 +246,7 @@ async def record(
     )
 
     deadline = time.monotonic() + (hours * 3600.0)
+    warned_no_events = False
     print(
         f"[measurement] listening={host}:{port} "
         f"hours={hours:g} output={output}"
@@ -258,6 +259,14 @@ async def record(
                 break
             await asyncio.sleep(min(checkpoint_seconds, remaining))
             write_snapshot(accumulator, output)
+
+            if accumulator.events_received == 0 and not warned_no_events:
+                print(
+                    "[measurement] WARNING no telemetry received yet; "
+                    "ensure Collector/Lifecycle were restarted after setting "
+                    "TELEMETRY_MIRROR_PORT to this recorder port"
+                )
+                warned_no_events = True
     finally:
         transport.close()
         ended_at = _utc_now()
