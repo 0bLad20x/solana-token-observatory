@@ -25,5 +25,6 @@ node_modules/
 Thumbs.db
 
 data/
+measurements/
 docs/backend-memos/
 docs/observatory-memos/
