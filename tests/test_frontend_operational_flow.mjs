@@ -84,7 +84,7 @@ test("Lifecycle uses an observed gate sweep and compact retirement sink", () => 
 
 test("Tracking uses canonical ACTIVE while preserving last Lifecycle count as context", () => {
   assert.match(appSource, /syncFlowPopulation/);
-  assert.match(appSource, /telemetryUI\.setActiveCount\(state\.values\(\)\.length\)/);
+  assert.match(appSource, /telemetryUI\.setActiveCount\(state\.activeTokens\(\)\.length\)/);
   assert.match(telemetrySource, /activeCount: this\.activeCount/);
   assert.match(flowSource, /current Observatory ACTIVE/);
   assert.match(flowSource, /at last Lifecycle cycle/);
