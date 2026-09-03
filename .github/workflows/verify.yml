@@ -49,6 +49,7 @@ jobs:
         run: |
           python src/main.py --help
           python src/lifecycle_clean.py --help
+          python src/measurement_recorder.py --help
 
   frontend-contracts:
     name: Frontend contracts
