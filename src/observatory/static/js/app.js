@@ -132,6 +132,17 @@ function setPrimaryMode(mode) {
     toolbarNote.textContent = "Live population · search reaches every active token";
   }
 
+  if (flowVisible) {
+    toolbarLabel.textContent = "OPERATIONAL FLOW · LIVE";
+    toolbarNote.textContent = "Volatile runtime telemetry · particles are work pulses, not tokens";
+  } else if (pulseVisible) {
+    toolbarLabel.textContent = "MARKET PULSE · LIVE";
+    toolbarNote.textContent = "Rolling 5m market activity · 1s in-memory samples";
+  } else {
+    toolbarLabel.textContent = "TOKEN UNIVERSE · LIVE";
+    toolbarNote.textContent = "Live population · search reaches every active token";
+  }
+
   if (flowReady) telemetryUI.setVisible(flowVisible);
   if (universeVisible) renderView();
   if (pulseVisible) renderPulse();
@@ -163,7 +174,7 @@ function renderDerivedState(now = Date.now()) {
 }
 
 function syncFlowPopulation() {
-  telemetryUI.setActiveCount(state.values().length);
+  telemetryUI.setActiveCount(state.activeTokens().length);
 }
 
 function applySnapshot(snapshot) {
