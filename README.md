@@ -264,6 +264,8 @@ TELEMETRY_MIRROR_HOST=127.0.0.1
 TELEMETRY_MIRROR_PORT=8766
 ```
 
+Collector and Lifecycle read this configuration when their processes start. After adding or changing the mirror settings, **restart both processes** before starting a measurement window.
+
 Start the recorder first:
 
 ```powershell
