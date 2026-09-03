@@ -84,11 +84,24 @@ def validate_telemetry_event(event: Any) -> bool:
 class TelemetryEmitter:
     """Best-effort localhost UDP telemetry.
 
-    Telemetry is deliberately lossy and must never become an operational dependency.
+    The primary target powers the Observatory. An optional mirror target can
+    observe the same events for diagnostics or bounded measurement without
+    becoming an operational dependency.
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8765) -> None:
-        self._address = (host, port)
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8765,
+        mirror_host: str | None = None,
+        mirror_port: int | None = None,
+    ) -> None:
+        self._addresses = [(host, port)]
+        if mirror_port is not None:
+            mirror_address = (mirror_host or host, mirror_port)
+            if mirror_address not in self._addresses:
+                self._addresses.append(mirror_address)
+
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setblocking(False)
@@ -98,9 +111,20 @@ class TelemetryEmitter:
 
     @classmethod
     def from_env(cls) -> "TelemetryEmitter":
+        host = os.getenv("TELEMETRY_HOST", "127.0.0.1").strip() or "127.0.0.1"
+        mirror_port_text = os.getenv("TELEMETRY_MIRROR_PORT", "").strip()
+
         return cls(
-            host=os.getenv("TELEMETRY_HOST", "127.0.0.1").strip() or "127.0.0.1",
+            host=host,
             port=int(os.getenv("TELEMETRY_PORT", "8765")),
+            mirror_host=(
+                os.getenv("TELEMETRY_MIRROR_HOST", "").strip() or host
+            ),
+            mirror_port=(
+                int(mirror_port_text)
+                if mirror_port_text
+                else None
+            ),
         )
 
     def emit(self, event_type: str, **fields: Any) -> bool:
@@ -121,12 +145,20 @@ class TelemetryEmitter:
                 separators=(",", ":"),
                 allow_nan=False,
             ).encode("utf-8")
-            if len(payload) > 60_000:
-                return False
-            self._socket.sendto(payload, self._address)
-            return True
-        except (OSError, TypeError, ValueError):
+        except (TypeError, ValueError):
             return False
+
+        if len(payload) > 60_000:
+            return False
+
+        sent = False
+        for address in self._addresses:
+            try:
+                self._socket.sendto(payload, address)
+                sent = True
+            except OSError:
+                continue
+        return sent
 
     def close(self) -> None:
         if self._socket is not None:
