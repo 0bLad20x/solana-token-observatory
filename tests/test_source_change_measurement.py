@@ -83,6 +83,10 @@ class SourceChangeAccumulatorTests(unittest.TestCase):
             ended_at=at(20),
         )
         summary = accumulator.summary(ended_at=at(20))
+        targets = {
+            row["target_sweep_seconds"]: row
+            for row in summary["interval_targets"]
+        }
 
         self.assertEqual(summary["source_observed_mints_overlapping_window"], 2)
         self.assertEqual(summary["mints_without_new_source_version"], 1)
@@ -93,6 +97,10 @@ class SourceChangeAccumulatorTests(unittest.TestCase):
         self.assertAlmostEqual(
             accumulator.mints["A"].changes_per_active_hour or 0,
             180.0,
+        )
+        self.assertEqual(
+            targets[10.0]["mints_with_any_faster_interval_share_of_window_population"],
+            0.5,
         )
 
     def test_first_version_is_baseline_not_cross_window_interval(self) -> None:
@@ -106,6 +114,32 @@ class SourceChangeAccumulatorTests(unittest.TestCase):
         self.assertEqual(accumulator.mints["A"].source_versions, 1)
         self.assertEqual(accumulator.mints["A"].measured_intervals, 0)
         self.assertEqual(accumulator.global_histogram.total, 0)
+
+    def test_pre_2000_source_timestamp_is_invalid_not_interval_baseline(self) -> None:
+        accumulator = SourceChangeAccumulator(started_at=at(0))
+        accumulator.consume_row(
+            mint="A",
+            observed_at=at(1),
+            source_updated_at="0001-01-01T00:00:00+00:00",
+        )
+        accumulator.consume_row(
+            mint="A",
+            observed_at=at(2),
+            source_updated_at=at(2),
+        )
+        accumulator.consume_row(
+            mint="A",
+            observed_at=at(3),
+            source_updated_at=at(3),
+        )
+
+        summary = accumulator.summary(ended_at=at(4))
+        self.assertEqual(summary["rows_scanned"], 3)
+        self.assertEqual(summary["invalid_source_timestamps"], 1)
+        self.assertEqual(summary["observed_source_intervals"], 1)
+        self.assertEqual(accumulator.mints["A"].source_versions, 2)
+        self.assertEqual(accumulator.mints["A"].measured_intervals, 1)
+        self.assertAlmostEqual(accumulator.mints["A"].mean_interval_seconds or 0, 1.0)
 
 
 if __name__ == "__main__":
