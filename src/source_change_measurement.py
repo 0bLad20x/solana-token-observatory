@@ -51,7 +51,10 @@ def _ratio(numerator: int | float, denominator: int | float) -> float | None:
 def _percentile(sorted_values: list[float], fraction: float) -> float | None:
     if not sorted_values:
         return None
-    position = max(0.0, min(len(sorted_values) - 1, fraction * (len(sorted_values) - 1)))
+    position = max(
+        0.0,
+        min(len(sorted_values) - 1, fraction * (len(sorted_values) - 1)),
+    )
     lower = math.floor(position)
     upper = math.ceil(position)
     if lower == upper:
@@ -61,7 +64,11 @@ def _percentile(sorted_values: list[float], fraction: float) -> float | None:
 
 
 def _numeric_summary(values: Iterable[float]) -> dict[str, float | int | None]:
-    ordered = sorted(float(value) for value in values if math.isfinite(float(value)))
+    ordered = sorted(
+        converted
+        for value in values
+        if math.isfinite(converted := float(value))
+    )
     if not ordered:
         return {
             "count": 0,
@@ -89,6 +96,21 @@ def _numeric_summary(values: Iterable[float]) -> dict[str, float | int | None]:
         "max": ordered[-1],
         "mean": sum(ordered) / len(ordered),
     }
+
+
+def _target_label(seconds: float) -> str:
+    return f"{seconds:g}"
+
+
+def _csv_target_field(seconds: float) -> str:
+    return f"intervals_lt_{_target_label(seconds).replace('.', '_')}s"
+
+
+def _read_only_connection(database_url: str):
+    return psycopg.connect(
+        database_url,
+        options="-c default_transaction_read_only=on",
+    )
 
 
 @dataclass
@@ -248,7 +270,9 @@ class SourceChangeAccumulator:
 
     def apply_population_metadata(
         self,
-        rows: Iterable[tuple[str, str | None, str | None, datetime, datetime | None]],
+        rows: Iterable[
+            tuple[str, str | None, str | None, datetime, datetime | None]
+        ],
         *,
         ended_at: datetime,
     ) -> None:
@@ -259,12 +283,24 @@ class SourceChangeAccumulator:
             stats.name = name
             stats.symbol = symbol
             active_start = max(self.started_at, first_observed_at)
-            active_end = min(ended_at, disabled_at) if disabled_at is not None else ended_at
-            stats.active_seconds = max(0.0, (active_end - active_start).total_seconds())
+            active_end = (
+                min(ended_at, disabled_at)
+                if disabled_at is not None
+                else ended_at
+            )
+            stats.active_seconds = max(
+                0.0,
+                (active_end - active_start).total_seconds(),
+            )
         self.population_metadata_loaded = True
         self.source_observed_population_overlap = count
 
-    def _profile(self, stats: MintChangeStats, *, include_histogram: bool = False) -> dict[str, Any]:
+    def _profile(
+        self,
+        stats: MintChangeStats,
+        *,
+        include_histogram: bool = False,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "mint": stats.mint,
             "name": stats.name,
@@ -280,8 +316,16 @@ class SourceChangeAccumulator:
             "min_interval_seconds": stats.min_interval_seconds,
             "mean_interval_seconds": stats.mean_interval_seconds,
             "max_interval_seconds": stats.max_interval_seconds,
+            "min_interval_from": _iso(stats.min_interval_from),
+            "min_interval_to": _iso(stats.min_interval_to),
+            "max_interval_from": _iso(stats.max_interval_from),
+            "max_interval_to": _iso(stats.max_interval_to),
             "first_source_at": _iso(stats.first_source_at),
             "last_source_at": _iso(stats.last_source_at),
+            "interval_counts_below_target": {
+                _target_label(target): stats.histogram.count_below(target)
+                for target in CAPACITY_TARGET_SWEEPS_SECONDS
+            },
             "non_monotonic_versions": stats.non_monotonic_versions,
         }
         if include_histogram:
@@ -291,7 +335,9 @@ class SourceChangeAccumulator:
     def summary(self, ended_at: datetime | None = None) -> dict[str, Any]:
         current_end = ended_at or self.scanned_through
         profiles = list(self.mints.values())
-        interval_profiles = [item for item in profiles if item.measured_intervals > 0]
+        interval_profiles = [
+            item for item in profiles if item.measured_intervals > 0
+        ]
         total_intervals = self.global_histogram.total
 
         version_counts = [float(item.source_versions) for item in profiles]
@@ -313,7 +359,10 @@ class SourceChangeAccumulator:
                 {
                     "target_sweep_seconds": target,
                     "observed_intervals_faster_than_target": faster,
-                    "observed_intervals_faster_share": _ratio(faster, total_intervals),
+                    "observed_intervals_faster_share": _ratio(
+                        faster,
+                        total_intervals,
+                    ),
                     "mints_with_any_faster_interval": mints_faster,
                     "mints_with_any_faster_interval_share": _ratio(
                         mints_faster,
@@ -372,7 +421,9 @@ class SourceChangeAccumulator:
                 max(
                     0,
                     self.source_observed_population_overlap
-                    - sum(1 for item in profiles if item.source_versions > 0),
+                    - sum(
+                        1 for item in profiles if item.source_versions > 0
+                    ),
                 )
                 if self.population_metadata_loaded
                 else None
@@ -381,9 +432,15 @@ class SourceChangeAccumulator:
             "interval_histogram": self.global_histogram.snapshot(),
             "interval_targets": target_rows,
             "source_versions_per_mint": _numeric_summary(version_counts),
-            "changes_per_active_hour_per_mint": _numeric_summary(changes_per_hour),
-            "fastest_observed_mints": [self._profile(item) for item in fastest],
-            "highest_change_rate_mints": [self._profile(item) for item in most_active],
+            "changes_per_active_hour_per_mint": _numeric_summary(
+                changes_per_hour
+            ),
+            "fastest_observed_mints": [
+                self._profile(item) for item in fastest
+            ],
+            "highest_change_rate_mints": [
+                self._profile(item) for item in most_active
+            ],
             "largest_observed_change_gaps": [
                 self._profile(item) for item in largest_gaps
             ],
@@ -402,6 +459,11 @@ class SourceChangeAccumulator:
                     "interval_targets reports how much observed source-change "
                     "cadence is faster than each candidate full-population "
                     "sweep. It is not itself a missed-version simulation."
+                ),
+                "retention_strategy": (
+                    "Snapshot rows are scanned incrementally during the run so "
+                    "the analysis remains complete even though raw snapshots "
+                    "have a 24-hour retention window."
                 ),
             },
         }
@@ -434,7 +496,7 @@ class SourceChangeSampler:
             return 0
 
         scanned_before = self.accumulator.rows_scanned
-        with psycopg.connect(self.database_url) as connection:
+        with _read_only_connection(self.database_url) as connection:
             while True:
                 rows = connection.execute(
                     """
@@ -474,7 +536,7 @@ class SourceChangeSampler:
         return self.accumulator.rows_scanned - scanned_before
 
     def load_population_metadata(self, ended_at: datetime) -> int:
-        with psycopg.connect(self.database_url) as connection:
+        with _read_only_connection(self.database_url) as connection:
             rows = connection.execute(
                 """
                 SELECT mint, name, symbol, first_observed_at, disabled_at
@@ -509,12 +571,27 @@ class SourceChangeSampler:
             "min_interval_seconds",
             "mean_interval_seconds",
             "max_interval_seconds",
+            "min_interval_from",
+            "min_interval_to",
+            "max_interval_from",
+            "max_interval_to",
             "first_source_at",
             "last_source_at",
+            *[
+                _csv_target_field(target)
+                for target in CAPACITY_TARGET_SWEEPS_SECONDS
+            ],
             "non_monotonic_versions",
         ]
+
         with temporary.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(self.accumulator.per_mint_rows())
+            for payload in self.accumulator.per_mint_rows():
+                interval_counts = payload.pop("interval_counts_below_target")
+                for target in CAPACITY_TARGET_SWEEPS_SECONDS:
+                    payload[_csv_target_field(target)] = interval_counts[
+                        _target_label(target)
+                    ]
+                writer.writerow(payload)
         temporary.replace(output)
