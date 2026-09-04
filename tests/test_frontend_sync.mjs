@@ -82,6 +82,27 @@ test("population state has no arbitrary detail upsert path", () => {
   assert.equal(state.token("A").market_cap, 2);
 });
 
+test("flow population counts active tracking state rather than retained retired entries", () => {
+  const state = new ObservatoryState();
+  state.load([
+    { mint: "A", tracking_enabled: true },
+    { mint: "B", tracking_enabled: true },
+  ]);
+
+  state.applyEvent({
+    type: "token_retired",
+    token: { mint: "A", tracking_enabled: false },
+    reason: "test",
+  });
+
+  assert.equal(state.values().length, 2);
+  assert.equal(state.activeTokens().length, 1);
+  assert.match(
+    appSource,
+    /function syncFlowPopulation\(\) \{\s*telemetryUI\.setActiveCount\(state\.activeTokens\(\)\.length\);\s*\}/,
+  );
+});
+
 test("stream resync can clear incomplete derived activity", () => {
   const activity = new ActivityTracker();
   activity.applyEvent({

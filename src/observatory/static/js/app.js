@@ -163,7 +163,7 @@ function renderDerivedState(now = Date.now()) {
 }
 
 function syncFlowPopulation() {
-  telemetryUI.setActiveCount(state.values().length);
+  telemetryUI.setActiveCount(state.activeTokens().length);
 }
 
 function applySnapshot(snapshot) {
