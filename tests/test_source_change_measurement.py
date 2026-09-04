@@ -72,7 +72,7 @@ class SourceChangeAccumulatorTests(unittest.TestCase):
         accumulator.consume_row(
             mint="A",
             observed_at=at(11),
-            source_updated_at=at(11),
+            source_updated_at=at(10),
         )
 
         accumulator.apply_population_metadata(
