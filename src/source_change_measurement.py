@@ -4,7 +4,7 @@ import bisect
 import csv
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -25,17 +25,26 @@ INTERVAL_BOUNDS_SECONDS = (
 CAPACITY_TARGET_SWEEPS_SECONDS = (0.5, 1.0, 2.0, 5.0, 10.0)
 DEFAULT_QUERY_BATCH_SIZE = 50_000
 TOP_MINT_LIMIT = 20
+MIN_PLAUSIBLE_SOURCE_AT = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 
 def _parse_datetime(value: Any) -> datetime | None:
+    parsed: datetime
     if isinstance(value, datetime):
-        return value
-    if not isinstance(value, str) or not value:
+        parsed = value
+    elif isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
         return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+
+    if parsed.tzinfo is None:
         return None
+    if parsed.astimezone(timezone.utc) < MIN_PLAUSIBLE_SOURCE_AT:
+        return None
+    return parsed
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -368,6 +377,14 @@ class SourceChangeAccumulator:
                         mints_faster,
                         len(interval_profiles),
                     ),
+                    "mints_with_any_faster_interval_share_of_window_population": (
+                        _ratio(
+                            mints_faster,
+                            self.source_observed_population_overlap,
+                        )
+                        if self.population_metadata_loaded
+                        else None
+                    ),
                 }
             )
 
@@ -459,6 +476,11 @@ class SourceChangeAccumulator:
                     "interval_targets reports how much observed source-change "
                     "cadence is faster than each candidate full-population "
                     "sweep. It is not itself a missed-version simulation."
+                ),
+                "invalid_source_timestamp_semantics": (
+                    "Missing, naive or pre-2000 updatedAt values are treated as "
+                    "invalid/sentinel source timestamps and never form cadence "
+                    "intervals."
                 ),
                 "retention_strategy": (
                     "Snapshot rows are scanned incrementally during the run so "
