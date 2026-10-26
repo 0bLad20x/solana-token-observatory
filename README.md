@@ -44,20 +44,15 @@ The core problem is not finding another mint. It is maintaining a useful working
 
 ## Observation at scale
 
-<!-- TODO: replace TBD values with one clearly dated measured runtime window. -->
+The following are **historical operating observations**, not results from a single synchronized benchmark window:
 
-> Runtime numbers below are pending measurement. They will describe one explicit observation window rather than static project guarantees.
+| Observation | Value | Evidence |
+|---|---:|---|
+| Jupiter Search API keys | **45 distinct keys** | Key audit on 2026-09-23: 45 total, 45 unique, 0 duplicates; the Recent key was not among the Search keys |
+| Tokens observed per day | **approximately 40,000** | Operator-reported historical daily volume (2026-10-12); not a measured count of newly discovered tokens |
+| Documented per-key request cadence | **58 requests/minute** | Default in `.env.example`; configured target, not measured sustained throughput |
 
-| Measured runtime window | Observed |
-|---|---:|
-| Jupiter Search API keys | **TBD** |
-| New mints discovered | **TBD** |
-| Search requests | **TBD** |
-| Mint observations | **TBD** |
-| Distinct source versions persisted | **TBD** |
-| Redundant observations not persisted | **TBD** |
-| Tokens retired by lifecycle | **TBD** |
-| Active population at end of window | **TBD** |
+A single time-bounded runtime measurement for completed Search requests, mint observations, distinct source versions stored, redundant observations skipped, lifecycle retirements, and the active population at the end of the window is **not yet documented**. These figures are intentionally not inferred from API-key counts or configured rate limits.
 
 ### A poll is not a snapshot
 
