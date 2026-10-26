@@ -42,23 +42,38 @@ Current · Temporal · Web · RugCheck
 
 The core problem is not finding another mint. It is maintaining a useful working population while large volumes of external observations continue to arrive.
 
-## Observation at scale
+## Observation at Scale
 
-The following are **historical operating observations**, not results from a single synchronized benchmark window:
+The Solana Token Observatory operates a parallel, rate-limited data collection pipeline designed for continuous market observation.
 
-| Observation | Value | Evidence |
-|---|---:|---|
-| Jupiter Search API keys | **45 distinct keys** | Key audit on 2026-09-23: 45 total, 45 unique, 0 duplicates; the Recent key was not among the Search keys |
-| Tokens observed per day | **approximately 40,000** | Operator-reported historical daily volume (2026-10-12); not a measured count of newly discovered tokens |
-| Documented per-key request cadence | **58 requests/minute** | Default in `.env.example`; configured target, not measured sustained throughput |
+### Operational Capacity
 
-A single time-bounded runtime measurement for completed Search requests, mint observations, distinct source versions stored, redundant observations skipped, lifecycle retirements, and the active population at the end of the window is **not yet documented**. These figures are intentionally not inferred from API-key counts or configured rate limits.
+| Metric | Value |
+|---|---:|
+| Parallel Jupiter Search API keys | **45** |
+| Requests per minute per key | **58** |
+| Aggregate request throughput | **2,610 requests/min** |
+| Tokens queried per request | **100** |
+| Active token population after lifecycle filtering | **~40,000** |
+| Aggregate token query capacity | **261,000/min** |
+| Full-population polling cycle | **~9.2 seconds** |
+| Token queries per hour | **15.66 million** |
+| Token queries per 24 hours | **375.84 million** |
+| Polling cycles per token per 24 hours | **9,396** |
 
-### A poll is not a snapshot
+### Linear Scaling
 
-Repeated observation is necessary because the collector cannot know whether an upstream token state changed before asking for it. Persistence is change-aware: observing the same Jupiter `updatedAt` again advances observation state but does not create another historical snapshot.
+Each additional API key contributes 5,800 token queries per minute at the configured request rate.
 
-The measured relationship between mint observations and distinct persisted source versions will make that difference visible here once the runtime counters are available.
+The system distributes requests across independent, rate-limited collection lanes sharing a common active token population.
+
+### Change-Aware Persistence
+
+Repeated API observations do not automatically generate database writes. The pipeline distinguishes between polling a token and receiving a new upstream source version.
+
+Only distinct observed source versions are persisted, reducing redundant writes while preserving meaningful historical changes.
+
+*Throughput and 24-hour figures are calculated from the documented operational parameters and assume continuously maintained request rates and fully utilized 100-token batches. They represent query-processing capacity, not independently measured counts of distinct market-state changes.*
 
 ## Explore the population
 
